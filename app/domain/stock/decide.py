@@ -151,6 +151,15 @@ def stok_karari_uret(sku_id: str | None = None, seed: int = VARSAYILAN_SEED) -> 
         siniflandirma=siniflandirma,
     )
 
+    return ozellikten_karar_uret(ozellik)
+
+
+def ozellikten_karar_uret(ozellik: StockFeatures) -> DecisionCandidate:
+    """`stok_karari_uret`'in saf karar mantığı — herhangi bir `StockFeatures`
+    için çalışır. `training/build_dataset.py` (A3.1) bunu farklı (sku_id,
+    tarih) kombinasyonları için tekrar tekrar çağırarak etiketli eğitim
+    verisi üretir; "demo dünyası" önbelleğine bağımlı değildir.
+    """
     kurallar: list[FiredRule] = []
     rop, emniyet_stogu = rop_ve_emniyet_stogu(ozellik)
     net_pozisyon = ozellik.kullanilabilir_stok + ozellik.yoldaki_stok

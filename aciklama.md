@@ -149,9 +149,86 @@ uygun.
 `features.py`, `rules.py`, `decide.py`, `ml.py` — hepsi yazıldı, test
 edildi, gerçek veriyle doğrulandı. 25/25 test yeşil, lint temiz.
 
-## Sırada ne var?
+---
 
-Faz 2 bitti. Sırada roadmap'e göre **Faz 3 — Eğitim verisi üretimi**
-(`training/build_dataset.py`, `training/label_rationale.py`) var: kural
-motorunun ürettiği kararları örnekleyip küçük LLM'in Türkçe konuşmayı
-öğrenmesi için eğitim verisi hazırlamak.
+## Faz 3 — Eğitim verisi üretimi (devam ediyor 🔄)
+
+Artık kural motoru çalışıyor. Şimdi bu motorun ürettiği kararları
+örnekleyip küçük LLM'e "Türkçe konuşmayı" öğretecek eğitim verisini
+hazırlıyoruz. Etiketler kural motorundan geldiği için (deterministik)
+halüsinasyon imkânsız.
+
+### `build_dataset.py` — A3.1 (bitti ✅)
+
+3 yıllık simülasyon zaman çizgisinden **50.050 karar noktası** örnekledim
+(SKU x hafta, rastgele gün). Her nokta için özellikler çıkarıldı, kural
+motoru çalıştırıldı, sonuç `data/egitim/karar_noktalari.jsonl` dosyasına
+yazıldı.
+
+Dağılım: %67 "aksiyon yok", %25 "tasfiye", %8 "sipariş ver". Tasfiye oranı
+ilk bakışta yüksek görünüyor ama bu bir hata değil — katalog Pareto
+dağılımlı olduğu için (SKU'ların büyük kısmı az satan "kuyruk" ürünler),
+gerçekten de ürünlerin önemli bir kısmı doğal olarak "ölü stok" sayılıyor.
+Bunu `rules.py` doğrulamasında da görmüştük, burada tutarlı çıktı.
+
+İlk denemede bir performans sorunu buldum: her hafta için tüm 2.19 milyon
+satırlık talep tablosunun tamamını yeniden işliyordum (143 kez tekrarlanınca
+çok yavaşladı). SKU alt kümesine göre önceden filtreleyince çalışma süresi
+makul seviyeye indi (~2 dakika).
+
+### `build_dataset.py` — A3.2 (bitti ✅) — router soru şablonları
+
+Kişi B'nin router'ı (`app/llm/router.py`, `app/api/ask.py`) henüz Faz 2
+B2.2-B2.3'te yazılacak (B1'i yeni bitirdi, sırası gelmedi) — yani gerçek bir
+"araç listesi" henüz yok. Bu yüzden roadmap'teki tek somut ipucuna
+("kritik seviyeye düşen ürün var mı?" örneği) ve mevcut API stub'larına
+dayanarak **geçici ama makul** 7 araç tanımladım: kritik stok, ölü stok,
+tedarikçi performansı, sipariş önerisi, onay kuyruğu, gecelik özet, genel
+stok durumu. Kişi B gerçek router şemasını yazınca bu liste güncellenip
+veri seti yeniden üretilecek.
+
+Sonuç: **24.999 soru-araç çifti** (`data/egitim/router_sorulari.jsonl`),
+4 stil çeşitliliğiyle (resmi/günlük/kısaltmalı/yazım hatalı).
+
+Burada da bir hata bulup düzelttim: ilk denemede yalnızca **1.884** satır
+çıktı (hedef ~30.000'in çok altında). Sebep: katalogdaki ürün isimleri
+sınırlı sayıda şablon+marka kombinasyonundan üretiliyor, aynı isim onlarca
+farklı üründe tekrarlanabiliyor — metin bazlı tekilleştirme (dedup) bu
+tekrarların çoğunu eledi. Çözüm: soru metnine ürün adının yanına SKU
+kodunu da eklemek (`"Portland Çimento 32.5 R - Çimsa (S-01636)"`) — hem
+gerçekçi (bir ERP kullanıcısı ürünü kodla da belirtebilir) hem de
+benzersizliği garanti ediyor. Düzeltme sonrası 24.999 satır elde edildi.
+
+---
+
+## Faz 3 durumu
+
+- ✅ A3.1 — karar noktası örnekleme (50.050 nokta)
+- ✅ A3.2 — router soru şablonları (24.999 çift, geçici araç listesiyle)
+- ⬜ A3.3 — büyük LLM ile soru başkalaştırma
+- ⬜ A3.4 — `label_rationale.py`: gerekçe etiketleme + guard doğrulaması
+- ⬜ A3.5 — train/val/test bölme + golden set (Kişi B ile birlikte)
+
+---
+
+## Ekip senkronizasyonu
+
+Kişi B kendi tarafında **Faz 1 B1.1-B1.6**'yı bitirdi ve `faz1-servis`
+branch'ini push etti: SQLAlchemy/Alembic veri katmanı, denetim kaydı,
+policy eşik tablosu, onay kuyruğu API'leri, GitHub Actions CI. Kendi
+`aciklama.md`'sini de yazmış — ikimizin dosyaları merge'de çakışacak,
+o zaman birlikte birleştirilecek.
+
+`app/api/decisions.py` hâlâ `decide_stub()` çağırıyor — benim
+`stok_karari_uret()`'e geçiş henüz yapılmadı, sırası gelince Kişi B
+tek satırlık değişikliği yapacak (sözleşme tam olarak bunun için var).
+
+**Kişi B'den gelen sözleşme kusuru düzeltildi:** `izinli_sayilar()`
+içindeki `×100` kuralı, bir sayının 0-1 aralığında olup olmadığına bakarak
+karar veriyordu — değerine göre, alan adına göre değil. Bu yüzden
+`son_hareket_gun_once` gibi bir adet/gün alanı 1 değerini aldığında "%100"
+sayısı yanlışlıkla gerekçede kullanılabilir hale geliyordu (2.000 SKU'lu
+katalogda dün hareket görmüş her ürün bu durumdaydı). Düzeltme: `ORAN_ALANLARI`
+adlı açık bir liste eklendi, ×100 karşılığı yalnızca gerçek oran alanları için
+üretiliyor artık. Ayrı bir `fix-izinli-sayilar-oran-alanlari` branch'ine
+push edildi (bu dosya ortak/dondurulmuş olduğu için).
