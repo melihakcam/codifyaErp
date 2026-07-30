@@ -410,12 +410,12 @@ def router_veri_seti_uret(
 # edilmiş şablona **yerelde, GPU'suz** yeniden uygula — ~250x daha az LLM
 # çağrısı, saniyeler içinde tamamlanan bir yeniden çoğaltma adımı.
 
-PLACEHOLDER_TOKENLARI: dict[str, str | None] = {
+PLACEHOLDER_TOKENLARI: dict[str, str] = {
     "kategori": "KATEGORI_ADI",
     "tedarikci_id": "TEDARIKCI_KODU",
     "sku_adi": "URUN_ADI",
     "tarih_ifadesi": "ZAMAN_IFADESI",
-    "yok": None,
+    "yok": "",
 }
 """Her varlık türü için, LLM'e gönderilecek şablon metninde gerçek değerin
 yerini tutan sabit bir kelime. LLM'den bu kelimeyi DEĞİŞTİRMEDEN cümlenin
