@@ -297,11 +297,40 @@ Bunlar tekrar yaşanmasın diye yazıldı:
 soruluk doğruluk, Faz 3'te "eğitim işe yaradı mı" sorusunun tek cevabı. Şimdi
 ölçülmezse o cevap kalıcı olarak kaybolur.
 
-**Bir de:** Faz 2'ye girmeden `contracts.py`'deki bir kusuru Melih'le birlikte
-düzeltmek gerekiyor. `izinli_sayilar()` içindeki "×100" kuralı oranlar için
-yazılmış ama tam sayı adetlerde de tetikliyor. Örnek: `son_hareket_gun_once=1`
-olan bir ürün için `100` sayısı izinli hale geliyor, yani model *"stok %100
-tükendi"* diye uydursa guard bunu geçirir.
+### ⚠️ Faz 2'ye girmeden çözülmesi gereken sözleşme kusuru
+
+`app/contracts.py:259`'daki `×100` kuralı oranlar için yazılmış ama **tam sayı
+adetlerde de tetikliyor.**
+
+```python
+if 0.0 <= f <= 1.0:         # 259. satır
+    sayilar.add(f * 100.0)
+```
+
+Koşul sayının *ne olduğuna* bakmıyor, yalnızca *değerine* bakıyor. Kusurun tam
+tanımı tek cümle:
+
+> Herhangi bir adet/gün alanı `1` ise, `100` sayısı gerekçede kullanılabilir
+> hale geliyor.
+
+Ölçtüm — yedi alanın herhangi biri `1` olduğunda oluyor:
+`son_hareket_gun_once`, `yoldaki_stok`, `rezerve_stok`, `veri_gun_sayisi`,
+`eldeki_stok`, `moq`, `paket_adedi`.
+
+**Neden ciddi:** `son_hareket_gun_once = 1` demek *"ürün dün hareket görmüş"*.
+Nadir bir durum değil — aktif ürünlerin büyük kısmı böyle. Yani delik sürekli
+açık. Ve `%100` bir dil modelinin uydurmaya en yatkın olduğu sayılardan:
+*"stok %100 tükendi"*, *"tedarikçi %100 zamanında teslim yapıyor"*. İkisi de
+guard'dan geçer.
+
+**Önerilen çözüm:** oran alanlarını değere göre değil **adıyla** listelemek
+(`ORAN_ALANLARI` kümesi). Yamayı hazırladım ve doğruladım: mevcut testlerin
+hepsi geçiyor, kusur kapanıyor, meşru oranlar (sınır değerler dahil) bozulmuyor
+ve **stub karar için küme birebir aynı kalıyor** — yani mevcut davranış hiç
+değişmiyor.
+
+`contracts.py` dondurulmuş, o yüzden **Melih'le birlikte tek PR'da** yapılacak.
+Ayrıntılı not: `SOZLESME-KUSURU-x100.md` (Melih'e iletildi).
 
 ---
 
@@ -336,3 +365,4 @@ Sonra <http://localhost:8000> → Swagger arayüzü açılır.
 | Tarih | Ne oldu |
 |---|---|
 | 2026-07-30 | Adım 0 (ortam), Adım 1 (okuma), B1.1–B1.6 tamamlandı. Kişi A'nın PR'ı incelendi. Faz 1 bitti. |
+| 2026-07-30 | `contracts.py:259`'daki ×100 kusuru ölçüldü, yama hazırlandı ve doğrulandı. Melih'e ayrıntılı not iletildi (bölüm 6). |
