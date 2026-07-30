@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Sanal ortam
+.venv
+
+# ⚠️ Üretilen veri asla commit edilmez — simülasyon deterministik olduğu için
+# seed'den yeniden üretilebilir. Repo şişmesin.
+# `data/*` (değil `data/`) yazılıyor: git, komple hariç tutulmuş bir dizinin
+# içindeki dosyayı `!` ile geri alamaz. .gitkeep izlenmezse temiz klonda
+# data/ dizini oluşmaz ve SQLite yolu patlar.
+data/*
+!data/.gitkeep
+*.parquet
+*.db
+*.sqlite3
+
+# Model dosyaları (D:\OllamaModels ve HF önbelleğinde durur)
+*.gguf
+*.safetensors
+models/
+
+# Yerel yapılandırma — .env.example commit edilir, .env edilmez
+.env
+
+# Önbellekler (D:\ERP\.cache'e yönlendirildi ama yine de)
+.cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Editör
+.vscode/
+.idea/

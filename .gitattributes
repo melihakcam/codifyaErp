@@ -1,0 +1,15 @@
+# İki farklı Windows makinesinde çalışıldığı için satır sonu kaosunu baştan kesiyoruz.
+# Depoda her şey LF; çalışma kopyasında Windows'un istediği gibi görünür.
+* text=auto eol=lf
+
+# İkili dosyalar hiç dokunulmasın
+*.parquet binary
+*.gguf binary
+*.safetensors binary
+*.joblib binary
+*.db binary
+*.png binary
+*.jpg binary
+
+# Notebook diff'leri gürültülü — birleştirmede çakışma çıkarsa dosyayı bütün al
+*.ipynb -diff

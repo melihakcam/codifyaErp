@@ -1,0 +1,70 @@
+[project]
+name = "codifya-decision-engine"
+version = "0.1.0"
+description = "Codifya ERP için hibrit karar motoru: kural motoru + küçük ML + 1B LLM"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.18.5",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "numpy>=2.5.1",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "python-dateutil>=2.9.0.post0",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.18.0",
+    "sqlalchemy>=2.0.51",
+    "uvicorn[standard]>=0.52.0",
+    "xgboost>=3.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.9.1",
+    "ipykernel>=7.3.0",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.11.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.0",
+]
+
+# ---------------------------------------------------------------------------
+# Kod kalitesi — `main` her zaman yeşil kalsın diye
+#   uv run ruff check .      (lint)
+#   uv run ruff format .     (biçimlendirme)
+#   uv run pytest            (testler)
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle hataları
+    "F",    # pyflakes — kullanılmayan import/değişken
+    "I",    # isort — import sırası
+    "UP",   # pyupgrade — modern Python sözdizimi
+    "B",    # bugbear — sık yapılan hatalar
+    "SIM",  # sadeleştirme
+    "RUF",  # ruff'a özgü kurallar
+]
+ignore = [
+    # Türkçe kod tabanı: ı, ş, ğ, İ gibi harfler "belirsiz unicode" sayılıyor.
+    # Bizde bunlar kasıtlı — iş terimleri ve yorumlar Türkçe yazılıyor.
+    "RUF001",  # kod içinde ambiguous unicode
+    "RUF002",  # docstring içinde ambiguous unicode
+    "RUF003",  # yorum içinde ambiguous unicode
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Yer tutucu modüller yalnızca docstring içerir; boş dosya uyarısı verilmesin.
+"**/__init__.py" = ["D104"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
