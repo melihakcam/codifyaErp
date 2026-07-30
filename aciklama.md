@@ -199,13 +199,48 @@ kodunu da eklemek (`"Portland Çimento 32.5 R - Çimsa (S-01636)"`) — hem
 gerçekçi (bir ERP kullanıcısı ürünü kodla da belirtebilir) hem de
 benzersizliği garanti ediyor. Düzeltme sonrası 24.999 satır elde edildi.
 
+### A3.3 — büyük LLM ile soru başkalaştırma (askıya alındı ⏸️)
+
+`training/paraphrase_colab.ipynb` yazıldı, Colab'da (T4 GPU, Qwen2.5-7B-Instruct
+4-bit) sırayla çalıştırıldı. İki tasarım hatası bulunup düzeltildi:
+
+1. **Performans:** İlk denemede 24.999 satırın HER BİRİ ayrı ayrı modele
+   gönderiliyordu — 100 satır 357 sn sürdü, tüm veri seti ~25 saate karşılık
+   geliyordu (Colab'ın ücretsiz oturum sınırı ~12 saat). Çözüm: yalnızca
+   arkadaki **~84 benzersiz şablonu** (yer tutucu token'lı, ör.
+   `KATEGORI_ADI`) başkalaştırıp, sonucu yerelde (GPU'suz) gerçek
+   varlıklarla yeniden çoğaltmak — `sablonlari_ihrac_et()` +
+   `parafraz_sablonlarindan_veri_uret()`. ~250x hızlanma, ~5 dakikaya indi.
+2. **Prompt sızıntısı:** Talimat metnindeki "tire" kelimesini model
+   çıktının bir parçası sanıp taklit ediyordu (her varyantın başına
+   anlamsız "Tire " ekleniyordu). Kelime kaldırılıp güvenlik ağı (regex
+   temizleme) eklendi.
+
+**Ama asıl sorun çözülemedi:** Model bazı cümlelerde **anlamı tersine
+çeviriyor** — "listesini görebilir miyim?" → "listeden kaldırılmasını
+istiyorum" gibi. Örneklem testinde ~%40 oranında ciddi anlam kayması
+görüldü. Bu, eğitim verisi için kabul edilemez (yanlış soru-araç eşleşmesi
+öğretir). Qwen2.5-7B'nin Türkçe'de olumsuzluk/edilgen-gerekirlik
+kalıplarını (`-mesi gereken`, `-meyecek`) güvenilir şekilde koruyamadığı
+sonucuna vardık.
+
+**Karar (kullanıcıyla birlikte):** Bu adım şimdilik **askıya alındı**.
+Elimizdeki 24.999 satırlık şablon×varlık verisi (4 üslup: resmi/günlük/
+kısaltmalı/yazım hatalı) zaten LLM üretmediği için %100 güvenilir ve
+yeterli çeşitliliğe sahip — paraphrase'siz de router eğitimi için
+kullanılabilir. Hiçbir sonraki adım (A3.4, A3.5, Faz 4/5) bu adıma bağımlı
+değil. İleride zaman olursa iki güvenli alternatif var: **(1)** few-shot
+prompt (örnek göstererek) — henüz denenmedi, **(2)** üretilen her
+paraphrase'i ikinci bir LLM çağrısıyla ("bu iki cümle aynı şeyi mi
+soruyor, evet/hayır?") doğrulayıp geçemeyeni atmak.
+
 ---
 
 ## Faz 3 durumu
 
 - ✅ A3.1 — karar noktası örnekleme (50.050 nokta)
 - ✅ A3.2 — router soru şablonları (24.999 çift, geçici araç listesiyle)
-- ⬜ A3.3 — büyük LLM ile soru başkalaştırma
+- ⏸️ A3.3 — büyük LLM ile soru başkalaştırma (denendi, kalite yetersiz, askıya alındı)
 - ⬜ A3.4 — `label_rationale.py`: gerekçe etiketleme + guard doğrulaması
 - ⬜ A3.5 — train/val/test bölme + golden set (Kişi B ile birlikte)
 
