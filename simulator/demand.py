@@ -47,7 +47,7 @@ beklenen miktarı (Poisson ortalaması). Bernoulli olasılığı bu sabite göre
 # Yaklaşık dini bayram başlangıç tarihleri (± birkaç gün) — hicri takvim yıl
 # içinde kaydığından hesaplama yerine kısa bir arama tablosu kullanılır.
 # Simülasyon amaçlı yeterli hassasiyette; kaynak: yaygın bilinen resmi tatil takvimleri.
-_DINI_BAYRAM_BASLANGICLARI: dict[int, tuple[dt.date, dt.date]] = {
+DINI_BAYRAM_BASLANGICLARI: dict[int, tuple[dt.date, dt.date]] = {
     2022: (dt.date(2022, 5, 2), dt.date(2022, 7, 9)),
     2023: (dt.date(2023, 4, 21), dt.date(2023, 6, 28)),
     2024: (dt.date(2024, 4, 10), dt.date(2024, 6, 16)),
@@ -101,7 +101,7 @@ def bayram_etkisi_carpani(tarihler: pd.DatetimeIndex) -> np.ndarray:
     """Ramazan/Kurban Bayramı öncesi toparlanma + tatil süresince durgunluk."""
     carpan = np.ones(len(tarihler))
     for i, tarih in enumerate(tarihler):
-        yil_bayramlari = _DINI_BAYRAM_BASLANGICLARI.get(tarih.year)
+        yil_bayramlari = DINI_BAYRAM_BASLANGICLARI.get(tarih.year)
         if yil_bayramlari is None:
             continue
         gun = tarih.date()
