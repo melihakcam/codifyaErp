@@ -397,6 +397,95 @@ def router_veri_seti_uret(
     return df
 
 
+# ---------------------------------------------------------------------------
+# A3.3 — Şablon başkalaştırma (paraphrase) için hazırlık + yeniden çoğaltma
+# ---------------------------------------------------------------------------
+#
+# İlk Colab denemesinde 24.999 satırın HER BİRİNİ ayrı ayrı LLM'e gönderdik —
+# 100 satır 357 saniye sürdü, tüm veri seti için ~25 saate karşılık geliyordu
+# (Colab'ın ücretsiz oturum sınırı ~12 saat). Oysa gerçekte yalnızca ~100
+# benzersiz ŞABLON var, geri kalan 24.899 satır aynı şablonun farklı
+# ürün/kategori/tedarikçi ile doldurulmuş halidir. Çözüm: yalnızca şablonları
+# başkalaştır (placeholder token'la), sonra aynı entity çarpımını paraphrase
+# edilmiş şablona **yerelde, GPU'suz** yeniden uygula — ~250x daha az LLM
+# çağrısı, saniyeler içinde tamamlanan bir yeniden çoğaltma adımı.
+
+PLACEHOLDER_TOKENLARI: dict[str, str | None] = {
+    "kategori": "KATEGORI_ADI",
+    "tedarikci_id": "TEDARIKCI_KODU",
+    "sku_adi": "URUN_ADI",
+    "tarih_ifadesi": "ZAMAN_IFADESI",
+    "yok": None,
+}
+"""Her varlık türü için, LLM'e gönderilecek şablon metninde gerçek değerin
+yerini tutan sabit bir kelime. LLM'den bu kelimeyi DEĞİŞTİRMEDEN cümlenin
+içinde tutması istenir (Colab notebook'undaki prompt'ta) — böylece
+başkalaştırılmış metne geri dönüp gerçek varlıkları yerleştirebiliriz."""
+
+
+def sablonlari_ihrac_et() -> pd.DataFrame:
+    """LLM'e gönderilecek ~100 benzersiz şablonu (placeholder token'lı) çıkarır.
+
+    Dönen DataFrame Colab'a yüklenip başkalaştırılacak, sonra
+    `parafraz_sablonlarindan_veri_uret` ile yerelde yeniden çoğaltılacak.
+    """
+    kayitlar = []
+    for arac in ARAC_TANIMLARI:
+        token = PLACEHOLDER_TOKENLARI[arac.varlik_turu]
+        varlik_ifadesi = _varlik_ifadesi(arac.varlik_turu, token) if token else ""
+        for sablon in arac.sablonlar:
+            metin = sablon.format(varlik=varlik_ifadesi) if "{varlik}" in sablon else sablon
+            metin = metin[0].upper() + metin[1:] if metin else metin
+            kayitlar.append(
+                {
+                    "arac": arac.isim,
+                    "varlik_turu": arac.varlik_turu,
+                    "placeholder_token": token,
+                    "sablon_metni": metin,
+                }
+            )
+    return pd.DataFrame(kayitlar)
+
+
+def parafraz_sablonlarindan_veri_uret(
+    parafraz_df: pd.DataFrame,
+    sku_df: pd.DataFrame,
+    tedarikci_df: pd.DataFrame,
+    seed: int = 11,
+    sku_ornek_sayisi: int = 2000,
+) -> pd.DataFrame:
+    """Colab'dan dönen başkalaştırılmış şablonları gerçek varlıklarla çarpar.
+
+    `parafraz_df` kolonları: `arac`, `varlik_turu`, `placeholder_token`,
+    `sablon_metni` (artık LLM tarafından yeniden yazılmış, placeholder
+    token'ı hâlâ içeren metin).
+    """
+    rng = np.random.default_rng(seed)
+    kayitlar: list[dict] = []
+
+    for satir in parafraz_df.itertuples(index=False):
+        varliklar = _varlik_ornekle(satir.varlik_turu, sku_df, tedarikci_df, rng, sku_ornek_sayisi)
+        # pandas None'ı NaN (float) yapar — `isinstance` ile güvenli kontrol.
+        token = satir.placeholder_token if isinstance(satir.placeholder_token, str) else None
+        for goruntu, parametre_degeri in varliklar:
+            if token:
+                varlik_ifadesi = _varlik_ifadesi(satir.varlik_turu, goruntu).strip()
+                if token not in satir.sablon_metni:
+                    continue  # guard: token korunmamışsa bu satır güvenilmez, atla
+                soru = satir.sablon_metni.replace(token, varlik_ifadesi)
+            else:
+                soru = satir.sablon_metni
+            soru = " ".join(soru.split())  # fazla boşlukları temizle
+
+            if parametre_degeri in ("", "genel"):
+                parametreler = {}
+            else:
+                parametreler = {satir.varlik_turu: parametre_degeri}
+            kayitlar.append({"soru": soru, "arac": satir.arac, "parametreler": parametreler})
+
+    return pd.DataFrame(kayitlar).drop_duplicates(subset="soru").reset_index(drop=True)
+
+
 def _cli() -> None:
     ayristirici = argparse.ArgumentParser(description="Eğitim veri seti üreteci (A3.1 + A3.2)")
     ayristirici.add_argument("--seed", type=int, default=42, help="Simülasyon seed'i")
@@ -410,7 +499,20 @@ def _cli() -> None:
     )
     ayristirici.add_argument("--router-seed", type=int, default=11)
     ayristirici.add_argument("--sadece-router", action="store_true")
+    ayristirici.add_argument(
+        "--sablon-ihrac-et",
+        type=str,
+        default=None,
+        help="Verilirse yalnızca (Colab'a yüklenecek) benzersiz şablon listesini bu yola yazar",
+    )
     args = ayristirici.parse_args()
+
+    if args.sablon_ihrac_et:
+        sablon_df = sablonlari_ihrac_et()
+        jsonl_yaz(sablon_df, Path(args.sablon_ihrac_et))
+        print(f"[A3.3] Toplam benzersiz şablon: {len(sablon_df)}")
+        print(f"[A3.3] Yazıldı: {args.sablon_ihrac_et}")
+        return
 
     profile = yapi_malzemesi_toptancisi()
     sonuc = simulasyon_calistir(profile=profile, seed=args.seed, yil_sayisi=3)
