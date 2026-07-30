@@ -19,11 +19,17 @@ data/*
 *.parquet
 *.db
 *.sqlite3
+# WAL kipinin yan dosyaları (B1.2). `*.db` kalıbı bunları yakalamaz.
+*.db-wal
+*.db-shm
 
 # Model dosyaları (D:\OllamaModels ve HF önbelleğinde durur)
 *.gguf
 *.safetensors
-models/
+# ⚠️ Başında `/` var: kalıp yalnızca kök dizindeki `models/`'i hariç tutar.
+# `models/` yazılırsa git bunu HER seviyede uygular ve `app/models/` (SQLAlchemy
+# tabloları) sessizce izlenmez — `git add` çalışır görünür, PR boş gelir.
+/models/
 
 # Yerel yapılandırma — .env.example commit edilir, .env edilmez
 .env
@@ -34,6 +40,7 @@ models/
 .ruff_cache/
 .ipynb_checkpoints/
 
-# Editör
+# Editör / araç yapılandırması
 .vscode/
 .idea/
+.claude/
