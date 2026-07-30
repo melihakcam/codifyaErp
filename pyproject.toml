@@ -64,6 +64,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Yer tutucu modüller yalnızca docstring içerir; boş dosya uyarısı verilmesin.
 "**/__init__.py" = ["D104"]
+# Notebook'larda repo kökünü sys.path'e eklemek importlardan önce gelir —
+# bu yaygın ve kasıtlı bir desendir.
+"notebooks/**/*.ipynb" = ["E402", "I001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
