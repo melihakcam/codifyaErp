@@ -576,3 +576,70 @@ def politika_karsilastirmasi_calistir(
         )
 
     return pd.DataFrame(ozet_satirlari).set_index("politika")
+
+
+# ---------------------------------------------------------------------------
+# A4.4 — Karşılanamayan talep + aşırı stok maliyeti raporu
+# ---------------------------------------------------------------------------
+
+
+def maliyet_raporu_uret(
+    sonuc: dict,
+    stoktukenmesi_ceza_carpani: float = STOKTUKENMESI_CEZA_CARPANI,
+) -> dict:
+    """`simulator.run.simulasyon_calistir()` çıktısından maliyet metrikleri.
+
+    `politika_karsilastirmasi_calistir`'den farkı: burada kendi simülasyon
+    döngümüzü çalıştırmıyoruz — gerçek olay-tabanlı simülasyonun
+    (`simulator/run.py`) zaten ürettiği `envanter_gunluk` ve
+    `karsilanamayan_talep` tablolarını doğrudan kullanıyoruz. Bu yüzden
+    **herhangi bir** koşuya (sağlıklı, patolojili, farklı seed/profil,
+    ileride gerçek bir üretim politikasının çıktısı) uygulanabilir — o
+    fonksiyondaki gibi üç politikayı paralel simüle etmeye ihtiyaç yok.
+
+    Maliyet bileşenleri `politika_karsilastirmasi_calistir` ile aynı
+    mantığı izler (kayıp kâr ceza çarpanlı, elde tutma maliyeti günlük,
+    sipariş maliyeti sipariş başına sabit) — tek doğruluk kaynağı burada
+    tekrarlanmıyor, aynı sabitler (`STOKTUKENMESI_CEZA_CARPANI`,
+    `VARSAYILAN_YILLIK_ELDE_TUTMA_ORANI`, `VARSAYILAN_SIPARIS_MALIYETI_TL`)
+    kullanılıyor.
+    """
+    sku_df = sonuc["sku"]
+    sku_maliyet = sku_df.set_index("sku_id")[["birim_maliyet_tl", "satis_fiyati_tl"]]
+
+    envanter = sonuc["envanter_gunluk"].merge(
+        sku_maliyet[["birim_maliyet_tl"]], on="sku_id", how="left"
+    )
+    gunluk_elde_tutma_orani = VARSAYILAN_YILLIK_ELDE_TUTMA_ORANI / 365.0
+    asiri_stok_maliyeti_tl = float(
+        (envanter["eldeki_stok"] * envanter["birim_maliyet_tl"] * gunluk_elde_tutma_orani).sum()
+    )
+
+    karsilanamayan = sonuc["karsilanamayan_talep"]
+    if karsilanamayan.empty:
+        kayip_kar_tl = 0.0
+        toplam_karsilanamayan_adet = 0.0
+    else:
+        birlesik = karsilanamayan.merge(sku_maliyet, on="sku_id", how="left")
+        kar_marji_tl = birlesik["satis_fiyati_tl"] - birlesik["birim_maliyet_tl"]
+        kayip_kar_tl = float(
+            (birlesik["karsilanamayan_miktar"] * kar_marji_tl).sum() * stoktukenmesi_ceza_carpani
+        )
+        toplam_karsilanamayan_adet = float(karsilanamayan["karsilanamayan_miktar"].sum())
+
+    toplam_talep_adet = float(sonuc["talep"]["talep_miktari"].sum())
+    siparis_sayisi = len(sonuc["siparisler"])
+    siparis_maliyeti_tl = siparis_sayisi * VARSAYILAN_SIPARIS_MALIYETI_TL
+
+    return {
+        "toplam_talep_adet": toplam_talep_adet,
+        "toplam_karsilanamayan_adet": toplam_karsilanamayan_adet,
+        "stok_tukenme_orani": (
+            toplam_karsilanamayan_adet / toplam_talep_adet if toplam_talep_adet > 0 else 0.0
+        ),
+        "kayip_kar_tl": kayip_kar_tl,
+        "asiri_stok_maliyeti_tl": asiri_stok_maliyeti_tl,
+        "siparis_sayisi": siparis_sayisi,
+        "siparis_maliyeti_tl": siparis_maliyeti_tl,
+        "toplam_maliyet_tl": kayip_kar_tl + asiri_stok_maliyeti_tl + siparis_maliyeti_tl,
+    }

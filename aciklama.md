@@ -424,6 +424,80 @@ tasfiye / %7,7 sipariş vs. A3.1'in %67/%25/%8'i) — tutarlılık kontrolü ge�
 
 ---
 
+## Faz 4-5 — Genellenebilirlik testi + para metriği (Kişi B'den bağımsız, tamamlandı ✅)
+
+A3.5 Kişi B'yi beklediği için, ona hiç bağımlı olmayan Faz 4-5 işlerine
+geçildi (`simulator/`, `app/domain/stock/`, `training/` — hiçbiri
+`app/llm/`, `app/api/`, `app/core/` içe aktarmıyor, doğrulandı).
+
+### `simulator/company.py` — A4.2 için 2 yeni şirket profili
+
+`kucuk_nalbur_dukkani()` (~250 SKU, dar kategori, zayıf sezonsallık) ve
+`buyuk_insaat_deposu()` (~5.000 SKU, yalnızca kaba yapı kategorileri, güçlü
+sezonsallık) eklendi — varsayılan ~2.000 SKU'luk profilin yanına, ölçek ve
+karma bakımından belirgin şekilde farklı iki uç nokta.
+
+### `app/domain/stock/ml.py` — A4.4: `maliyet_raporu_uret()`
+
+`politika_karsilastirmasi_calistir`'den farklı olarak kendi simülasyon
+döngüsünü çalıştırmaz — `simulator.run.simulasyon_calistir()`'in **gerçek**
+`envanter_gunluk` + `karsilanamayan_talep` tablolarını doğrudan işler, yani
+herhangi bir koşuya (sağlıklı, patolojili, farklı seed/profil) uygulanabilir.
+6 birim testiyle (sentetik veri, elle hesaplanmış beklenen değerler) doğrulandı.
+
+### `training/genellenebilirlik_ve_para_metrigi.py` — A4.2 + Faz 5
+
+**A4.2 sonucu:** 3 profil × 3 seed = 9 kombinasyonun **tamamında** kural
+motoru vasat politikadan hem daha düşük stok tükenme oranı hem daha düşük
+toplam maliyet üretti. İyileşme oranı ölçekle birlikte büyüyor: küçük
+dükkânda %1,4-3,2, varsayılan profilde %15-19, büyük depoda %39-45. Bu
+mantıklı — büyük ölçekte vasat politikanın "10 gün eşik / 30 gün hedef"
+kaba kuralı çok daha fazla parayı yanlış yere koyuyor, kural motorunun
+ABC/XYZ'ye duyarlı ROP/EOQ'su farkı büyütüyor.
+
+**Test sırasında ilginç bir bulgu:** `kucuk_nalbur_dukkani` + seed=2026'da
+oracle'ın HAM stok tükenme SAYISI (ama maliyeti değil) baseline'lardan
+yüksek çıktı. Kök neden: bu profilde ortalama tedarik süresi kısa (2-6 gün)
+olduğu için oracle çok daha sık (3049 sipariş/3 yıl, baseline'larda
+~700-1100) küçük miktarlarla sipariş veriyor; her sipariş döngüsünde
+tedarik süresi belirsizliğinin sabit 3-sigma tamponunu aşma olasılığına
+(~%0,13) yeniden maruz kalıyor — bu kadar sık tekrarda en az bir "kötü
+şans" çekme olasılığı neredeyse kesinleşiyor (1-(1-p)^3049 ≈ %98). Kod
+hatası değil, oracle'ın sabit-tampon tasarımının küçük ölçek/kısa tedarik
+süresinde ortaya çıkan bilinen bir sınırlaması — script bunu sessizce
+gizlemek yerine ayrı bir bölümde açıkça gösteriyor.
+
+**Faz 5 — projenin can alıcı sonucu:** Eğitim verisi üretiminde (A3.1
+seed=42/7/11, A2.8 seed=42) hiç kullanılmamış taze bir seed'le
+(`FAZ5_HELD_OUT_SEED=20250801`), varsayılan profilde, 3 yıllık tutulmamış
+bir koşu:
+
+| Politika | Stok tükenme | Kayıp kâr | Aşırı stok maliyeti | Sipariş maliyeti | Toplam maliyet |
+|---|---|---|---|---|---|
+| vasat | %5,31 | 7,69M TL | 9,41M TL | 1,72M TL | **18,82M TL** |
+| kural motoru | %0,47 | 3,82M TL | 12,41M TL | 1,16M TL | **17,40M TL** |
+| oracle | ~%0 | 0,20M TL | 8,70M TL | 6,00M TL | **14,90M TL** |
+
+**Kural motoru toplam maliyeti %7,6 düşürdü, stok tükenme oranını %5,31'den
+%0,47'ye indirdi** — A2.8'in ilk (farklı seed'li) ölçümüyle (%14,6
+iyileşme) aynı yönde ama farklı büyüklükte, bu da beklenen bir seed-bazlı
+varyasyon (tutulmamış bir koşu olduğu için A2.8 ile birebir aynı çıkması
+zaten beklenmezdi — önemli olan yön ve tutarlılık, ikisi de sağlandı).
+
+İki nokta dikkat çekici ve bilinçli olarak raporlanıyor:
+1. Kural motorunun **aşırı stok maliyeti vasat'tan yüksek** (12,41M vs
+   9,41M) — bu bir hata değil, kasıtlı bir değiş tokuş: ABC/XYZ'ye göre
+   önemli/düzenli ürünlere yüksek servis seviyesi (%99'a kadar) hedeflemek
+   daha fazla emniyet stoğu demek. Karşılığında kayıp kâr (3,82M vs 7,69M)
+   ve sipariş maliyeti (1,16M vs 1,72M) ciddi düşüyor — net etki yine de
+   lehine.
+2. Oracle'ın sipariş maliyeti (6,00M) baseline'ların ikisinden de yüksek —
+   40.021 sipariş (günde SKU başına neredeyse "tam zamanında" sipariş)
+   verdiği için. Mükemmel bilgiyle stok tutma maliyetini de en aza indirmek
+   mümkün ama bunun bedeli çok sık, küçük siparişler — teoriyle tam uyumlu.
+
+---
+
 ## Ekip senkronizasyonu
 
 Kişi B kendi tarafında **Faz 1 B1.1-B1.6**'yı bitirdi ve `faz1-servis`
