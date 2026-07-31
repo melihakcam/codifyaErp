@@ -224,15 +224,191 @@ görüldü. Bu, eğitim verisi için kabul edilemez (yanlış soru-araç eşleş
 kalıplarını (`-mesi gereken`, `-meyecek`) güvenilir şekilde koruyamadığı
 sonucuna vardık.
 
-**Karar (kullanıcıyla birlikte):** Bu adım şimdilik **askıya alındı**.
-Elimizdeki 24.999 satırlık şablon×varlık verisi (4 üslup: resmi/günlük/
-kısaltmalı/yazım hatalı) zaten LLM üretmediği için %100 güvenilir ve
-yeterli çeşitliliğe sahip — paraphrase'siz de router eğitimi için
-kullanılabilir. Hiçbir sonraki adım (A3.4, A3.5, Faz 4/5) bu adıma bağımlı
-değil. İleride zaman olursa iki güvenli alternatif var: **(1)** few-shot
-prompt (örnek göstererek) — henüz denenmedi, **(2)** üretilen her
-paraphrase'i ikinci bir LLM çağrısıyla ("bu iki cümle aynı şeyi mi
-soruyor, evet/hayır?") doğrulayıp geçemeyeni atmak.
+**Karar (o zamanki kullanıcıyla birlikte):** Adım geçici olarak **askıya
+alındı** — elimizdeki 24.999 satırlık şablon×varlık verisi zaten LLM
+üretmediği için %100 güvenilirdi, hiçbir sonraki adım buna bağımlı değildi.
+
+### A3.3'e geri dönüş — A3.4'ün dersleriyle düzeltme (devam ediyor 🔄)
+
+A3.4'te aynı sınıf bir hatayı (karar tipinin iş anlamını prompt'a hiç
+yazmayınca modelin yönü karıştırması) prompt'a açık anlam açıklaması
+ekleyerek çözmüştük. Aynı dersi buraya da uyguladık — o zaman not ettiğimiz
+iki alternatifin ikisini birden `paraphrase_colab.ipynb`'e ekledik:
+
+1. **Niyet-koruma kuralı + örnek:** `PROMPT_SABLONU`'na artık cümlenin bir
+   SORU/BİLGİ TALEBİ olduğu, asla KOMUT'a çevrilmemesi gerektiği açıkça
+   yazılıyor, bir doğru/yanlış örnek çifti eklendi.
+2. **İkinci LLM ile doğrulama (guard deseni):** Yeni `anlam_korundu_mu()`
+   fonksiyonu, üretilen her aday parafrazı aynı modele ikinci, kısa bir
+   çağrıyla ("bu iki cümle aynı bilgiyi mi istiyor, evet/hayır?") sorup
+   doğruluyor; "hayır" derse aday atılıyor. Bu, A3.4'teki
+   guard/retry/fallback zincirinin birebir aynı fikri — üretilen içeriği
+   üretenin kendisine tekrar sorup doğrulatmak.
+
+`parafraz_uret()`'in raporlama satırına anlam/niyet reddedilme oranı da
+eklendi, böylece bu oran da (A3.4'teki şablona düşme oranı gibi) izlenebilir.
+
+**Gerçek Colab denemesi (Qwen2.5-7B, T4) beklenmedik derecede yüksek bir
+red oranı verdi: %64.7 (143/221 aday).** Ama elle bakılan ilk 5 örnekte
+kabul edilen varyantların çoğu aslında doğruydu — biri de İngilizce kelime
+sızdırmış ("Acil sipariş **needed** ürünler var mı?") olduğu hâlde kabul
+edilmişti. Bu tutarsızlık, reddedilenlerin çoğunun **gerçek anlam
+kaymasından değil, doğrulayıcının kendi biçim hatasından** kaynaklandığına
+işaret ediyor: `anlam_korundu_mu()`'ya yalnızca `max_new_tokens=5`
+veriliyordu — 7B'lik sohbet modeli çoğu zaman doğrudan "EVET/HAYIR"
+demeden önce birkaç kelime tereddütle başlıyor, 5 token bu girişi bitirmeden
+kesiliyor ve kod bunu sessizce "HAYIR" sayıyordu.
+
+**Düzeltmeler:**
+1. `max_new_tokens` 5'ten 16'ya çıkarıldı, ayrıştırma "yalnızca `EVET` ile
+   başlıyor mu" yerine "yanıtta `EVET` mi `HAYIR` mı önce geçiyor"a
+   gevşetildi — modelin kısa bir giriş yapıp asıl cevaba geçmesine izin
+   veriyor.
+2. Ne `EVET` ne `HAYIR` net biçimde geçen (biçim hatası) yanıtlar artık
+   **kabul edilecek şekilde** ele alınıyor (reddetmek yerine) — bu bir
+   kalite süzgeci, A3.4'teki sayısal guard kadar sert bir güvenlik sınırı
+   değil; format hatasını "hayır" saymak iyi içeriği yanlışlıkla eler.
+3. Ayrı bir `belirsiz` sayacı eklendi — bu oran yüksek çıkarsa asıl sorunun
+   üretilen içerikte değil, doğrulayıcının biçim takibinde olduğu
+   doğrulanmış olur.
+4. Fark edilen İngilizce sızıntısını doğrudan yakalamak için basit bir
+   `LATIN_YABANCI_DESENI` (is/are/needed/list vb. sık İngilizce kelimeler)
+   filtresi eklendi — CJK filtresi Latin alfabesiyle yazılan İngilizceyi
+   zaten yakalayamıyordu.
+
+**Colab'da yeniden deneme (düzeltilmiş notebook, gerçek çalıştırma):**
+`BELİRSİZ %0` çıktı — yani doğrulayıcının format takibi artık sağlam, önceki
+teori (kısa token limiti) doğrulanmış oldu. Kalan `%58.9` (119/202) red oranı
+bu sefer **gerçek**: örneklere bakınca doğrulayıcının, "verilmesi **gereken**"
+(gereklilik) ifadesini "verilecek" (kesinleşmiş gelecek zaman) yapan
+varyantları doğru şekilde elediği görüldü — tam olarak yakalamaya
+çalıştığımız kip/modalite kaymasının kendisi. Yani sistem tasarlandığı gibi
+çalışıyor: yanlışı üretmektense üretmemeyi tercih ediyor.
+
+**Sonuç:** 84 şablondan 61'i en az bir doğrulanmış parafraz aldı, 23'ü
+güvenle orijinal (parafrazsız) haliyle kaldı (veri kaybı yok — cell 7'de
+otomatik). `parafraz_sablonlarindan_veri_uret()` ile tam veri setine
+uygulandı: **35.375 soru-araç çifti**, `data/egitim/router_sorulari_parafraz.jsonl`.
+Araç dağılımı (`siparis_onerisi_sorgula` %96 ile baskın — 34.000/35.375)
+orijinal A3.2 verisiyle (24.000/24.999, aynı oran) tutarlı: bu `sku_adi`
+varlık türünün 2.000 SKU'luk kombinasyon havuzundan kaynaklanan, önceden var
+olan bir özellik, parafraz adımının yarattığı bir bozukluk değil.
+
+**A3.3 artık tamamlandı ✅** — askıya alınan adım, A3.4'ün derslerini
+(prompt'a açık niyet/anlam açıklaması + ikinci-LLM doğrulaması) uyarlayarak
+güvenli şekilde bitirildi.
+
+### `label_rationale.py` — A3.4 (bitti ✅) — gerekçe etiketleme + guard doğrulaması
+
+Amaç: `karar_noktalari.jsonl`'daki her kararı (özellikler + tetiklenen kurallar +
+aksiyon) Türkçe, doğal bir gerekçe cümlesine çevirmek — büyük bir LLM'in yazdığı,
+ama halüsinasyon içermediği garanti edilmiş bir cümle.
+
+**Tasarım kararı — A3.3'ün dersini burada da uyguladım:** 50.050 satırın her
+birini ayrı ayrı büyük modele göndermek A3.3'te 100 satırda 357 saniye tutmuştu
+(tam veri seti ~25 saat). Burada aynı hataya düşmemek için şunu fark ettim:
+`decide.py::ozellikten_karar_uret` her karar tipi için **sabit bir kural kodu
+dizisi** üretiyor — yani 50.050 satır aslında yalnızca birkaç "ŞEKİL"in (karar
+tipi + tetiklenen kural kodları) tekrarı. Büyük modele şekil başına birkaç kez
+(yer tutucu token'lı, ör. `{SIPARIS_MIKTARI}`) sorulup birkaç cümle varyantı
+istendi; gerçek sayılar bu varyantlara yerelde, GPU'suz basıldı. Elli bin değil,
+onlarca LLM çağrısı. Daha önce görülmemiş bir şekle (yeni bir kural kodu vb.)
+düşen satırlar için tek-satır yolu (yavaş ama doğru) yedek olarak duruyor.
+
+**Guard'la ilgili bir not:** `app/llm/guard.py` (Kişi B, Faz 2 B2.5) henüz yer
+tutucu — yazılmadı. A3.4'ün veri üretmesi guard'ın var olmasını bekleyemeyeceği
+için, `label_rationale.py` kendi sayı-doğrulama eşleniğini taşıyor
+(`_metni_dogrula`) — `DecisionCandidate.izinli_sayilar()` ile aynı kaynağı
+kullanan, üründeki gerçek guard yazılınca hizalanması gereken bağımsız bir
+kopya. Kişi B'nin `app/llm/` alanına dokunmadım (sözleşme gereği).
+
+Doğrulama zinciri: şekil varyantı doldurulur → sayılar `izinli_sayilar` ile
+karşılaştırılır (ürün/tedarikçi adındaki rakamlar önce maskelenir, ör.
+"Tuğla 19x9x5" içindeki 19/9/5 uydurma sayı sanılmasın diye) → geçerse
+`GECTI`/`YENIDEN_URETILDI`, aynı şeklin tüm varyantları başarısız olursa
+`app/llm/explain.py::sablon_gerekce()`'ye (Kişi B'nin zaten yazdığı
+deterministik şablon) düşülür — `SABLONA_DUSTU`. Şablona düşme oranı %15'i
+geçerse (görev tanımındaki eşik) script uyarı basıyor.
+
+9 birim testi eklendi (Türkçe sayı ayrıştırma, uydurma sayı reddi, ürün adı
+rakam karışıklığı, şekil/slot çıkarımı, şablon doldurma round-trip, Ollama'ya
+erişilemediğinde güvenli şablon geri dönüşü) — hepsi ağa çıkmadan çalışıyor.
+34/34 test yeşil (25 eskisi + 9 yenisi), lint temiz.
+
+**Gerçek modelle duman testi (8 satır, `llama3.2:1b`) bir hata daha buldu:**
+Zayıf model, "cümlede aynen şu yer tutucular geçmeli: {TOKEN}..." talimatını
+kendi cevabıymış gibi aynen geri döndürdü — ve bu, yalnızca "yer tutucu
+token'ları metinde var mı?" diye bakan ilk kontrolden (yanlışlıkla) geçti,
+çünkü talimat cümlesinin kendisi de token'ları içeriyor. Düzeltme:
+`_YANKI_IFADELERI` — "yer tutucu", "harfi harfine", "aynen", "format" gibi
+talimat kelimelerini içeren satırları baştan eleyen bir kara liste. Aynı
+duman testinde ayrıca Windows konsolunun (cp1254 kod sayfası) Türkçe
+karakterlerde `UnicodeEncodeError` fırlattığı görüldü — `sys.stdout.reconfigure`
+ile düzeltildi. Düzeltme sonrası `llama3.2:1b` ile 8 satırın **tamamı**
+güvenle şablona düşüyor (beklenen: bu model "büyük LLM" değil, sistemin
+zayıf modelde bile veri kirletmediğini doğruladık).
+
+**RAM yetmiyorsa Colab yolu eklendi:** `qwen2.5:7b-instruct` yerel makineye
+(16 GB RAM, GPU'suz) sığmayabilir. Şekil-bazlı tasarım tam olarak bunu
+çözmeye uygun olduğu için (gerçek veride yalnızca **3 benzersiz şekil**
+bulundu — tasarım varsayımı doğrulandı), A3.3'teki `paraphrase_colab.ipynb`
+deseni burada da uygulandı:
+
+1. Yerelde `--sekil-ihrac-et` ile birkaç satırlık bir prompt dosyası çıkarılır
+   (`sekil_promptlarini_ihrac_et`).
+2. `training/label_rationale_colab.ipynb` (Colab, T4 GPU, Qwen2.5-7B-Instruct
+   4-bit) bu dosyayı işleyip `sekil_varyantlari.jsonl` üretir.
+3. Yerelde, **GPU'suz**, `--varyant-girdi` ile tam veri seti işlenir — Ollama'ya
+   hiç ihtiyaç kalmaz; havuzda olmayan şekiller (varsa) yine güvenle şablona
+   düşer.
+
+4 yeni test eklendi (şekil id round-trip, prompt ihracı, önceden üretilmiş
+varyantla Ollama'nın hiç çağrılmadığının doğrulanması). Bu arada test
+verisinde bir kopyala-yapıştır hatası bulundu: elle yazılan örnek varyant
+metninde `{TEDARIK_SURESI_GUN}` yer tutucusu unutulmuştu — gerçek koddaki bir
+hata değil, testin kendisindeki bir eksiklikti, düzeltildi. 37/37 test yeşil.
+
+**Gerçek Qwen2.5-7B-Instruct (Colab, T4) ile ilk deneme 3 gerçek sorun buldu:**
+
+1. **Anlam tersine dönüyor:** `stok.aksiyon_yok` şekli için model "stok
+   yeterli, aksiyon gerekmiyor" yerine sanki stok yetersizmiş gibi cümleler
+   kurdu. Sebep: prompt yalnızca `karar_tipi` kodunu (`stok.aksiyon_yok`)
+   veriyordu, kodun iş anlamını hiç açıklamıyordu.
+2. **Zorunlu yer tutucular atlanıyor:** `stok.tasfiye` şeklinde 5 yer
+   tutucudan 2'si (`ISKONTO_YUZDE`, `BAGLI_SERMAYE_TL`), `stok.siparis`
+   şeklinde 7'den 3'ü (`SIPARIS_MIKTARI`, `TEDARIKCI_ADI`, `TEDARIKCI_SKORU`)
+   varyantların HİÇBİRİNDE geçmedi — guard'ın "tüm token'lar var mı"
+   kontrolünden tamamı elenecekti.
+3. **Çince metin sızıntısı:** `stok.siparis` varyantlarının çoğu Türkçe
+   cümlenin ortasına Çince karakter karıştırdı (`送货周期下，现有库存不足`
+   gibi) — Qwen2.5 ailesinde A3.3'te de görülmüş, bilinen bir sorun; bu
+   notebook'ta o zamanki CJK filtresini eklemeyi unutmuşum.
+
+**Düzeltmeler:** `_sekil_prompt_olustur` artık her karar tipinin iş anlamını
+(`KARAR_TIPI_ACIKLAMASI`) ve her yer tutucunun ne temsil ettiğini
+(`SLOT_ACIKLAMALARI`, ör. "SON_HAREKET_GUN_ONCE bir TARİH DEĞİL, bir gün
+SAYISI") açıkça yazıyor, "hiçbirini atlama" vurgusu güçlendirildi. `_CJK_DESENI`
+regex'i ile Çince/Korece/Japonca karakter içeren varyantlar otomatik eleniyor
+(A3.3'teki aynı desen). `data/egitim/sekil_promptlari.jsonl` yeni prompt'la
+yeniden çıkarıldı — Colab'da yalnızca üretim hücresi (model tekrar
+yüklenmeden) yeniden çalıştırılacak.
+
+**Düzeltilmiş prompt'la Colab'da (Qwen2.5-7B-Instruct, T4) yeniden üretim
+denendi.** Bu sefer üç şeklin de tüm yer tutucuları eksiksiz, anlam doğru
+yönde, Çince sızıntısı yok. Ama tam veri setine ilk uygulamada `stok.siparis`
+şeklinin (7 yer tutucu) tamamı (3.838 satır) şablona düştü — ilginç bir bulgu:
+sabit 300 karakterlik bir uzunluk sınırım vardı (talimat yankısı gibi saçma
+uzun metinleri elemek için), ama 7 yer tutuculu doğru bir cümlenin doğal
+uzunluğu (338-362 karakter) bu sınırı aşıyordu — 3 geçerli varyantın hepsi
+yanlışlıkla elendi. Düzeltme: uzunluk sınırı artık yer tutucu SAYISINA göre
+ölçekleniyor (`_UZUNLUK_TABANI` + `_TOKEN_BASINA_UZUNLUK_PAYI × token_sayisi`).
+
+**Sonuç — tam 50.050 satırlık koşu tamamlandı:** `data/egitim/gerekceler.jsonl`
+yazıldı, **guard geçme oranı %100** (0 şablona düşme). Karar tipi dağılımı
+A3.1'in raporladığıyla neredeyse birebir örtüşüyor (%67,2 aksiyon_yok / %25,1
+tasfiye / %7,7 sipariş vs. A3.1'in %67/%25/%8'i) — tutarlılık kontrolü geçti.
+6,7 saniyede tamamlandı (tamamı yerel, ağ çağrısı yok — yalnızca 3 Colab
+çağrısının sonucu 50.050 satıra yerelde uygulandı).
 
 ---
 
@@ -240,8 +416,10 @@ soruyor, evet/hayır?") doğrulayıp geçemeyeni atmak.
 
 - ✅ A3.1 — karar noktası örnekleme (50.050 nokta)
 - ✅ A3.2 — router soru şablonları (24.999 çift, geçici araç listesiyle)
-- ⏸️ A3.3 — büyük LLM ile soru başkalaştırma (denendi, kalite yetersiz, askıya alındı)
-- ⬜ A3.4 — `label_rationale.py`: gerekçe etiketleme + guard doğrulaması
+- ✅ A3.3 — büyük LLM ile soru başkalaştırma (ilk deneme askıya alınmıştı, A3.4'ün
+  dersleriyle düzeltildi, 35.375 satır — `data/egitim/router_sorulari_parafraz.jsonl`)
+- ✅ A3.4 — `label_rationale.py`: 50.050 satırın tamamı için gerekçe üretildi
+  (Qwen2.5-7B-Instruct, Colab), guard geçme oranı %100, `data/egitim/gerekceler.jsonl`
 - ⬜ A3.5 — train/val/test bölme + golden set (Kişi B ile birlikte)
 
 ---
