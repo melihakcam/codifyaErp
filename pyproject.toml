@@ -64,6 +64,12 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Yer tutucu modüller yalnızca docstring içerir; boş dosya uyarısı verilmesin.
 "**/__init__.py" = ["D104"]
+# Colab notebook'ları: hücrelerdeki uzun satırlar MODELE GÖNDERİLEN PROMPT
+# metinleridir, kod değil. Bölmek prompt'u değiştirir ve modelin davranışını
+# etkiler — biçim kuralı uğruna işin doğruluğunu bozmak yanlış takas.
+# E402/I001: notebook'ta repo kökünü sys.path'e eklemek import'lardan önce
+# gelir; yaygın ve kasıtlı bir desen.
+"training/**/*.ipynb" = ["E402", "I001", "E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -654,6 +654,61 @@ bozmuyor.
 Ek karar: `guven` bilinçli olarak kümenin dışında — güven skoru iç politika
 kararı için üretilir, iş kullanıcısına gösterilecek bir sayı değil.
 
+## Merge planı — `main` hâlâ Faz 0'da
+
+Beş branch birden Faz 0'dan ayrılmış durumda, hiçbiri birleştirilmemiş. Dallar
+şöyle bağlı:
+
+```
+main (Faz 0)
+ ├── faz1-servis                          (Kişi B, 7 commit)
+ └── faz1-simulator                       (1)
+      └── faz2-kural-motoru               (2)
+           ├── fix-izinli-sayilar-...     (3)  ← sözleşme düzeltmesi
+           └── faz3-egitim-verisi         (11) ← düzeltme YOK (kardeş dal)
+```
+
+`fix-...` branch'i `faz1-simulator` ve `faz2-kural-motoru`'nu **zaten
+içeriyor** — onu birleştirmek üçünü birden getiriyor. Yani beş değil **üç
+merge** yeterli.
+
+**Prova yapıldı** (geçici bir kopyada, sırayla birleştirilip test edildi):
+
+| Sıra | Branch | Sonuç |
+|---|---|---|
+| 1 | `faz1-servis` | temiz |
+| 2 | `fix-izinli-sayilar-oran-alanlari` | `aciklama.md` çakışması |
+| 3 | `faz3-egitim-verisi` | `aciklama.md` çakışması |
+
+Birleşik ağaçta **130 test geçiyor**, `alembic upgrade head` ve `alembic check`
+temiz, `contracts.py` düzeltmesi hayatta, `decide_stub()` duruyor.
+
+**Çakışma çözümü hep aynı:** `aciklama.md` için birleşik sürümü koru
+(`git checkout --ours aciklama.md`) — o dosya zaten ikisinin içeriğini taşıyor.
+
+Birleştirme bitince `faz1-simulator` ve `faz2-kural-motoru` silinebilir
+(içerikleri `fix-...` üzerinden geldi).
+
+### Provada bulunan sorun: CI kırmızı olacaktı
+
+`training/paraphrase_colab.ipynb` içinde üç satır 100 karakteri aşıyor —
+notebook hücrelerindeki **prompt metinleri**. Kod değil, modele gönderilen
+cümleler; bölmek prompt'u ve modelin davranışını değiştirir.
+
+Kişi A'nın branch'leri CI'ı hiç görmedi (CI Kişi B'nin branch'inde), o yüzden
+fark edilmemişti. Merge sonrası `main`'de patlardı.
+
+Düzeltme `pyproject.toml`'a eklendi (`faz1-servis` branch'inde, yani `main`'e
+ilk giren PR'da):
+
+```toml
+"training/**/*.ipynb" = ["E402", "I001", "E501"]
+```
+
+⚠️ **2. merge'de `pyproject.toml` de çakışabilir** — Kişi A aynı bölüme
+`notebooks/**/*.ipynb` satırını eklemişti. Çözüm: **iki satırı da tut**, ama
+aynı anahtarı iki kez yazma (TOML yinelenen anahtar kabul etmez).
+
 ## Açık konular
 
 **1. `StockFeatures`'ta üç alanın kaynağı yok** (Kişi B'nin SP1 incelemesinden):
