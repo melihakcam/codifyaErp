@@ -562,12 +562,49 @@ protection açılmalı (Settings → Branches), yoksa CI sadece bilgi verir.
 
 ## B · Faz 2 — LLM katmanı (başladı 🔄)
 
-- 🔄 **B2.1** — `qwen2.5:1.5b-instruct` indirildi (986 MB, `D:\Ollama\models`).
-  Sırada: `app/llm/client.py` + hız ölçümü + ısı ayarı.
-- ⬜ B2.2 — yapılandırılmış çıktı şemaları
+### B2.1 · Model + istemci (bitti ✅)
+
+`qwen2.5:1.5b-instruct` indirildi (986 MB, `D:\Ollama\models` — C: sürücüsüne
+hiç dokunmadı). `app/llm/client.py` yazıldı: modelin **tek giriş kapısı**.
+Zaman aşımı, yeniden deneme, token/süre ölçümü tek yerde.
+
+**18 test, hiçbiri gerçek modeli çalıştırmıyor** — sahte cevaplarla. Yani CI'da
+Ollama olmadan koşuyorlar ve geliştirme sırasında işlemciyi yormuyorlar.
+
+**Isınma endişesi vardı, ölçerek çözüldü.** Geliştirme makinesi tek ve yedeği
+yok; "muhtemelen sorun olmaz" yeterli bir cevap değildi. İki koruma kondu:
+
+| Koruma | Ne yapıyor |
+|---|---|
+| İşlemci üst sınırı %60 | Windows güç planı; çip o ısıya hiç ulaşamıyor |
+| `LLM_IPLIK_SAYISI=4` | Model 22 çekirdeğin sadece 4'ünü kullanıyor |
+
+Sonra 2/4/8/16/22 iş parçacığıyla ölçüldü. **22 iş parçacığı 16'dan yavaş
+çıktı** — bu işlemcide üç tip çekirdek var, hepsini birden kullanınca hızlılar
+yavaşları bekliyor.
+
+`4` seçildi. En hızlısı değil, bilinçli: 16'ya çıkmak gecelik işi 4,1 dakikadan
+2,9 dakikaya indiriyor — gece, kimse başında değilken çalışan bir iş için 1,2
+dakika kazanç. Dört kat çekirdek yükünü karşılamıyor.
+
+**Sonuç: 22,4 token/sn → gerekçe ~9,8 sn → gecelik iş ~4,1 dakika** (hedef
+< 10 dk). Ayrıntılı tablolar `dokumantasyon/OLCUMLER.md`'de.
+
+**Yan bulgu — model ilk çağrıda sayı uydurdu.** Basit bir istemle:
+
+> *"Kirmizi Tugla için **35** adet ek satışı yapar."*
+
+Verilen sayılar 42, 12, 270, 1200'dü; **35** hiçbir yerde yoktu. Mimarinin
+birinci kuralının neden var olduğunun canlı kanıtı — ilk denemede,
+kendiliğinden. İsteme "yeni sayı üretme" eklenince kayboldu, ama bu bir garanti
+değil yalnızca olasılık düşürme. Guard (B2.5) bu yüzden zorunlu.
+
+### Sırada
+
+- ⬜ B2.2 — yapılandırılmış çıktı şemaları (20/20 geçerli JSON)
 - ⬜ B2.3 — router (**30 soruluk taban çizgi ölçülüp kaydedilecek**)
 - ⬜ B2.4 — gerçek gerekçe üretimi
-- ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası)
+- ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası, model gerektirmiyor)
 - ⬜ B2.6 — gecelik iş + tetikleyiciler
 
 ---
@@ -668,3 +705,4 @@ Sonra <http://localhost:8000> → Swagger arayüzü açılır.
 | 2026-07-30 | **B:** `contracts.py` ×100 kusuru ölçüldü, yama önerildi. **A:** düzeltmeyi uyguladı, 3 regresyon testi ekledi. Birleşik ağaçta 94 test yeşil. |
 | 2026-07-30 | **A:** Faz 2 (kural motoru + ML), Faz 3 A3.1–A3.4 (eğitim verisi), Faz 4-5 (genellenebilirlik + para metriği) tamamlandı. |
 | 2026-07-30 | **Ortak:** iki ayrı `aciklama.md` tek dosyada birleştirildi. |
+| 2026-07-30 | **B:** B2.1 bitti — model indirildi, `client.py` yazıldı (18 test, modelsiz), hız ölçüldü (22,4 token/sn @ 4 iplik), ısı koruması kondu. Ölçümler `dokumantasyon/OLCUMLER.md`'de. |
