@@ -1,84 +1,406 @@
-# Açıklama — Kişi B tarafında ne yaptık
+# Açıklama — Codifya Karar Motoru, basit dille
 
-> Bu dosya **basit dille** yazılmıştır. Amacı: projeye sonradan bakan birinin
-> (ya da bir hafta sonra kendinin) "burada ne olmuş, neden böyle yapılmış"
-> sorusuna cevap bulması.
+> Bu dosya, projede yapılan her önemli adımın **sade Türkçe** özetidir. Kod
+> detaylarını değil, "ne yaptık ve neden yaptık"ı anlatır.
 >
-> **Her güncellemede bu dosya da güncellenir.** Kod değişti ama burası
-> değişmediyse, burası yanlıştır.
->
-> Son güncelleme: Faz 1 tamamlandı (B1.1–B1.6) · commit `64b701b`
+> **İki bölümden oluşur:** Kişi A (Melih — Veri & Alan) ve Kişi B (Esmanur —
+> Servis & Model). Herkes kendi bölümünü günceller; ortak bölümler birlikte.
+> Kod değişti ama burası değişmediyse, burası yanlıştır.
 
 ---
 
-## 1. Proje ne yapıyor?
+## Genel resim: ne inşa ediyoruz?
 
-Codifya ERP'ye bir **yapay zekâ karar mekanizması** kuruyoruz. Sistem stok
-durumuna bakıp "şu üründen 1.200 adet sipariş verilmeli" gibi kararlar
-üretiyor. Düşük riskli kararları kendisi uygulayacak, yüksek riskli olanları
-insan onayına düşürecek.
+Codifya ERP'ye bir **yapay zekâ karar mekanizması** ekliyoruz. Amaç: stok
+yönetiminde ("şu üründen ne zaman, ne kadar sipariş verilsin?") kararları
+otomatikleştirmek. Ama küçük bir dil modeli (1,5B parametre, GPU'suz makinede
+çalışacak) sayısal hesap yapamıyor — uydurma yapar. Bu yüzden mimari
+**hibrit**:
 
-**En önemli tasarım kısıtı:** elimizde GPU yok, 16 GB RAM'li bilgisayarlar var.
-Bu yüzden küçük bir dil modeli (Qwen2.5-1.5B) kullanacağız. Ama küçük modeller
-**sayı uydurur**. Bu yüzden sistem ikiye ayrılmış:
+- **Sayısal karar** → kural motoru + basit ML (Kişi A'nın işi)
+- **Türkçe açıklama metni** → küçük LLM (Kişi B'nin işi)
 
-| Kim hesaplıyor | Ne hesaplıyor |
-|---|---|
-| **Kural motoru + küçük ML** (Kişi A) | Sayılar: kaç adet sipariş, emniyet stoğu, risk |
-| **Dil modeli** (Kişi B) | Yalnızca Türkçe cümle: "şu yüzden bu kadar sipariş öneriliyor" |
-
-Yani zekâ kural motorunda, dil modeli sadece anlatıcı.
+İki kişi `app/contracts.py` adında dondurulmuş bir "sözleşme" üzerinden
+anlaşıyor — Kişi A ürettiği veri tiplerini Kişi B tüketiyor, birbirlerini
+beklemeden paralel çalışabiliyorlar.
 
 ### Sistemi ayakta tutan iki kural
 
 **1. Dil modeli asla sayı üretmez.** Sayılar ona *verilir*, o sadece cümleye
 yerleştirir. Ürettiği metindeki her sayı, karardan gelen "izinli sayılar"
 kümesinde yoksa metin **reddedilir**. Bu kontrolü yapan koda **guard** deniyor
-ve Faz 2'de yazılacak — projenin en kritik parçası.
+(Faz 2 B2.5) — projenin en kritik parçası.
 
 **2. ERP asla dil modelini beklemez.** Karar milisaniyelerde çıkar. Gerekçe
 metni ancak istenirse üretilir (CPU'da 6-8 saniye sürüyor).
 
 ---
 
-## 2. Kim ne yapıyor?
+## Kim ne yapıyor?
 
-| | Kişi A (Melih) | Kişi B (sen) |
+| | Kişi A (Melih) | Kişi B (Esmanur) |
 |---|---|---|
-| **Sahiplendiği** | `simulator/`, `app/domain/stock/`, eğitim verisi üretimi | `app/api/`, `app/core/`, `app/models/`, `app/llm/`, `app/jobs/`, CI |
-| **Öğrendiği** | pandas, numpy, stok formülleri, XGBoost | FastAPI, SQLAlchemy, pytest, Ollama, LoRA eğitimi |
+| **Sahiplendiği** | `simulator/`, `app/domain/stock/`, `training/build_dataset.py`, `training/label_rationale.py` | `app/api/`, `app/core/`, `app/models/`, `app/llm/`, `app/jobs/`, `training/train_lora.ipynb`, CI |
+| **Öğrendiği** | pandas, numpy, stok formülleri, XGBoost, Parquet | FastAPI, SQLAlchemy, pytest, Ollama, LoRA eğitimi |
 
-`app/contracts.py` **dondurulmuş** — ikisinin arasındaki sözleşme. A bu tipleri
-üretir, B tüketir. Tek taraflı değiştirilmez.
-
----
-
-## 3. Şu an neredeyiz?
-
-```
-FAZ 0  ✅  repoda hazır geldi (sözleşme, taklit akış, 25 test)
-Adım 0 ✅  ORTAM KURULUMU
-Adım 1 ✅  KOD OKUMA TURU
-FAZ 1  ✅  TAMAMLANDI
-   B1.1 ✅  Veritabanı tabloları
-   B1.2 ✅  Veritabanı katmanı
-   B1.3 ✅  Denetim kaydı
-   B1.4 ✅  Eşikler veritabanına taşındı
-   B1.5 ✅  API uçları + onay kuyruğu
-   B1.6 ✅  CI (otomatik kontrol)
-+ ekstra ✅  Kişi A'nın PR'ı incelendi
-FAZ 2  ⬜  LLM katmanı — SIRADAKİ
-```
-
-**Testler: 25 → 91.** Hepsi geçiyor, lint temiz.
+`app/contracts.py` **dondurulmuş** — tek taraflı değiştirilmez, iki kişi
+birlikte tek PR'da değiştirir.
 
 ---
 
-## 4. Adım adım ne yaptık?
+## Şu an neredeyiz?
 
-### Adım 0 · Ortam kurulumu
+| Faz | Kişi A | Kişi B |
+|---|---|---|
+| **Faz 1** | ✅ Simülatör | ✅ Veri katmanı + API + CI |
+| **Faz 2** | ✅ Kural motoru + ML | 🔄 LLM katmanı (B2.1 başladı) |
+| **Faz 3** | ✅ A3.1–A3.4 · ⬜ A3.5 (B ile birlikte) | ⬜ LoRA eğitimi |
+| **Faz 4-5** | ✅ Genellenebilirlik + para metriği | ⬜ Sağlamlaştırma + benchmark |
 
-Bilgisayarda proje çalışabilir hale getirildi.
+---
+---
+
+# KİŞİ A — Veri & Alan (Melih)
+
+## A · Faz 1 — Simülatör (TAMAMLANDI ✅)
+
+Elimizde gerçek ERP verisi olmadığı için, önce **sahte ama gerçekçi bir
+dünya** kurduk — bir yapı malzemesi toptancısı hayal edip onun 3 yıllık
+geçmişini simüle ettik.
+
+1. **`company.py`** — şirket profili: 2000 ürün, 60 tedarikçi, 800 müşteri;
+   8 kategori (çimento, demir, tuğla, boya...) her birinin kendi
+   maliyet/marj/sezonsallık özellikleriyle.
+2. **`catalog.py`** — bu profile göre gerçek katalog verisi üretti: her
+   ürüne isim, fiyat, tedarikçi, paket büyüklüğü atadı. Önemli detay:
+   ürünlerin **%20'si cironun %80'ini** taşıyacak şekilde kurgulandı
+   (Pareto ilkesi — gerçek hayatta da böyledir).
+3. **`demand.py`** — her ürün için 3 yıllık günlük talep üretti: mevsimsellik
+   (yaz aylarında inşaat sezonu zirvesi), haftalık desen (pazar kapalı),
+   yıllık trend, ve gerçekçi rastgelelik (bazı ürünler düzenli satar,
+   bazıları seyrek ama toplu satar).
+4. **`run.py`** — asıl simülasyon motoru: her gün sırayla müşteri siparişi
+   düşürüp stoktan karşıladı, stok azalınca (kasıtlı olarak **kötü/vasat**
+   bir kuralla — "10 günlük stok kalınca 30 günlük sipariş ver") tedarikçiye
+   sipariş açtı. Bu vasat politika bizim **karşılaştırma tabanımız** —
+   ileride yazılan akıllı kural motorunun "ne kadar daha iyi" olduğu buna
+   göre ölçülecek.
+5. **`pathologies.py`** — gerçek hayatta olan sorunları isteğe bağlı enjekte
+   edebiliyoruz: tedarikçi gecikmesi, ani talep patlaması, ölü stok, fiyat
+   zammı vb. Hepsi loglanıyor ki "sistemimiz bu sorunu yakaladı mı?" diye
+   ölçülebilsin.
+6. Son olarak bunları **Parquet dosyalarına** kaydettik ve bir **Jupyter
+   notebook**'ta tüm grafikleri/kontrolleri belgeledik.
+
+Bunu bitirince **`faz1-simulator`** adında bir GitHub branch'ine push edildi.
+
+> **Kişi B'nin incelemesi (SP1):** A1.1–A1.5'in tüm kabul ölçütleri bağımsız
+> olarak ölçüldü ve geçti — determinizm (11 tablo bit bit aynı), Pareto
+> (%80,0), mutabakat farkı tam sıfır, patoloji ayrımı. Onaylandı.
+> Ayrıca üç sözleşme boşluğu bulundu, aşağıda "Açık konular"da.
+
+---
+
+## A · Faz 2 — Kural motoru (TAMAMLANDI ✅)
+
+Artık sahte dünyamız var, şimdi bu dünyaya bakıp **akıllı kararlar** üreten
+kodu yazdık.
+
+### `features.py`
+
+Ham simülasyon verisinden (talep geçmişi, stok seviyesi) her ürün için bir
+"özet kart" (`StockFeatures`) çıkarıyor: ortalama günlük talep, talep
+değişkenliği, stok durumu, tedarikçi bilgisi vs. 30 ve 90 günlük hareketli
+ortalamalarla hesaplanıyor.
+
+### `rules.py`
+
+Gerçek iş mantığı formülleri:
+
+- **Emniyet stoğu + ROP**: "ne zaman sipariş verilmeli" hesabı — hem talebin
+  hem tedarikçinin belirsizliğini hesaba katıyor.
+- **EOQ + MOQ**: "ne kadar sipariş verilmeli" — ekonomik sipariş miktarı,
+  ama gerçek dünyada olduğu gibi paket büyüklüğüne yuvarlanıyor (1187 tuğla
+  değil, 1200 tuğla sipariş edilir).
+- **ABC/XYZ sınıflandırma**: hangi ürün ne kadar önemli (ciroya göre) ve ne
+  kadar öngörülebilir (talep düzenliliğine göre) — buna göre hedef servis
+  seviyesi belirleniyor (önemli+düzenli ürüne %99 stok garantisi,
+  önemsiz+kaotik ürüne %85 yeter).
+- **Ölü stok tespiti**: uzun süredir satmayan ürünleri bulup
+  iskonto/tasfiye öneriyor.
+- **Tedarikçi skoru**: gerçekleşen teslimat performansına bakıp 0-100 puan
+  veriyor (kötü tedarikçiyi tespit etmek için).
+
+Bu adımda **iki gerçek hata bulunup düzeltildi**: tedarikçi skoru yanlış
+indeksleniyordu (hep 100 puan çıkıyordu), ölü stok eşiği çok agresifti
+(sağlıklı ürünleri bile "ölü" damgalıyordu). İkisi de gerçek veriyle test
+edilerek yakalandı.
+
+### `decide.py` (⭐ en kritik dosya)
+
+Yukarıdakilerin **hepsini birleştiriyor**: bir ürün için özellikleri
+çıkarır, kuralları çalıştırır, hangi kararı vereceğine karar verir (sipariş
+ver / tasfiye et / bir şey yapma), ve bu kararın **güven skorunu**
+hesaplar. Test edildi: gerçekten çalışıyor, mantıklı sonuçlar üretiyor
+(örnek: bir ürün için "60 adet sipariş ver, T-0004 tedarikçisinden"
+kararı + gerekçesi).
+
+### `ml.py` — talep tahmini + anomali + oracle karşılaştırması
+
+**A2.7 — Talep tahmini:** Hızlı hareket eden ürünler için tek bir XGBoost
+modeli (SKU/kategori özellik olarak giriyor), çok yavaş/seyrek satan ürünler
+için ise **Croston yöntemi** (aralıklı talebe özel bir istatistik yöntemi —
+basit ortalama almak büyük hata olurdu). Eğitim/test bölmesi **tarihe göre**
+yapıldı (rastgele değil — yoksa gelecekten geçmişe sızıntı olur).
+
+Sonuç: model, "son 30 günün ortalaması" naif tahminden **%35 daha iyi**
+çıktı (hata payı 3.87 → 2.50). Yani XGBoost gerçekten işe yarıyor, kullanıma
+uygun.
+
+**A2.8 — Anomali tespiti + oracle karşılaştırması:**
+
+- Ani tüketim sıçraması ve fiyat sapması tespiti için IsolationForest
+  kullanıldı. Fiyat sapması tespitinde ilk denemede bir hata buldum:
+  tedarikçi bazında karşılaştırma yapıyordum, ama bir tedarikçi çok farklı
+  fiyatlı ürünler taşıyabiliyor (5 TL'lik tuğla + 20.000 TL'lik demir), bu
+  karışım gerçek zam sinyalini gizliyordu. **SKU bazında** karşılaştırmaya
+  geçince başarı oranı %3.4'ten **%78.6'ya** çıktı.
+- Talep sıçraması tespitinde ise dürüstçe söylemem gerekiyor: başarı oranı
+  düşük kaldı (~%10-15) çünkü enjekte ettiğimiz "yapay" talep patlamaları,
+  simülatörün zaten ürettiği doğal gürültüyle (promosyonlar, aralıklı satış
+  dalgalanmaları) büyüklük olarak örtüşüyor — ayırt etmek zor. Bu bir kod
+  hatası değil, iyileştirmeye açık bir sınırlama, olduğu gibi raporlanıyor.
+- **Oracle karşılaştırması** (projenin en önemli ölçümü): aynı talep
+  üzerinde üç politika paralel koşturuldu — **vasat taban** (Faz 1'deki
+  kötü/kaba kural), **kural motorumuz** (ROP/EOQ formülleri), **oracle**
+  (geleceği mükemmel bilen hayali politika). Sonuç beklendiği gibi çıktı:
+  - Stok tükenme oranı: vasat %6.97 → kural motoru **%0.67** → oracle %0.05
+  - Toplam maliyet (kayıp kâr + envanter + sipariş maliyeti): vasat 21.85M →
+    kural motoru **18.66M** → oracle 15.50M TL
+
+  Yani **kural motorumuz vasat politikadan kesin olarak daha iyi, mükemmel
+  bilgiden (oracle) daha kötü** — beklenen ve istenen sonuç tam bu. Bu
+  ölçüm ilk denemede tutmadı (oracle bir noktada kural motorundan "kötü"
+  çıkmıştı), iki gerçek hata buldum ve düzelttim: (1) oracle'ın tedarik
+  süresi belirsizliğini hesaba katmaması, (2) kayıp satışın ciro yerine
+  kâr marjı + "itibar kaybı" çarpanıyla hesaplanması gerektiği, (3) EOQ'nun
+  sipariş sıklığı avantajının maliyet toplamına hiç girmemesi.
+
+`features.py`, `rules.py`, `decide.py`, `ml.py` — hepsi yazıldı, test
+edildi, gerçek veriyle doğrulandı.
+
+---
+
+## A · Faz 3 — Eğitim verisi üretimi
+
+Artık kural motoru çalışıyor. Şimdi bu motorun ürettiği kararları
+örnekleyip küçük LLM'e "Türkçe konuşmayı" öğretecek eğitim verisini
+hazırlıyoruz. Etiketler kural motorundan geldiği için (deterministik)
+halüsinasyon imkânsız.
+
+### `build_dataset.py` — A3.1 (bitti ✅)
+
+3 yıllık simülasyon zaman çizgisinden **50.050 karar noktası** örnekledim
+(SKU x hafta, rastgele gün). Her nokta için özellikler çıkarıldı, kural
+motoru çalıştırıldı, sonuç `data/egitim/karar_noktalari.jsonl` dosyasına
+yazıldı.
+
+Dağılım: %67 "aksiyon yok", %25 "tasfiye", %8 "sipariş ver". Tasfiye oranı
+ilk bakışta yüksek görünüyor ama bu bir hata değil — katalog Pareto
+dağılımlı olduğu için (SKU'ların büyük kısmı az satan "kuyruk" ürünler),
+gerçekten de ürünlerin önemli bir kısmı doğal olarak "ölü stok" sayılıyor.
+
+İlk denemede bir performans sorunu buldum: her hafta için tüm 2.19 milyon
+satırlık talep tablosunun tamamını yeniden işliyordum (143 kez tekrarlanınca
+çok yavaşladı). SKU alt kümesine göre önceden filtreleyince çalışma süresi
+makul seviyeye indi (~2 dakika).
+
+### `build_dataset.py` — A3.2 (bitti ✅) — router soru şablonları
+
+Kişi B'nin router'ı (`app/llm/router.py`, `app/api/ask.py`) henüz Faz 2
+B2.2-B2.3'te yazılacak — yani gerçek bir "araç listesi" henüz yok. Bu yüzden
+roadmap'teki tek somut ipucuna ve mevcut API stub'larına dayanarak **geçici
+ama makul** 7 araç tanımladım: kritik stok, ölü stok, tedarikçi performansı,
+sipariş önerisi, onay kuyruğu, gecelik özet, genel stok durumu. Kişi B
+gerçek router şemasını yazınca bu liste güncellenip veri seti yeniden
+üretilecek.
+
+Sonuç: **24.999 soru-araç çifti** (`data/egitim/router_sorulari.jsonl`),
+4 stil çeşitliliğiyle (resmi/günlük/kısaltmalı/yazım hatalı).
+
+Burada da bir hata bulup düzelttim: ilk denemede yalnızca **1.884** satır
+çıktı. Sebep: katalogdaki ürün isimleri sınırlı sayıda şablon+marka
+kombinasyonundan üretiliyor, aynı isim onlarca farklı üründe tekrarlanabiliyor
+— metin bazlı tekilleştirme bu tekrarların çoğunu eledi. Çözüm: soru metnine
+ürün adının yanına SKU kodunu da eklemek (`"Portland Çimento 32.5 R - Çimsa
+(S-01636)"`) — hem gerçekçi hem de benzersizliği garanti ediyor.
+
+### A3.3 — büyük LLM ile soru başkalaştırma (bitti ✅, iki turda)
+
+`training/paraphrase_colab.ipynb` yazıldı, Colab'da (T4 GPU, Qwen2.5-7B-Instruct
+4-bit) çalıştırıldı. İki tasarım hatası bulunup düzeltildi:
+
+1. **Performans:** İlk denemede 24.999 satırın HER BİRİ ayrı ayrı modele
+   gönderiliyordu — 100 satır 357 sn, tüm veri seti ~25 saate karşılık
+   geliyordu (Colab sınırı ~12 saat). Çözüm: yalnızca arkadaki **~84 benzersiz
+   şablonu** başkalaştırıp sonucu yerelde gerçek varlıklarla çoğaltmak.
+   ~250x hızlanma, ~5 dakikaya indi.
+2. **Prompt sızıntısı:** Talimat metnindeki "tire" kelimesini model çıktının
+   parçası sanıp taklit ediyordu. Kelime kaldırıldı, regex güvenlik ağı eklendi.
+
+**Ama asıl sorun ilk turda çözülemedi:** Model bazı cümlelerde **anlamı
+tersine çeviriyordu** — "listesini görebilir miyim?" → "listeden kaldırılmasını
+istiyorum" gibi, ~%40 oranında. Eğitim verisi için kabul edilemez. Adım geçici
+olarak **askıya alındı.**
+
+**A3.4'ün dersleriyle geri dönüldü.** Orada aynı sınıf bir hatayı (karar
+tipinin iş anlamını prompt'a yazmayınca modelin yönü karıştırması) çözmüştük.
+İki düzeltme uygulandı:
+
+1. **Niyet-koruma kuralı:** Prompt'a cümlenin bir SORU olduğu, asla KOMUT'a
+   çevrilmemesi gerektiği açıkça yazıldı + doğru/yanlış örnek çifti.
+2. **İkinci LLM ile doğrulama (guard deseni):** Üretilen her aday parafraz,
+   aynı modele ikinci kısa bir çağrıyla ("bu iki cümle aynı bilgiyi mi
+   istiyor?") doğrulanıyor. A3.4'teki guard/retry/fallback zincirinin birebir
+   aynı fikri.
+
+İlk gerçek denemede **%64,7 red oranı** çıktı — ama elle bakılan örneklerde
+kabul edilenlerin çoğu doğruydu. Kök neden: doğrulayıcıya yalnızca
+`max_new_tokens=5` veriliyordu; model "EVET/HAYIR" demeden önce birkaç kelime
+tereddütle başlayınca kesiliyor ve sessizce "HAYIR" sayılıyordu.
+`max_new_tokens` 16'ya çıkarıldı, biçim hatası artık **kabul** tarafına
+düşüyor (bu bir kalite süzgeci, A3.4'teki sayısal guard kadar sert bir
+güvenlik sınırı değil), ayrı bir `belirsiz` sayacı eklendi, İngilizce sızıntısı
+için `LATIN_YABANCI_DESENI` filtresi kondu.
+
+Yeniden denemede **`BELİRSİZ %0`** çıktı — teori doğrulandı. Kalan %58,9 red
+bu sefer gerçek: doğrulayıcı, "verilmesi **gereken**" (gereklilik) ifadesini
+"verilecek" (kesinleşmiş gelecek) yapan varyantları doğru eliyor. Sistem
+tasarlandığı gibi çalışıyor: yanlışı üretmektense üretmemeyi tercih ediyor.
+
+**Sonuç:** 84 şablondan 61'i doğrulanmış parafraz aldı, 23'ü güvenle orijinal
+kaldı (veri kaybı yok). **35.375 soru-araç çifti**,
+`data/egitim/router_sorulari_parafraz.jsonl`.
+
+### `label_rationale.py` — A3.4 (bitti ✅) — gerekçe etiketleme + guard
+
+Amaç: her kararı Türkçe, doğal bir gerekçe cümlesine çevirmek — büyük bir
+LLM'in yazdığı, ama halüsinasyon içermediği garanti edilmiş bir cümle.
+
+**Tasarım kararı:** 50.050 satırın her birini ayrı ayrı büyük modele göndermek
+~25 saat sürerdi. Fark ettim ki `decide.py` her karar tipi için **sabit bir
+kural kodu dizisi** üretiyor — yani 50.050 satır aslında birkaç "ŞEKİL"in
+tekrarı. Büyük modele şekil başına birkaç kez soruldu (yer tutucu token'lı),
+gerçek sayılar bu varyantlara yerelde basıldı. Elli bin değil, onlarca LLM
+çağrısı. Gerçek veride yalnızca **3 benzersiz şekil** bulundu — tasarım
+varsayımı doğrulandı.
+
+**Guard'la ilgili not:** `app/llm/guard.py` (Kişi B, B2.5) henüz yazılmadı.
+A3.4 bunu bekleyemeyeceği için `label_rationale.py` kendi sayı-doğrulama
+eşleniğini taşıyor (`_metni_dogrula`) — `izinli_sayilar()` ile aynı kaynağı
+kullanan, gerçek guard yazılınca hizalanması gereken bağımsız bir kopya.
+Kişi B'nin `app/llm/` alanına dokunmadım (sözleşme gereği).
+
+Doğrulama zinciri: şekil varyantı doldurulur → sayılar `izinli_sayilar` ile
+karşılaştırılır (ürün adındaki rakamlar önce maskelenir, "Tuğla 19x9x5"
+içindeki 19/9/5 uydurma sanılmasın diye) → geçmezse `explain.py`'deki
+`sablon_gerekce()`'ye düşülür.
+
+**Gerçek modelle üç sorun bulundu ve düzeltildi:**
+
+1. **Anlam tersine dönüyordu** — prompt yalnızca `karar_tipi` kodunu veriyordu,
+   iş anlamını açıklamıyordu. `KARAR_TIPI_ACIKLAMASI` + `SLOT_ACIKLAMALARI`
+   eklendi.
+2. **Zorunlu yer tutucular atlanıyordu** — "hiçbirini atlama" vurgusu güçlendirildi.
+3. **Çince metin sızıntısı** — Qwen2.5 ailesinde bilinen sorun, `_CJK_DESENI`
+   filtresi eklendi.
+
+Ayrıca zayıf modelle (`llama3.2:1b`) duman testinde bir hata daha çıktı: model
+talimatı kendi cevabıymış gibi geri döndürüyordu ve "token'lar var mı" kontrolünden
+geçiyordu. `_YANKI_IFADELERI` kara listesi eklendi.
+
+Son olarak tam veri setine ilk uygulamada `stok.siparis` şeklinin tamamı
+(3.838 satır) şablona düştü: sabit 300 karakterlik uzunluk sınırım vardı ama
+7 yer tutuculu doğru bir cümlenin doğal uzunluğu 338-362 karakterdi. Sınır
+artık yer tutucu sayısına göre ölçekleniyor.
+
+**Sonuç — tam 50.050 satırlık koşu:** `data/egitim/gerekceler.jsonl`,
+**guard geçme oranı %100** (0 şablona düşme). Karar tipi dağılımı A3.1 ile
+neredeyse birebir örtüşüyor. 6,7 saniyede tamamlandı (tamamı yerel — yalnızca
+3 Colab çağrısının sonucu 50.050 satıra uygulandı).
+
+### Faz 3 durumu
+
+- ✅ A3.1 — karar noktası örnekleme (50.050 nokta)
+- ✅ A3.2 — router soru şablonları (24.999 çift, geçici araç listesiyle)
+- ✅ A3.3 — soru başkalaştırma (35.375 satır)
+- ✅ A3.4 — gerekçe etiketleme (50.050 satır, guard %100)
+- ⬜ A3.5 — train/val/test bölme + golden set (**Kişi B ile birlikte**)
+
+---
+
+## A · Faz 4-5 — Genellenebilirlik testi + para metriği (✅)
+
+A3.5 Kişi B'yi beklediği için, ona hiç bağımlı olmayan Faz 4-5 işlerine
+geçildi.
+
+### 2 yeni şirket profili (A4.2)
+
+`kucuk_nalbur_dukkani()` (~250 SKU, dar kategori, zayıf sezonsallık) ve
+`buyuk_insaat_deposu()` (~5.000 SKU, güçlü sezonsallık) eklendi — varsayılan
+~2.000 SKU'luk profilin yanına, ölçek ve karma bakımından iki uç nokta.
+
+### `maliyet_raporu_uret()` (A4.4)
+
+Kendi simülasyon döngüsünü çalıştırmaz — `simulasyon_calistir()`'in **gerçek**
+tablolarını doğrudan işler, yani herhangi bir koşuya (sağlıklı, patolojili,
+farklı seed/profil) uygulanabilir. 6 birim testiyle doğrulandı.
+
+### A4.2 sonucu
+
+3 profil × 3 seed = 9 kombinasyonun **tamamında** kural motoru vasat
+politikadan hem daha düşük stok tükenme oranı hem daha düşük toplam maliyet
+üretti. İyileşme ölçekle büyüyor: küçük dükkânda %1,4-3,2, varsayılan profilde
+%15-19, büyük depoda %39-45.
+
+**İlginç bir bulgu:** `kucuk_nalbur_dukkani` + seed=2026'da oracle'ın ham stok
+tükenme sayısı (maliyeti değil) baseline'lardan yüksek çıktı. Kök neden: bu
+profilde tedarik süresi kısa olduğu için oracle çok daha sık sipariş veriyor
+(3049 vs ~700-1100); her döngüde sabit 3-sigma tamponunu aşma olasılığına
+(~%0,13) yeniden maruz kalıyor — 3049 tekrarda en az bir "kötü şans" çekme
+olasılığı ~%98. Kod hatası değil, oracle'ın sabit-tampon tasarımının bilinen
+bir sınırlaması; script bunu gizlemek yerine açıkça gösteriyor.
+
+### Faz 5 — projenin can alıcı sonucu
+
+Eğitim verisi üretiminde hiç kullanılmamış taze bir seed'le
+(`FAZ5_HELD_OUT_SEED=20250801`), varsayılan profilde, 3 yıllık tutulmamış koşu:
+
+| Politika | Stok tükenme | Kayıp kâr | Aşırı stok | Sipariş maliyeti | **Toplam** |
+|---|---|---|---|---|---|
+| vasat | %5,31 | 7,69M | 9,41M | 1,72M | **18,82M TL** |
+| kural motoru | %0,47 | 3,82M | 12,41M | 1,16M | **17,40M TL** |
+| oracle | ~%0 | 0,20M | 8,70M | 6,00M | **14,90M TL** |
+
+**Kural motoru toplam maliyeti %7,6 düşürdü, stok tükenme oranını %5,31'den
+%0,47'ye indirdi.**
+
+İki nokta bilinçli olarak raporlanıyor:
+
+1. Kural motorunun **aşırı stok maliyeti vasat'tan yüksek** (12,41M vs 9,41M)
+   — hata değil, kasıtlı değiş tokuş: önemli ürünlere %99 servis seviyesi
+   hedeflemek daha fazla emniyet stoğu demek. Karşılığında kayıp kâr yarıya
+   düşüyor, net etki lehine.
+2. Oracle'ın sipariş maliyeti (6,00M) en yüksek — 40.021 sipariş verdiği için.
+   Mükemmel bilgiyle stok maliyetini minimize etmek mümkün ama bedeli çok sık,
+   küçük siparişler. Teoriyle tam uyumlu.
+
+---
+---
+
+# KİŞİ B — Servis & Model (Esmanur)
+
+## B · Adım 0 — Ortam kurulumu
 
 | Yapılan | Neden |
 |---|---|
@@ -89,10 +411,10 @@ Bilgisayarda proje çalışabilir hale getirildi.
 | `.env` oluşturuldu | Ayarlar (`AUTONOMY_LEVEL=shadow` gibi) |
 
 **Bu projede `pip install` asla kullanılmaz.** Yeni paket gerekirse `uv add`.
-`pip install` paketi sadece senin bilgisayarına kurar, `uv.lock`'a girmez,
-CI'da patlar.
+`pip install` paketi sadece tek bilgisayara kurar, `uv.lock`'a girmez, CI'da
+patlar.
 
-### Adım 1 · Kod okuma turu
+## B · Adım 1 — Kod okuma turu
 
 Faz 0'da hazır gelen kod anlatıldı. İki kritik konu:
 
@@ -101,6 +423,7 @@ verilen sayıların listesi. Taklit karar için tam **25 sayı**. Faz 2'de guard
 bunu kullanacak: metindeki bir sayı bu listede yoksa metin çöpe gidecek.
 
 **`sonuc` ≠ `uygulandi`** — İki ayrı şey:
+
 - `sonuc` = politikanın hükmü ("bu karar otomatik uygulanabilir")
 - `uygulandi` = gerçekten olan şey ("ama shadow moddayız, dokunmadım")
 
@@ -109,9 +432,14 @@ sistemi gerçekten uygulama moduna (`threshold`) geçirme iznin oluyor.
 
 ---
 
+## B · Faz 1 — Veri katmanı + API + CI (TAMAMLANDI ✅)
+
+**Testler: 25 → 91**, hepsi yeşil. `faz1-servis` branch'ine push edildi,
+CI GitHub'da yeşil (34 saniye).
+
 ### B1.1 · Veritabanı tabloları
 
-Kararların saklandığı yer kuruldu. Altı tablo:
+Altı tablo:
 
 | Tablo | Ne tutuyor |
 |---|---|
@@ -119,13 +447,12 @@ Kararların saklandığı yer kuruldu. Altı tablo:
 | `decision_audit` | **Değişmez** denetim izi. Her olay için bir satır, asla güncellenmez |
 | `approval` | Onay kuyruğu — kim, ne zaman, ne dedi |
 | `feedback` | İnsan geri bildirimi — sonraki eğitim turunun verisi |
-| `policy` | Eşik tablosu (B1.4'te devreye girdi) |
+| `policy` | Eşik tablosu |
 | `insight` | Gecelik bulgular (Faz 2'de dolacak) |
 
 **`alembic` nedir:** Veritabanı yapısını kodla değiştirmenin yolu.
 `alembic upgrade head` yazınca tablolar oluşuyor. Yapı değişince yeni bir
-"migration" dosyası yazılıyor; böylece Melih'in bilgisayarındaki tablolar
-seninkiyle aynı kalıyor.
+"migration" dosyası yazılıyor; böylece iki bilgisayardaki tablolar aynı kalıyor.
 
 **En önemli tasarım:** `decision` satırından sözleşme nesnesi geri
 kurulabiliyor. Bu şart, çünkü gerekçe **sonradan** üretiliyor — guard saatler
@@ -157,8 +484,7 @@ Projenin kuralı: **denetim kaydı olmayan bir karar yolu birleştirilmez.**
 `app/core/audit.py` bu kuralı yoruma bırakmıyor:
 
 - `karari_kaydet()` — kararı kaydetmenin **tek** yolu. Karar satırını ve
-  denetim satırını **birlikte, aynı işlemde** yazıyor. Denetim kaydını atlamak
-  mümkün değil.
+  denetim satırını **birlikte, aynı işlemde** yazıyor.
 - `girdi_hash_hesapla()` — girdinin parmak izi (SHA-256). "Aynı girdiye aynı
   kararı verdik mi" sorusunun cevabı.
 
@@ -190,8 +516,6 @@ Mevcut `tests/test_policy.py` **hiç değiştirilmedi** ve geçmeye devam ediyor
 
 ### B1.5 · API uçları
 
-Dört yeni uç ve kararların veritabanına yazılması.
-
 | Uç | Ne yapıyor |
 |---|---|
 | `GET /v1/approvals` | Onay kuyruğu, **risk skoruna göre azalan** |
@@ -207,9 +531,8 @@ Dört yeni uç ve kararların veritabanına yazılması.
 2. **`uygulandi` onay ucunda değişmez.** O alan "sistem uyguladı mı" demek;
    insan onayı sistemin uygulaması değil.
 3. **İş akışı ucu ile veri ucu ayrı.** Onay ucu kararı bir kez sonuçlandırır
-   (ikincisi 409 döner). Feedback ucu sınırsız yorum alır — çünkü kullanıcı bir
-   hafta sonra "fazlaydı" derse iş akışı değişmemeli ama eğitim verisine
-   girmeli.
+   (ikincisi 409). Feedback ucu sınırsız yorum alır — çünkü kullanıcı bir hafta
+   sonra "fazlaydı" derse iş akışı değişmemeli ama eğitim verisine girmeli.
 4. **Kuyruk riske göre sıralı.** İnsanın zamanı kısıtlı.
 
 Ayrıca `GET /` → `/docs` yönlendirmesi eklendi. FastAPI köke hiçbir şey
@@ -226,115 +549,94 @@ geçti: kullanıcı eksik → 422, düzeltme aksiyonu yok → 422, aynı kararı
 
 | Adım | Ne kontrol ediyor |
 |---|---|
-| `uv sync --frozen` | Kilit dosyası güncel mi ("paket ekledim ama lock'u işlemedim") |
+| `uv sync --frozen` | Kilit dosyası güncel mi |
 | `ruff check .` | Kod stili |
 | `pytest` | 91 test |
 | `alembic upgrade head` | Migration'lar boş veritabanında uygulanabiliyor mu |
-| `alembic check` | Model ile migration uyumlu mu ("modeli değiştirdim ama migration üretmeyi unuttum") |
+| `alembic check` | Model ile migration uyumlu mu |
 
 ⚠️ **Bu dosya tek başına yeterli değil.** GitHub'da `main` için branch
-protection açılmalı (Settings → Branches), yoksa CI sadece bilgi verir, kırmızı
-bir PR'ı engellemez.
+protection açılmalı (Settings → Branches), yoksa CI sadece bilgi verir.
 
 ---
 
-### Ekstra · Kişi A'nın PR incelemesi
+## B · Faz 2 — LLM katmanı (başladı 🔄)
 
-Melih'in `faz1-simulator` branch'i ayrı bir çalışma kopyasında incelendi.
-A1.1–A1.5'in tüm kabul ölçütleri **geçti**:
-
-| Ölçüt | Ölçüm |
-|---|---|
-| Aynı seed → aynı sonuç | 11 tablo, tam eşleşme |
-| Pareto (üst %20 SKU) | cironun **%80,0**'i |
-| Talep yapısı | Pazar kapalı, zirve Ağustos, trend %+5,8/yıl |
-| Negatif stok | **0** |
-| Mutabakat farkı | **tam sıfır** (patolojiler açıkken de) |
-| Patolojiler | kapalı 0 olay / açık 314 olay, 6 tip |
-
-**Üç sözleşme boşluğu bulundu**, Melih'e iletildi:
-
-1. **`tedarikci_onayli` yok** — bu bir güvenlik kapısı girdisi; tedarikçi
-   onaylı değilse karar tutarı ne olursa olsun onaya gidiyor.
-2. **`raf_omru_kalan_gun` türetilemiyor** — tabloda statik raf ömrü var ama
-   parti giriş tarihi yok.
-3. **`rezerve_stok` yapısal olarak 0** — olay döngüsü aynı gün sevk ediyor.
-
-**Faz 5 için taban çizgi:** taban politikanın stok tükenme oranı **%0,86**. AI
-politikasının yenmesi gereken sayı bu.
+- 🔄 **B2.1** — `qwen2.5:1.5b-instruct` indirildi (986 MB, `D:\Ollama\models`).
+  Sırada: `app/llm/client.py` + hız ölçümü + ısı ayarı.
+- ⬜ B2.2 — yapılandırılmış çıktı şemaları
+- ⬜ B2.3 — router (**30 soruluk taban çizgi ölçülüp kaydedilecek**)
+- ⬜ B2.4 — gerçek gerekçe üretimi
+- ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası)
+- ⬜ B2.6 — gecelik iş + tetikleyiciler
 
 ---
+---
 
-## 5. Yolda bulunan hatalar ve tuzaklar
+# ORTAK
 
-Bunlar tekrar yaşanmasın diye yazıldı:
+## Yolda bulunan hatalar ve tuzaklar
+
+Tekrar yaşanmasın diye:
 
 | Ne | Sonucu | Çözüm |
 |---|---|---|
-| `.gitignore`'da `models/` | `app/models/` git tarafından **sessizce yok sayılıyordu** — 6 tablo PR'a hiç girmeyecekti | `/models/` (başına eğik çizgi) |
-| `alembic.ini`'de Türkçe | Her alembic komutu `UnicodeDecodeError` veriyordu (o dosya locale kodlamasıyla okunuyor) | Dosya **sadece ASCII**; Türkçe açıklamalar `env.py`'de |
+| `.gitignore`'da `models/` | `app/models/` git tarafından **sessizce yok sayılıyordu** | `/models/` (başına eğik çizgi) |
+| `alembic.ini`'de Türkçe | Her alembic komutu `UnicodeDecodeError` (o dosya locale kodlamasıyla okunuyor) | Dosya **sadece ASCII**; Türkçe açıklamalar `env.py`'de |
 | Alembic'in ürettiği dosyalar lint'e uymuyor | Her migration CI'yı kırardı | `post_write_hooks` ile otomatik `ruff` |
-| SQLite koruma kuralları kapalı | `CASCADE` tanımları süstü, tutarsız veri yazılabiliyordu | `PRAGMA foreign_keys=ON` her bağlantıda |
+| SQLite koruma kuralları kapalı | `CASCADE` tanımları süstü | `PRAGMA foreign_keys=ON` her bağlantıda |
 | Tohum migration'ı çakıştı | Mevcut satır varsa `upgrade` yarıda kalıyordu | Yalnızca eksik satırlar ekleniyor |
-| Migration çıktısını filtrelemek | Hata mesajı görünmedi, migration'ın çöktüğü fark edilmedi | Migration çıktısı **filtrelenmez** |
+| Migration çıktısını filtrelemek | Hata mesajı görünmedi, çöktüğü fark edilmedi | Migration çıktısı **filtrelenmez** |
+| Windows konsolu (cp1254) | Türkçe karakterde `UnicodeEncodeError` | `sys.stdout.reconfigure` |
+| LLM'e satır satır çağrı | 50.050 satır ~25 saat sürerdi | **Şekil/şablon bazlı** üretim, sonra yerelde çoğaltma |
+| Qwen2.5 Çince sızıntısı | Türkçe cümle ortasında Çince karakterler | `_CJK_DESENI` regex filtresi |
+| Doğrulayıcıya kısa token limiti | Model tereddütle başlayınca sessizce "HAYIR" sayılıyordu | Limit 16'ya çıkarıldı, biçim hatası **kabul** tarafına |
 
----
+## Sözleşme kusuru — bulundu ve düzeltildi ✅
 
-## 6. Sırada ne var?
+**Kişi B buldu (B2.5 guard hazırlığında):** `izinli_sayilar()` içindeki `×100`
+kuralı, bir sayının 0-1 aralığında olup olmadığına bakarak karar veriyordu —
+**değerine göre, alan adına göre değil.** Bu yüzden `son_hareket_gun_once` gibi
+bir adet/gün alanı `1` değerini aldığında `%100` sayısı yanlışlıkla gerekçede
+kullanılabilir hale geliyordu.
 
-**FAZ 2 — LLM katmanı (~10 gün)**
+**Neden ciddiydi:** `son_hareket_gun_once = 1` demek "ürün dün hareket görmüş".
+2.000 SKU'lu bir katalogda aktif ürünlerin büyük kısmı bu durumda — yani delik
+sürekli açıktı. Ve `%100` bir dil modelinin uydurmaya en yatkın olduğu
+sayılardan ("stok %100 tükendi", "tedarikçi %100 zamanında teslim yapıyor").
 
-| Adım | İş |
-|---|---|
-| B2.1 | `ollama pull qwen2.5:1.5b-instruct` + istemci. **Token/saniyeyi ölç ve yaz** |
-| B2.2 | Yapılandırılmış çıktı şemaları (20/20 geçerli JSON) |
-| B2.3 | Türkçe soru → araç seçimi. **30 soruluk taban çizgiyi ölç ve kaydet** |
-| B2.4 | Gerçek gerekçe üretimi |
-| **B2.5** | ⭐ **`guard.py`** — projenin en kritik parçası |
-| B2.6 | Gecelik iş + tetikleyiciler (2.000 SKU < 10 dk) |
+**Kişi A düzeltti:** `ORAN_ALANLARI` adlı açık bir liste eklendi, `×100`
+karşılığı yalnızca gerçek oran alanları için üretiliyor. 3 regresyon testi
+eklendi. Ayrı bir `fix-izinli-sayilar-oran-alanlari` branch'ine push edildi
+(dosya ortak/dondurulmuş olduğu için).
 
-**Ölçümleri zamanında yapmak önemli:** B2.1'deki token/saniye ve B2.3'teki 30
-soruluk doğruluk, Faz 3'te "eğitim işe yaradı mı" sorusunun tek cevabı. Şimdi
-ölçülmezse o cevap kalıcı olarak kaybolur.
+**Doğrulandı:** İki branch geçici bir kopyada birleştirilip test edildi —
+**94 test geçiyor**, lint temiz. Sözleşme değişikliği Kişi B'nin kodunu
+bozmuyor.
 
-### ⚠️ Faz 2'ye girmeden çözülmesi gereken sözleşme kusuru
+Ek karar: `guven` bilinçli olarak kümenin dışında — güven skoru iç politika
+kararı için üretilir, iş kullanıcısına gösterilecek bir sayı değil.
 
-`app/contracts.py:259`'daki `×100` kuralı oranlar için yazılmış ama **tam sayı
-adetlerde de tetikliyor.**
+## Açık konular
 
-```python
-if 0.0 <= f <= 1.0:         # 259. satır
-    sayilar.add(f * 100.0)
-```
+**1. `StockFeatures`'ta üç alanın kaynağı yok** (Kişi B'nin SP1 incelemesinden):
 
-Koşul sayının *ne olduğuna* bakmıyor, yalnızca *değerine* bakıyor. Kusurun tam
-tanımı tek cümle:
+- `tedarikci_onayli` — **güvenlik kapısı girdisi**, tedarikçi onaylı değilse
+  karar tutarı ne olursa olsun onaya gidiyor. Simülatörde `guvenilirlik`
+  (0-1 sürekli) var ama boolean onay bayrağı yok.
+- `raf_omru_kalan_gun` — tabloda statik raf ömrü var, parti giriş tarihi yok.
+- `rezerve_stok` — olay döngüsü aynı gün sevk ettiği için yapısal olarak 0.
 
-> Herhangi bir adet/gün alanı `1` ise, `100` sayısı gerekçede kullanılabilir
-> hale geliyor.
+**2. A3.5** (train/val/test bölme + golden set) — Kişi B'nin router şemasını
+bekliyor.
 
-Ölçtüm — yedi alanın herhangi biri `1` olduğunda oluyor:
-`son_hareket_gun_once`, `yoldaki_stok`, `rezerve_stok`, `veri_gun_sayisi`,
-`eldeki_stok`, `moq`, `paket_adedi`.
+**3. `decisions.py` hâlâ `decide_stub()` çağırıyor** — Kişi A'nın
+`stok_karari_uret()`'ine geçiş SP2'de yapılacak, tek satırlık değişiklik.
 
-**Neden ciddi:** `son_hareket_gun_once = 1` demek *"ürün dün hareket görmüş"*.
-Nadir bir durum değil — aktif ürünlerin büyük kısmı böyle. Yani delik sürekli
-açık. Ve `%100` bir dil modelinin uydurmaya en yatkın olduğu sayılardan:
-*"stok %100 tükendi"*, *"tedarikçi %100 zamanında teslim yapıyor"*. İkisi de
-guard'dan geçer.
+**4. A3.2'deki 7 araç listesi geçici** — Kişi B gerçek router şemasını yazınca
+veri seti yeniden üretilecek.
 
-**Önerilen çözüm:** oran alanlarını değere göre değil **adıyla** listelemek
-(`ORAN_ALANLARI` kümesi). Yamayı hazırladım ve doğruladım: mevcut testlerin
-hepsi geçiyor, kusur kapanıyor, meşru oranlar (sınır değerler dahil) bozulmuyor
-ve **stub karar için küme birebir aynı kalıyor** — yani mevcut davranış hiç
-değişmiyor.
-
-`contracts.py` dondurulmuş, o yüzden **Melih'le birlikte tek PR'da** yapılacak.
-Ayrıntılı not: `SOZLESME-KUSURU-x100.md` (Melih'e iletildi).
-
----
-
-## 7. Faydalı komutlar
+## Faydalı komutlar
 
 ```bash
 uv sync
@@ -358,11 +660,11 @@ uv run uvicorn app.main:app --reload
 
 Sonra <http://localhost:8000> → Swagger arayüzü açılır.
 
----
-
-## 8. Güncelleme geçmişi
+## Güncelleme geçmişi
 
 | Tarih | Ne oldu |
 |---|---|
-| 2026-07-30 | Adım 0 (ortam), Adım 1 (okuma), B1.1–B1.6 tamamlandı. Kişi A'nın PR'ı incelendi. Faz 1 bitti. |
-| 2026-07-30 | `contracts.py:259`'daki ×100 kusuru ölçüldü, yama hazırlandı ve doğrulandı. Melih'e ayrıntılı not iletildi (bölüm 6). |
+| 2026-07-30 | **B:** Adım 0 (ortam), Adım 1 (okuma), B1.1–B1.6 tamamlandı, `faz1-servis` push edildi, CI yeşil. Kişi A'nın Faz 1 PR'ı incelendi ve onaylandı. |
+| 2026-07-30 | **B:** `contracts.py` ×100 kusuru ölçüldü, yama önerildi. **A:** düzeltmeyi uyguladı, 3 regresyon testi ekledi. Birleşik ağaçta 94 test yeşil. |
+| 2026-07-30 | **A:** Faz 2 (kural motoru + ML), Faz 3 A3.1–A3.4 (eğitim verisi), Faz 4-5 (genellenebilirlik + para metriği) tamamlandı. |
+| 2026-07-30 | **Ortak:** iki ayrı `aciklama.md` tek dosyada birleştirildi. |
