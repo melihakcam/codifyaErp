@@ -153,11 +153,77 @@ ifadeleri **dengeli** içermeli, yoksa sayı yanıltıcı çıkar.
 
 ---
 
-## B2.3 · Router doğruluğu — taban çizgi
+## B2.3 · Router doğruluğu — TABAN ÇİZGİ (2026-08-01)
 
-⬜ Henüz ölçülmedi. 30 Türkçe soruluk test setiyle, LoRA eğitiminden **önce**
-ölçülecek. Faz 3'te eğitimin işe yarayıp yaramadığı ancak bu sayıyla
-karşılaştırılarak anlaşılabilir.
+**LoRA eğitiminden ÖNCE.** Faz 3'te (B3.5) aynı script aynı soru setiyle
+yeniden koşturulup bu sayılarla karşılaştırılacak. Bu satırları silmeyin.
+
+Ölçüm: `uv run python -m training.eval.router_taban`
+Soru seti: `training/eval/router_taban_sorulari.jsonl` (30 soru, **elle
+yazıldı** — Kişi A'nın otomatik ürettiği eğitim verisinden bilinçli olarak
+ayrı; aynı şablonlardan türeyen bir test seti, modelin şablonu ezberlemesini
+"başarı" diye ölçerdi)
+
+### Sonuç
+
+| Ölçüt | Değer | Faz 5 hedefi |
+|---|---|---|
+| **Araç doğru** | **22/30 · %73,3** | — |
+| **Araç + parametre tam eşleşme** | **21/30 · %70,0** | **> %95** |
+| Şema hatası (yönlendirilemedi) | 1 | — |
+| Toplam süre | 52,8 sn | — |
+
+Hedefle arada **25 puan** var. LoRA'nın kapatması gereken mesafe bu.
+
+### Stile göre
+
+| stil | doğru | oran |
+|---|---|---|
+| açık | 10/12 | %83 |
+| dolaylı | 9/13 | %69 |
+| günlük dil | 3/5 | %60 |
+
+Beklenen yönde: ifade ne kadar dolaylı/serbestse doğruluk o kadar düşüyor.
+
+### Araca göre — asıl bulgu
+
+| araç | doğru |
+|---|---|
+| `gecelik_ozet_sorgula` | 3/3 |
+| `genel_stok_durumu_sorgula` | 2/2 |
+| `kritik_stok_sorgula` | 4/5 |
+| **`olu_stok_sorgula`** | **1/5** |
+| `onay_kuyrugu_sorgula` | 4/5 |
+| `siparis_onerisi_sorgula` | 4/5 |
+| `tedarikci_performansi_sorgula` | 4/5 |
+
+**Sekiz hatanın dördü tek bir araçta.** Model "ölü stok"u (satılmayan,
+hareketsiz, fazla mal) "kritik stok"la (azalan, tükenen, eksik mal)
+karıştırıyor. İkisi de "stok sorunu" ama iş anlamı **zıt**.
+
+Yanlış yönlendirilenler:
+
+```
+"Ölü stok durumundaki ürünleri listeler misin?"  -> kritik_stok      (açık soru!)
+"Çimento kategorisinde hareketsiz ürün var mı?"  -> şema uyumsuz
+"Rafta bekleyip duran ürünleri görebilir miyim?" -> onay_kuyrugu
+"tasfiye onerlen urun var mi"                    -> kritik_stok
+"Neyin acilen sipariş edilmesi gerekiyor?"       -> siparis_onerisi
+"Demir profil için ne ısmarlayalım?"             -> kritik_stok
+"t-0007 gecikiyomu"                              -> gecelik_ozet
+"Sistem neyi bana sordu?"                        -> genel_stok_durumu
+```
+
+İlk satır dikkat çekici: soruda **"ölü stok" kelimesi birebir geçiyor** ve
+model yine kritik stoğa yönlendirdi. Bu, few-shot prompt'un bu ayrımı
+öğretemediğini gösteriyor — LoRA'nın somut olarak çözmesi gereken şey.
+
+### B3.5'te bakılacak
+
+1. Genel doğruluk %70'ten ne kadar yükseldi?
+2. **`olu_stok_sorgula` 1/5'ten kurtuldu mu?** Eğitimin işe yarayıp
+   yaramadığının en keskin göstergesi bu.
+3. Günlük dil (%60) ile açık dil (%83) arasındaki fark kapandı mı?
 
 ## B3.5 · LoRA sonrası ölçüm
 

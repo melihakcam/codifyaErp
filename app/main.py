@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select, text
 
-from app.api import approvals, decisions, feedback, insights
+from app.api import approvals, ask, decisions, feedback, insights
 from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
 from app.models import Decision
@@ -33,6 +33,7 @@ app.include_router(decisions.router)
 app.include_router(approvals.router)
 app.include_router(feedback.router)
 app.include_router(insights.router)
+app.include_router(ask.router)
 
 
 @app.get("/", include_in_schema=False)

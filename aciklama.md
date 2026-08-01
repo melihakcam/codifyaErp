@@ -635,9 +635,48 @@ Router tarafında ön bulgu: 14 sorudan 11'i doğru. Model **açık** ifadelerde
 iyi, **dolaylı** ifadelerde takılıyor ("kuyrukta ne var" → yanlış araç). Resmî
 taban çizgi B2.3'te, 30 dengeli soruyla ölçülecek.
 
-### Sırada
+### B2.3 · Router + taban çizgi (bitti ✅)
 
-- ⬜ B2.3 — router (**30 soruluk taban çizgi ölçülüp kaydedilecek**)
+`app/llm/router.py` — Türkçe soruyu 7 araçtan birine yönlendiriyor. Henüz
+eğitim yok, few-shot örneklerle çalışıyor. `POST /v1/ask` ucu da eklendi.
+
+Uç **yalnızca yönlendirme** yapıyor, aracı çalıştırmıyor. Bilinçli: B2.3'ün
+ölçtüğü şey "doğru aracı seçebiliyor muyuz". Çalıştırmayı da aynı adıma
+sıkıştırmak, yanlış yönlendirmeyi doğru sonucun arkasına gizlerdi.
+
+**Taban çizgi ölçüldü — bu sayı projenin en kritik ölçümlerinden.** Faz 3'te
+LoRA eğitildikten sonra aynı 30 soru yeniden koşturulup karşılaştırılacak.
+Şimdi ölçülmeseydi "eğitim işe yaradı mı" sorusu kalıcı olarak cevapsız
+kalırdı.
+
+| Ölçüt | Değer | Faz 5 hedefi |
+|---|---|---|
+| Araç doğru | **%73,3** (22/30) | — |
+| Araç + parametre | **%70,0** (21/30) | **> %95** |
+
+Arada 25 puan var. LoRA'nın kapatması gereken mesafe bu.
+
+**Asıl bulgu:** sekiz hatanın **dördü tek bir araçta**. Model "ölü stok"u
+(satılmayan, fazla mal) "kritik stok"la (tükenen, eksik mal) karıştırıyor —
+ikisi de "stok sorunu" ama iş anlamı zıt.
+
+```
+olu_stok_sorgula : 1/5     ←←← 
+diğer altı araç  : 21/25
+```
+
+En çarpıcısı: *"Ölü stok durumundaki ürünleri listeler misin?"* sorusunda
+**"ölü stok" kelimesi birebir geçiyor** ve model yine kritik stoğa
+yönlendirdi. Few-shot prompt bu ayrımı öğretemiyor; LoRA'nın somut olarak
+çözmesi gereken şey bu.
+
+Soru seti **elle yazıldı**, Kişi A'nın otomatik ürettiği eğitim verisinden
+bilinçli olarak ayrı — aynı şablonlardan türeyen bir test seti, modelin
+şablonu ezberlemesini "başarı" diye ölçerdi.
+
+Ayrıntılar `dokumantasyon/OLCUMLER.md`'de.
+
+### Sırada
 - ⬜ B2.4 — gerçek gerekçe üretimi
 - ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası, model gerektirmiyor)
 - ⬜ B2.6 — gecelik iş + tetikleyiciler
