@@ -599,9 +599,44 @@ birinci kuralının neden var olduğunun canlı kanıtı — ilk denemede,
 kendiliğinden. İsteme "yeni sayı üretme" eklenince kayboldu, ama bu bir garanti
 değil yalnızca olasılık düşürme. Guard (B2.5) bu yüzden zorunlu.
 
+### B2.2 · Yapılandırılmış çıktı (bitti ✅)
+
+Modelden düz metin değil **şemaya uyan JSON** istiyoruz. `app/llm/schemas.py`:
+
+- `AracAdi` — router'ın seçebileceği 7 araç. **Kişi A'nın eğitim verisindeki
+  adlarla birebir aynı**; ayrışırsa model öğrendiği etiketi tanımaz ve router
+  sessizce başarısız olur. Bir test bunu kilitliyor.
+- `AracCagrisi` — araç + parametre. Yanlış parametre reddediliyor: model doğru
+  aracı seçip uydurma parametre ekleyebiliyor, bu aşağı akışta anlamsız sorgu
+  demek.
+- `GerekceCiktisi` — tek alanlı. Model düz metin istendiğinde başına "İşte
+  açıklama:" gibi girişler ekliyordu; tek alanlı şema bunu yapısal olarak
+  engelliyor.
+- `yapilandirilmis_uret()` — şemaya uymazsa yeniden dener, olmazsa
+  `SemaUyumsuz` fırlatır (çağıran şablona düşer, karar bloke olmaz).
+
+**Kabul ölçütü: 20/20 geçerli JSON, hepsi ilk denemede.** Yedek plan (llama.cpp
+GBNF grammar) gerekmedi.
+
+**Ama önemli bir ders çıktı: şema biçimi garanti eder, anlamı etmez.**
+
+Yirmi çıktının hepsi kusursuz JSON'du. İçerik değildi:
+
+```
+#18  "163..."                       ← UYDURMA SAYI
+#19  "42 + 615 - 1200 = 397..."     ← UYDURMA + aritmetik
+#20  "1976-03-14T13:44:00Z..."      ← RASTGELE TARİH
+```
+
+Bu sayıların hiçbiri isteme verilmemişti. Guard'ın (B2.5) neden pazarlık
+konusu olmadığının ikinci kanıtı — birincisi B2.1'deki `35`'ti.
+
+Router tarafında ön bulgu: 14 sorudan 11'i doğru. Model **açık** ifadelerde
+iyi, **dolaylı** ifadelerde takılıyor ("kuyrukta ne var" → yanlış araç). Resmî
+taban çizgi B2.3'te, 30 dengeli soruyla ölçülecek.
+
 ### Sırada
 
-- ⬜ B2.2 — yapılandırılmış çıktı şemaları (20/20 geçerli JSON)
 - ⬜ B2.3 — router (**30 soruluk taban çizgi ölçülüp kaydedilecek**)
 - ⬜ B2.4 — gerçek gerekçe üretimi
 - ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası, model gerektirmiyor)

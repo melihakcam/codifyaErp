@@ -94,6 +94,65 @@ yüzden zorunlu.
 
 ---
 
+## B2.2 · Şema zorlamalı çıktı (2026-08-01)
+
+**Kabul ölçütü:** 20 ardışık çağrının 20'si de geçerli JSON dönmeli.
+
+### Sonuç: 20/20 ✅ — hepsi **ilk denemede**
+
+| | |
+|---|---|
+| Geçerli JSON | **20/20** |
+| İlk denemede başarılı | **20/20** (yeniden deneme hiç gerekmedi) |
+| Toplam süre | 37,2 sn |
+| Çağrı başına | 1,9 sn |
+| Dağılım | 14 router + 6 gerekçe |
+
+Yedek plan (llama.cpp GBNF grammar) **gerekmedi** — Ollama'nın `format`
+parametresine düzleştirilmiş JSON şeması geçirmek yeterli oldu.
+
+### ⚠️ Şema biçimi garanti eder, anlamı etmez
+
+Yirmi çıktının hepsi kusursuz JSON'du. İçerik ise değildi:
+
+```
+#17  "1200 adet yeniden siparis..."          eksik cümle
+#18  "163..."                                UYDURMA SAYI
+#19  "42 + 615 - 1200 = 397..."              UYDURMA + aritmetik
+#20  "1976-03-14T13:44:00Z..."               RASTGELE TARİH
+```
+
+`163`, `397` ve o tarih isteme verilen hiçbir sayıda yok. Şema modeli JSON
+yazmaya zorluyor; **ne yazacağını** zorlayamıyor.
+
+Bu, B2.5'teki guard'ın neden pazarlık konusu olmadığının ikinci kanıtı
+(birincisi B2.1'deki `35`).
+
+Not: gerekçe istemi kasıtlı olarak sadeydi — bu adımda biçim ölçülüyordu,
+kalite değil. B2.4 sistem promptu, örnek cümle ve sayı etiketleme ekleyecek.
+Kalite artacak ama **garanti olmayacak.**
+
+### Ön bulgu: router doğruluğu ~11/14
+
+Resmî taban çizgi **değil** (o B2.3'te, 30 dengeli soruyla). Yön veriyor:
+
+| Soru | Seçilen | Doğru mu |
+|---|---|---|
+| "Boya kategorisinde stoğu azalan var mı?" | `kritik_stok_sorgula` + `{kategori: boya}` | ✓ |
+| "T-0014 tedarikçisinin performansı nasıl?" | `tedarikci_performansi_sorgula` | ✓ |
+| "Yılmaz Yapı zamanında teslimat yapıyor mu?" | `gecelik_ozet_sorgula` | ✗ |
+| "Kuyrukta ne var?" | `genel_stok_durumu_sorgula` | ✗ |
+| "Dün gece ne bulundu?" | `genel_stok_durumu_sorgula` | ✗ |
+
+Model **açık** ifadelerde iyi ("kritik stok", "performansı nasıl"), **dolaylı**
+ifadelerde takılıyor ("kuyrukta ne var", "dün gece ne bulundu"). Üç hatanın
+üçü de bu sınıfta.
+
+B2.3'te bu gözlem işe yarayacak: taban çizgi soru seti açık ve dolaylı
+ifadeleri **dengeli** içermeli, yoksa sayı yanıltıcı çıkar.
+
+---
+
 ## B2.3 · Router doğruluğu — taban çizgi
 
 ⬜ Henüz ölçülmedi. 30 Türkçe soruluk test setiyle, LoRA eğitiminden **önce**
