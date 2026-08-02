@@ -64,7 +64,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.contracts import DecisionCandidate, Gerekce, GuardSonucu
-from app.llm.explain import sablon_gerekce
+
+# ⚠️ `sablon_gerekce` bilerek modül düzeyinde import EDİLMİYOR: B2.4'te
+# `explain.py` guard'ı kullanmaya başladı (gerçek üretimi sarmak için) ve
+# ikisi birbirini modül düzeyinde çağırınca döngü oluşuyor. Doğru yön
+# explain → guard; guard şablona yalnızca **geri düşerken** ihtiyaç duyar,
+# bu yüzden import o noktada yapılıyor.
 
 # Türkçe sayı biçimleri: 1.200 · 4,75 · %94 · 5.000 TL · 1.200,50
 # Tek haneli sayılar da yakalanmalı (ör. "3 gün").
@@ -282,6 +287,8 @@ def gerekceyi_guvenceye_al(
                 reddedilen_sayilar=[],
             )
         son_red = sonuc.reddedilen
+
+    from app.llm.explain import sablon_gerekce  # döngüsel import — bkz. dosya başı
 
     return Gerekce(
         karar_id=aday.karar_id,

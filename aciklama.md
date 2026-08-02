@@ -918,9 +918,99 @@ Yapılan: davranışı kilitleyen bir test eklendi
 (`test_nokta_ayracli_tarih_reddediliyor`), gerekçesi test docstring'ine
 yazıldı. Böylece ileride biri "iyileştirme" niyetiyle bu kapıyı açamaz.
 
+### B2.4 · Gerçek gerekçe üretimi (kod bitti ✅, insan okuması bekliyor)
+
+Guard'ın üstüne gerçek LLM üretimi kondu: `app/llm/explain.py`.
+
+Şimdiye kadar gerekçeler **şablondan** geliyordu — doğru ama kalıp cümleler.
+Artık modele yazdırıyoruz, guard da yazdığını denetliyor.
+
+#### Modele sayı listesi veriliyor, üstelik adlandırılmış
+
+En kritik tasarım kararı bu. Modele "işte karar, gerekçe yaz" demek yerine
+kullanabileceği sayılar **etiketli** olarak veriliyor:
+
+```
+Kullanabileceğin sayılar (BUNLARIN DIŞINA ÇIKMA):
+günlük ortalama talep (adet): 42
+tedarik süresi (gün): 12
+kullanılabilir stok (adet): 270
+önerilen sipariş miktarı (adet): 1.200
+```
+
+Etiket olmadan model **doğru sayıyı yanlış cümlede** kullanıyor — "tedarik
+süresi 270 gün" gibi. Guard bunu yakalayamaz, çünkü 270 meşru bir sayı.
+Guard sayının varlığını denetler, yerini değil. Etiket bu boşluğu kapatan
+tek şey.
+
+Sayılar isteme **Türkçe biçimde** yazılıyor (`1.200`, `4,75`). Model gördüğü
+biçimi kopyalar, guard da Türkçe biçim bekler; ikisini hizalamak bedava.
+
+#### Sayı listesi bilinçli olarak dar
+
+İzinli küme 25 sayı içeriyor ama isteme yalnızca karar tipiyle ilgili olanlar
+konuyor (sipariş kararında tedarik süresi var, raf ömrü yok). İki sebep:
+25 sayının hepsi metni sayı çöplüğüne çeviriyor, ve konuyla ilgisiz sayıyı
+vermek onu kullanmaya davet ediyor.
+
+**Testle kilitlenen değişmez:** isteme konan her sayı `izinli_sayilar()`
+içinde olmalı. Olmazsa model o sayıyı iyi niyetle kullanır ve metin **her
+seferinde** şablona düşer — hata yok, log yok, sadece gerekçeler hiç
+LLM'den gelmez. Sessiz arıza. Test hem stub hem gerçek motorla koşuyor.
+
+#### İkinci deneme birincisinden farklı
+
+Guard reddederse ikinci istemin sonuna ekleniyor:
+
+```
+UYARI: Önceki denemende şu sayıları uydurdun: 9.999.
+Bu sayıları kullanma, yukarıdaki listede olmayan hiçbir sayı yazma.
+```
+
+Bu, B2.5'te guard'a koyduğum `onceki_red` kancasının varlık sebebiydi;
+şimdi gerçekten kullanılıyor.
+
+#### İki ayrı yeniden deneme katmanı var
+
+Karıştırılmaması gereken bir ayrım:
+
+| katman | neyi yakalar |
+|---|---|
+| `yapilandirilmis_uret` (B2.2) | bozuk JSON, şemaya uymayan çıktı — **biçim** hatası |
+| `gerekceyi_guvenceye_al` (B2.5) | şema tuttu ama sayı uydurdu — **içerik** hatası |
+
+En kötü durumda 4 model çağrısı. Pratikte şema uyumu yüksek olduğu için
+1-2 çağrı görülüyor.
+
+#### Döngüsel import çıktı, doğru yönde çözüldü
+
+`guard.py` şablonu çağırıyordu, `explain.py` de guard'ı çağırmaya başlayınca
+Python döngüye girdi. Doğru bağımlılık yönü **explain → guard** (explain üst
+katman). Bu yüzden guard'ın şablon import'u fonksiyon içine alındı — guard
+şablona yalnızca geri düşerken ihtiyaç duyuyor, modül yüklenirken değil.
+
+#### Nereye bağlandı, nereye bağlanmadı
+
+**Gecelik iş:** `llm_gerekce_ureteci(istemci)` ile takılıyor. Varsayılan
+**şablon kaldı** — bilinçli. Gerçek üreteci varsayılan yapmak, Ollama kurulu
+olmayan her ortamda gecelik işi 25 kez bağlantı hatasına sokardı; sonuç yine
+şablon olurdu ama boşuna beklenerek.
+
+**API (`?gerekce=true`) bağlanmadı** — bunu bilerek yapmadım. Bir HTTP
+isteğinin içinde LLM beklemek 9-36 saniye sürer ve o süre boyunca veritabanı
+oturumu açık kalır. Mimarinin ikinci kuralı "ERP asla LLM'i beklemez" tam da
+bunu yasaklıyor. Gerekçe toplu işte (gecelik) üretilip kaydediliyor, API
+kayıtlı olanı okuyor. Bu bir eksiklik değil, kuralın uygulanması.
+
+16 yeni test, hiçbiri model çalıştırmıyor. Toplam **261 test yeşil**.
+
+⏳ **Bekleyen:** kabul ölçütü "10 gerçek karar için üretilen gerekçelerin
+Türkçesi anlaşılır ve sayıları doğru" — bu insan gözüyle okunacak, kod
+testiyle ölçülemez. Model çalıştırılınca yapılacak.
+
 ### Sırada
 
-- ⬜ B2.4 — gerçek gerekçe üretimi (guard'ın üstüne)
+- ⏳ B2.4 ölçümü — 10 gerçek gerekçe üretip okumak (~2-3 dk model)
 - ⬜ B2.6 ölçümü — "2.000 SKU < 10 dakika" (gerçek motor artık elimizde)
 
 ---

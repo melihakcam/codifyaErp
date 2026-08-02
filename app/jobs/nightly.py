@@ -142,8 +142,15 @@ def gecelik_tarama(
 ) -> KosuOzeti:
     """Tüm SKU'ları tarar, kararları kaydeder, üst N için gerekçe üretir.
 
-    `gerekce_ureteci` şu an şablon üretiyor. Faz 2 B2.4/B2.5 bitince guard
-    destekli gerçek üreteç buraya geçirilecek — imza aynı kalacak.
+    `gerekce_ureteci` **varsayılanı bilinçli olarak şablon**. Gerçek üreteç
+    B2.4'te geldi ve imza aynı kaldı; kullanmak için çağıran taraf geçirir:
+
+        gecelik_tarama(oturum, gerekce_ureteci=llm_gerekce_ureteci(istemci))
+
+    Varsayılanı şablon bırakmanın sebebi, testlerin ve modelsiz ortamların
+    çalışır kalması. Gerçek üreteci varsayılan yapmak, Ollama kurulu olmayan
+    her yerde gecelik işi 25 kez bağlantı hatasına sokardı — sonuç yine
+    şablon olurdu ama boşuna beklenerek.
 
     `commit()` iki kez atılıyor: kararlar yazıldıktan sonra bir kez, gerekçeler
     yazıldıktan sonra bir kez. Sebebi: gerekçe üretimi dakikalar sürebilir ve o
