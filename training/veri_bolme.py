@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import sys
 from pathlib import Path
 from typing import Any, Literal
@@ -123,6 +124,55 @@ def gerekce_veri_setini_bol(
     return sonuc
 
 
+def router_satirlarini_tekillestir(router_satirlari: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aynı soru metni birden fazla kaynaktan (A3.2 + A3.3) gelmişse bir kez tutar."""
+    görülen: set[str] = set()
+    sonuc: list[dict[str, Any]] = []
+    for satir in router_satirlari:
+        if satir["soru"] in görülen:
+            continue
+        görülen.add(satir["soru"])
+        sonuc.append(satir)
+    return sonuc
+
+
+VARSAYILAN_ARAC_UST_SINIRI = 2000
+"""B'nin bulduğu dengesizlik sorunu: `siparis_onerisi_sorgula` 2.000 SKU'dan
+üretildiği için diğer araçlardan (8 kategori, 60 tedarikçi, parametresiz
+araçlar) binlerce kat fazla satıra sahipti (~3800x). LoRA bunu görünce "her
+şeye siparis_onerisi de" öğrenme riski taşır — ve val/test aynı dengesizlikte
+olduğu için bu risk kendi ölçümünde bile görünmez kalır (hep aynı cevabı
+veren bir model kendi testinde de yüksek başarı gösterir). Çözüm: baskın
+aracı rastgele alt örnekle, 2.000'e indir — dengesizlik ~3800x'ten ~140x'e
+düşer. Bu tek başına yeterli olmayabilir (en seyrek iki aracın parametresi
+yok, çeşitlilik yalnızca şablon sayısından geliyor); ek paraphrase turu ile
+tamamlanması gerekebilir."""
+
+
+def router_verisini_dengele(
+    router_satirlari: list[dict[str, Any]],
+    ust_sinir: int = VARSAYILAN_ARAC_UST_SINIRI,
+    seed: int = VARSAYILAN_SEED,
+) -> list[dict[str, Any]]:
+    """Bir aracın satır sayısı `ust_sinir`'i aşıyorsa rastgele alt örnekler.
+
+    Tekilleştirmeden SONRA çağrılmalı — aksi halde aynı sorunun farklı
+    kaynaklardaki kopyaları örneklem büyüklüğünü yanıltır.
+    """
+    rng = random.Random(f"{seed}-dengele")
+    araca_gore: dict[str, list[dict[str, Any]]] = {}
+    for satir in router_satirlari:
+        araca_gore.setdefault(satir["arac"], []).append(satir)
+
+    sonuc: list[dict[str, Any]] = []
+    for satirlar in araca_gore.values():
+        if len(satirlar) > ust_sinir:
+            sonuc.extend(rng.sample(satirlar, ust_sinir))
+        else:
+            sonuc.extend(satirlar)
+    return sonuc
+
+
 def router_veri_setini_bol(
     router_satirlari: list[dict[str, Any]],
     sku_bolmeleri: dict[str, Bolme],
@@ -134,16 +184,11 @@ def router_veri_setini_bol(
     (ör. hem A3.2 hem A3.3 çıktısında aynı soru) yalnızca bir kez sayılır.
     """
     _oranlari_dogrula(oranlar)
-    görülen: set[str] = set()
     sonuc: dict[Bolme, list[dict[str, Any]]] = {"train": [], "val": [], "test": []}
 
-    for satir in router_satirlari:
+    for satir in router_satirlarini_tekillestir(router_satirlari):
         soru = satir["soru"]
-        if soru in görülen:
-            continue
-        görülen.add(soru)
-
-        sku_id = satir.get("parametreler", {}).get("sku_adi")
+        sku_id = satir.get("parametreler", {}).get("sku_id")
         if sku_id is not None and sku_id in sku_bolmeleri:
             bolme = sku_bolmeleri[sku_id]
         else:
@@ -168,8 +213,6 @@ def golden_set_adayi_olustur(
     elle eklenecek ek vakalar Kişi B ile birlikte yapılacak — bu fonksiyon
     yalnızca başlangıç noktası.
     """
-    import random
-
     rng = random.Random(seed)
 
     zorlayici_mi = [
@@ -187,8 +230,29 @@ def golden_set_adayi_olustur(
     for s in secilen_gerekce:
         s["kaynak"] = "gerekce"
 
+    # Saf rastgele örnekleme baskın araçları (siparis_onerisi_sorgula) tercih
+    # edip seyrek araçları (ör. onay_kuyrugu_sorgula) tamamen atlayabilir —
+    # gerçek Colab denemesinde tam olarak bu görüldü. Önce her araçtan en az
+    # bir taban pay garanti edilir, kalan bütçe rastgele doldurulur.
     router_hedefi = hedef - len(secilen_gerekce)
-    secilen_router = rng.sample(router_test, min(router_hedefi, len(router_test)))
+    araca_gore_router: dict[str, list[dict[str, Any]]] = {}
+    for satir in router_test:
+        araca_gore_router.setdefault(satir["arac"], []).append(satir)
+
+    taban_pay = max(1, router_hedefi // max(1, len(araca_gore_router)) // 2)
+    secilen_router: list[dict[str, Any]] = []
+    kalan_havuz: list[dict[str, Any]] = []
+    for satirlar in araca_gore_router.values():
+        pay = rng.sample(satirlar, min(taban_pay, len(satirlar)))
+        secilen_router.extend(pay)
+        kalan_havuz.extend(s for s in satirlar if s not in pay)
+
+    kalan_hedef = router_hedefi - len(secilen_router)
+    if kalan_hedef > 0 and kalan_havuz:
+        secilen_router.extend(rng.sample(kalan_havuz, min(kalan_hedef, len(kalan_havuz))))
+    elif kalan_hedef < 0:
+        secilen_router = rng.sample(secilen_router, router_hedefi)
+
     for s in secilen_router:
         s["kaynak"] = "router"
 
@@ -212,6 +276,7 @@ def _cli() -> None:
     ayristirici.add_argument("--cikti-dizini", default="data/egitim")
     ayristirici.add_argument("--seed", type=int, default=VARSAYILAN_SEED)
     ayristirici.add_argument("--golden-set-hedefi", type=int, default=VARSAYILAN_GOLDEN_SET_HEDEFI)
+    ayristirici.add_argument("--arac-ust-siniri", type=int, default=VARSAYILAN_ARAC_UST_SINIRI)
     args = ayristirici.parse_args()
 
     cikti_dizini = Path(args.cikti_dizini)
@@ -221,6 +286,27 @@ def _cli() -> None:
     router_satirlari: list[dict[str, Any]] = []
     for yol in args.router_girdileri:
         router_satirlari.extend(_jsonl_oku(Path(yol)))
+    router_satirlari = router_satirlarini_tekillestir(router_satirlari)
+
+    print("[A3.5] Dengeleme öncesi araç dağılımı:")
+    dagilim_once: dict[str, int] = {}
+    for satir in router_satirlari:
+        dagilim_once[satir["arac"]] = dagilim_once.get(satir["arac"], 0) + 1
+    for arac, n in sorted(dagilim_once.items(), key=lambda kv: -kv[1]):
+        print(f"  {arac}: {n}")
+
+    router_satirlari = router_verisini_dengele(
+        router_satirlari, ust_sinir=args.arac_ust_siniri, seed=args.seed
+    )
+
+    print()
+    print(f"[A3.5] Dengeleme sonrası (üst sınır {args.arac_ust_siniri}):")
+    dagilim_sonra: dict[str, int] = {}
+    for satir in router_satirlari:
+        dagilim_sonra[satir["arac"]] = dagilim_sonra.get(satir["arac"], 0) + 1
+    for arac, n in sorted(dagilim_sonra.items(), key=lambda kv: -kv[1]):
+        print(f"  {arac}: {n}")
+    print()
 
     tum_sku_idler = {s["sku_id"] for s in karar_noktalari}
     sku_bolmeleri = sku_bolmelerini_olustur(list(tum_sku_idler), seed=args.seed)

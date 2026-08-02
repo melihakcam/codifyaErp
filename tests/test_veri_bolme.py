@@ -95,7 +95,7 @@ def test_router_bolme_sku_baglantili_satir_sku_bolmesini_takip_eder():
         {
             "soru": "X ürünü için sipariş önerisi",
             "arac": "siparis_onerisi_sorgula",
-            "parametreler": {"sku_adi": "S-00001"},
+            "parametreler": {"sku_id": "S-00001"},
         },
     ]
     bolunmus = router_veri_setini_bol(router_satirlari, bolmeler)

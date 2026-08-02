@@ -174,7 +174,7 @@ def jsonl_yaz(df: pd.DataFrame, yol: Path) -> None:
 class AracTanimi:
     isim: str
     aciklama: str
-    varlik_turu: str  # "kategori" | "tedarikci_id" | "sku_adi" | "tarih_ifadesi" | "yok"
+    varlik_turu: str  # "kategori" | "tedarikci_id" | "sku_id" | "tarih_ifadesi" | "yok"
     sablonlar: tuple[str, ...]
 
 
@@ -250,7 +250,7 @@ ARAC_TANIMLARI: tuple[AracTanimi, ...] = (
     AracTanimi(
         isim="siparis_onerisi_sorgula",
         aciklama="Belirli bir ürün için sipariş kararını (miktar, tedarikçi, gerekçe) sorgular",
-        varlik_turu="sku_adi",
+        varlik_turu="sku_id",
         sablonlar=(
             "{varlik}için sipariş verilmesi gerekiyor mu?",
             "{varlik}için ne kadar sipariş vermeliyim?",
@@ -323,7 +323,7 @@ def _varlik_ifadesi(varlik_turu: str, goruntu: str) -> str:
         return "" if goruntu == "genel" else f"{goruntu} kategorisinde "
     if varlik_turu == "tedarikci_id":
         return "" if goruntu == "genel" else f"{goruntu} tedarikçisinin "
-    if varlik_turu in ("sku_adi", "tarih_ifadesi"):
+    if varlik_turu in ("sku_id", "tarih_ifadesi"):
         return f"{goruntu} "
     return ""
 
@@ -337,20 +337,23 @@ def _varlik_ornekle(
 ) -> list[tuple[str, str]]:
     """(görüntü_metni, parametre_değeri) çiftleri döner.
 
-    `sku_adi` için görüntü metni yalnızca isim OLAMAZ — katalogdaki ürün
+    `sku_id` için görüntü metni yalnızca isim OLAMAZ — katalogdaki ürün
     isimleri sınırlı sayıda şablon+marka kombinasyonundan üretildiği için
     (bkz. `simulator/catalog.py`) aynı isim onlarca farklı SKU'da tekrarlanır.
     Yalnızca isim kullanılsaydı `drop_duplicates` bu tekrarları eleyip veri
     setini hedeflenen ~30.000'in çok altına düşürüyordu (ilk denemede 1.884
     çıktı, beklenen ~24.000'in bir kısmı). Görüntü metnine SKU ID'sini de
     eklemek hem gerçekçidir (bir ERP kullanıcısı ürünü kodla da belirtebilir)
-    hem de benzersizliği garanti eder.
+    hem de benzersizliği garanti eder. `parametre_degeri` zaten hep SKU ID
+    taşıyordu (görüntü metni değil) — parametre anahtarı da buna uysun diye
+    `sku_adi` yerine `sku_id` kullanılıyor (bkz. B'nin bulduğu isimlendirme
+    tutarsızlığı, aciklama.md).
     """
     if varlik_turu == "kategori":
         return [(k, k) for k in (*KATEGORILER, "genel")]
     if varlik_turu == "tedarikci_id":
         return [(t, t) for t in (*tedarikci_df["tedarikci_id"].tolist(), "genel")]
-    if varlik_turu == "sku_adi":
+    if varlik_turu == "sku_id":
         n = min(sku_ornek_sayisi, len(sku_df))
         alt_kume = sku_df.sample(n=n, random_state=rng.integers(0, 2**31 - 1))
         return [
@@ -389,9 +392,7 @@ def router_veri_seti_uret(
                     parametreler = {}
                 else:
                     parametreler = {arac.varlik_turu: parametre_degeri}
-                kayitlar.append(
-                    {"soru": soru, "arac": arac.isim, "parametreler": parametreler}
-                )
+                kayitlar.append({"soru": soru, "arac": arac.isim, "parametreler": parametreler})
 
     df = pd.DataFrame(kayitlar).drop_duplicates(subset="soru").reset_index(drop=True)
     return df
@@ -413,7 +414,7 @@ def router_veri_seti_uret(
 PLACEHOLDER_TOKENLARI: dict[str, str] = {
     "kategori": "KATEGORI_ADI",
     "tedarikci_id": "TEDARIKCI_KODU",
-    "sku_adi": "URUN_ADI",
+    "sku_id": "URUN_ADI",
     "tarih_ifadesi": "ZAMAN_IFADESI",
     "yok": "",
 }
