@@ -1056,7 +1056,47 @@ ve Faz 3'teki eğitimin hedefi tam olarak bu.
 **Karar yolu etkilenmiyor:** gerekçe bozuk olsa bile karar, sayılar ve
 politika sonucu kural motorundan geliyor.
 
-Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4.
+#### İkinci tur: iki kusur da kapatıldı
+
+İlk ölçümdeki iki somut hatayı hedefleyen üç değişiklik yapıldı.
+
+**1. Sayısı sıfır olan kararlarda model hiç çağrılmıyor.** İki karar
+(`#1`, `#3`) tüm değerleri sıfırdı — talep 0, stok 0, eşik 0. Modelden
+"hiçbir şey yok" durumundan cümle istemek, olmayan bir **sebep** uydurmasını
+davet ediyordu ("stok yönetimi kurallarını taklit eden bir durumdur"). Guard
+yakalayamaz, uydurulan şey sayı değil. Artık bu kararlar doğrudan şablona
+gidiyor — hem doğru cümle çıkıyor hem model 2 kez daha az çalışıyor.
+
+**2. Kararın yönü modele söyleniyor.** Model `232 < 656,57` karşılaştırmasını
+yapamıyordu. Artık isteme hazır satır giriyor:
+
+```
+durum: kullanılabilir stok yeniden sipariş noktasının ALTINA düştü
+```
+
+Yön zaten kural motorunun kararından belli; 1.5B modelden aritmetik beklemek
+yerine sonucu vermek hem doğru hem ucuz. **Ters yön hatası kalmadı.**
+
+**3. Her karar tipine yalnızca kendi örneği gösteriliyor.** Bu, ara denemede
+öğrenilen bir ders: üç örneği birden verince sonuç **kötüleşti**. Model
+örnekleri harmanladı — sipariş kararının gerekçesi "tasfiye değerlendirilmeli"
+diye bitti, bir diğeri "sipariş açmaya gerek yoktur" dedi, yani kararın tam
+tersi. Tek örneğe inince karışma bitti.
+
+Kaydedilmeye değer: **örnek eklemek her zaman iyileştirmiyor.** Örnekler
+birbirine benziyorsa model aralarında sızıntı yapıyor.
+
+| | 1. ölçüm | 2. ölçüm |
+|---|---|---|
+| ortalama süre | 6,5 sn | **5,5 sn** |
+| ters yön hatası | 1 | **0** |
+| anlamsız metin | 2 | **0** |
+| örnek sızıntısı | — | 0 |
+
+Kalan kusurlar dil bilgisi düzeyinde ("%90 **oluyor**", devrik cümleler),
+olgusal hata değil.
+
+Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4 (iki bölüm).
 
 ### Sırada
 

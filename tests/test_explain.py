@@ -14,11 +14,12 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.contracts import DecisionCandidate, GuardSonucu
+from app.contracts import DecisionCandidate, GuardSonucu, KararTipi
 from app.core.config import Ayarlar
 from app.domain.stock.decide import decide_stub, stok_karari_uret
 from app.llm.client import OllamaIstemcisi
 from app.llm.explain import (
+    anlatilacak_sayi_var_mi,
     gerekce_uret,
     istem_kur,
     llm_ureteci,
@@ -114,6 +115,21 @@ def test_istem_sayilari_turkce_bicimde_veriyor():
 
 def test_istem_karar_tipini_tasiyor(aday: DecisionCandidate):
     assert aday.tip.value in istem_kur(aday)
+
+
+def test_istem_karar_yonunu_hazir_veriyor(aday: DecisionCandidate):
+    """⭐ Modelden `232 < 656,57` karşılaştırmasını beklemiyoruz.
+
+    Ölçümde tam bu koptu: model "656,57 adetlik yeniden sipariş noktasının
+    ÜSTÜNE ulaştı" yazdı, oysa karar `stok.siparis` — altına düşmüştü. Guard
+    sessiz kaldı çünkü iki sayı da izinliydi; uydurulan şey sayı değil ilişki.
+
+    Yön kural motorunun kararından zaten belli, hazır veriliyor.
+    """
+    assert "ALTINA düştü" in istem_kur(aday)  # stub bir sipariş kararı
+
+    yok = aday.model_copy(update={"tip": KararTipi.STOK_AKSIYON_YOK})
+    assert "ÜZERİNDE" in istem_kur(yok)
 
 
 def test_istem_urun_ve_tedarikci_adini_TASIMIYOR(aday: DecisionCandidate):
@@ -228,6 +244,46 @@ def test_uretici_protokole_uyuyor(aday: DecisionCandidate):
 
     assert uret(aday) == "Stok yeterli."
     assert uret(aday, onceki_red=[9999.0]) == "Stok yeterli."
+
+
+# --- Anlatacak sayısı olmayan kararlar ----------------------------------------
+
+
+def test_sayilari_olan_karar_modele_gidiyor(aday: DecisionCandidate):
+    assert anlatilacak_sayi_var_mi(aday)
+
+
+def test_tum_sayilari_sifir_olan_karar_modele_GITMIYOR(aday: DecisionCandidate):
+    """⭐ B2.4 ölçümünde 10 kararın 2'si böyleydi: talep 0, stok 0, ROP 0.
+
+    Modelden "hiçbir şey yok" durumundan cümle istemek, olmayan bir sebep
+    uydurmasını davet ediyor — ölçümde gerçekten öyle oldu ("stok yönetimi
+    kurallarını taklit eden bir durumdur"). Guard yakalayamaz, çünkü uydurulan
+    şey sayı değil sebep.
+    """
+    # Ölçümdeki iki vaka da `aksiyon_yok`'tu. `stok.siparis` için bu durum
+    # zaten imkânsız: sözleşme tedarik süresine `gt=0` koyuyor.
+    o = aday.ozellikler.model_copy(
+        update={"eldeki_stok": 0, "rezerve_stok": 0, "yoldaki_stok": 0, "ort_gunluk_talep": 0.0}
+    )
+    sifirli = aday.model_copy(
+        update={
+            "tip": KararTipi.STOK_AKSIYON_YOK,
+            "ozellikler": o,
+            "tetiklenen_kurallar": [],
+            "aksiyon": {},
+        }
+    )
+
+    assert not anlatilacak_sayi_var_mi(sifirli)
+
+    # İstemci hiç çağrılmamalı: cevap listesi boş, çağrılsa patlardı
+    istemci = _istemci([])
+    gerekce = gerekce_uret(sifirli, istemci)
+
+    assert gerekce.guard_sonucu is GuardSonucu.SABLONA_DUSTU
+    assert gerekce.model_adi is None
+    assert gerekce.uretim_ms == 0  # model çalışmadı
 
 
 # --- Gerçek karar motoruyla ---------------------------------------------------

@@ -393,3 +393,78 @@ politika sonucu kural motorundan geliyor. En kötü durumda şablona düşülür
 Aynı 10 karar, aynı tohum, eğitilmiş modelle. Bakılacaklar: `%90'ye` gibi ek
 hataları düzeldi mi, yön hatası (#10) kayboldu mu, sıfır değerli kararlarda
 (#1, #3) anlamlı cümle kuruluyor mu.
+
+## B2.4 · İkinci ölçüm — örnek başına karar tipi (2026-08-02)
+
+Birinci ölçümdeki iki kusur (`aksiyon_yok`'ta anlamsız metin, `#10`'da ters
+yön) hedeflenerek üç değişiklik yapıldı. Aynı 10 karar, aynı tohum.
+
+### Değişiklikler ve tek tek etkileri
+
+**1. Anlatacak sayısı olmayan kararlarda model hiç çağrılmıyor.**
+
+İki karar (`#1`, `#3`) tüm sayıları sıfırdı: talep 0, stok 0, ROP 0. Modelden
+"hiçbir şey yok" durumundan cümle istemek, olmayan bir **sebep** uydurmasını
+davet ediyordu:
+
+> "Bu durum, stok yönetimi kurallarını taklit eden bir durumdur."
+
+Guard yakalayamaz — uydurulan şey sayı değil. Artık `anlatilacak_sayi_var_mi()`
+bu kararları doğrudan şablona yönlendiriyor. **Model 2 kez daha az çalışıyor.**
+
+**2. Kararın yönü modele söyleniyor, hesaplatılmıyor.**
+
+Birinci ölçümde model `232 < 656,57` karşılaştırmasını yapamamış ve
+"noktasının ÜSTÜNE ulaştı" yazmıştı. Artık isteme hazır bir satır giriyor:
+
+```
+durum: kullanılabilir stok yeniden sipariş noktasının ALTINA düştü
+```
+
+Yön zaten kural motorunun kararından belli. 1.5B modelden aritmetik beklemek
+yerine sonucu vermek hem doğru hem ucuz. **Yön hatası kalmadı.**
+
+**3. Her karar tipine YALNIZCA kendi örneği gösteriliyor.**
+
+Ara denemede üç örnek birden verildi ve sonuç **daha kötü** oldu: model
+örnekleri harmanladı, sipariş kararının gerekçesi "tasfiye değerlendirilmeli"
+diye bitti, bir diğeri "sipariş açmaya gerek yoktur" dedi — kararın tam
+tersi. Tek örneğe inince karışma bitti.
+
+Bu ara adım kaydedilmeye değer: **few-shot örnek eklemek her zaman
+iyileştirmiyor.** Örnekler birbirine yakın biçimdeyse model aralarında sızıntı
+yapıyor.
+
+### Sonuç
+
+| ölçü | 1. ölçüm | 2. ölçüm |
+|---|---|---|
+| guard'dan geçen | 10/10 | 8/10 (+ 2 şablon, bilinçli) |
+| ortalama süre | 6,5 sn | **5,5 sn** |
+| ters yön hatası | 1 (`#10`) | **0** |
+| anlamsız metin | 2 (`#1`, `#3`) | **0** |
+| örnek sızıntısı | — | 0 |
+| uydurma ürün adı | 0 | 0 |
+
+Süre düştü çünkü istem kısaldı (üç örnek yerine bir) ve iki karar modele hiç
+gitmiyor.
+
+### Kalan kusurlar
+
+Hepsi dil bilgisi düzeyinde, olgusal hata değil:
+
+- "hedef servis seviyesi %90 **oluyor**" — zayıf fiil
+- "%85 olan sipariş öneriliyor" (`#8`) — devrik
+- `#10`'un son cümlesi dolgu
+
+Bunlar istemle çözülmez; **1.5B taban modelin Türkçe tavanı**. Faz 3'teki LoRA
+eğitimi bunun için var.
+
+### Not: şablonun kendi kusuru
+
+`#1` ve `#3` şablona düştüğünde çıkan cümle:
+
+> "kullanılabilir stok 0 adet ve yeniden sipariş noktasının üzerinde"
+
+ROP da 0 olduğu için teknik olarak doğru ama garip okunuyor. Şablon metni
+`sablon_gerekce()` içinde, düzeltilmesi ucuz — B2.4 kapsamı dışında bırakıldı.

@@ -86,7 +86,7 @@ def explain_stub(aday: DecisionCandidate) -> Gerekce:
 # B2.4 · Gerçek LLM üretimi
 # ---------------------------------------------------------------------------
 
-SISTEM_ISTEMI = """Sen bir stok yönetimi uzmanısın. Sana bir ürünün verileri \
+_KURALLAR = """Sen bir stok yönetimi uzmanısın. Sana bir ürünün verileri \
 verilir, sen o kararın gerekçesini açıklayan tek paragraf yazarsın.
 
 Kurallar:
@@ -96,12 +96,22 @@ Kurallar:
 3. 2-3 tam cümle. Başlık, liste, madde işareti kullanma.
 4. Verileri olduğu gibi sıralama; aralarındaki ilişkiyi açıkla.
 5. ÜRÜN ADI VE TEDARİKÇİ ADI YAZMA. Sadece "ürün" veya "bu kalem" de.
-6. Sade iş Türkçesi kullan.
+6. Sade iş Türkçesi kullan."""
 
-ÖRNEK
+# Her karar tipine YALNIZCA kendi örneği gösterilir.
+#
+# ⚠️ Üçü birden verildiğinde model örnekleri harmanlıyordu: sipariş kararının
+# gerekçesi "tasfiye değerlendirilmeli" diye bitiyor, bir diğeri "sipariş
+# açmaya gerek yoktur" diyordu — kararın tam tersi. Guard bunların hiçbirini
+# yakalayamaz, çünkü uydurulan şey sayı değil.
+#
+# Tek örnek ayrıca istemi kısaltıyor: daha az token, daha hızlı üretim.
+_ORNEKLER: dict[KararTipi, str] = {
+    KararTipi.STOK_SIPARIS: """ÖRNEK
 
 VERİLER:
 karar: stok.siparis
+durum: kullanılabilir stok yeniden sipariş noktasının ALTINA düştü
 günlük ortalama talep (adet): 42
 tedarik süresi (gün): 12
 kullanılabilir stok (adet): 270
@@ -112,7 +122,42 @@ GEREKÇE:
 Günlük ortalama 42 adet tüketim ve 12 günlük tedarik süresi karşısında \
 kullanılabilir stok 270 adede inerek 615 adetlik yeniden sipariş noktasının \
 altına düştü. Tedarik süresi boyunca stoksuz kalmamak için 1.200 adet sipariş \
-öneriliyor."""
+öneriliyor.""",
+    KararTipi.STOK_TASFIYE: """ÖRNEK
+
+VERİLER:
+karar: stok.tasfiye
+durum: ürün uzun süredir hiç hareket görmedi
+son hareketten bu yana geçen gün: 216
+eldeki stok (adet): 12
+birim maliyet (TL): 225,62
+bağlı sermaye (TL): 2.707,43
+
+GEREKÇE:
+Ürün 216 gündür hiç hareket görmedi ve elde kalan 12 adet, birim maliyeti \
+225,62 TL üzerinden 2.707,43 TL'lik sermayeyi bağlıyor. Talep geri dönmediği \
+sürece bu tutar atıl kalacağından tasfiye değerlendirilmeli.""",
+    KararTipi.STOK_AKSIYON_YOK: """ÖRNEK
+
+VERİLER:
+karar: stok.aksiyon_yok
+durum: kullanılabilir stok yeniden sipariş noktasının ÜZERİNDE
+kullanılabilir stok (adet): 480
+günlük ortalama talep (adet): 12
+yeniden sipariş noktası (adet): 260
+
+GEREKÇE:
+Kullanılabilir 480 adetlik stok, 260 adetlik yeniden sipariş noktasının \
+üzerinde seyrediyor. Günlük ortalama 12 adetlik tüketim hızıyla mevcut stok \
+yeterli olduğundan şu aşamada sipariş açmaya gerek yok.""",
+}
+
+
+def sistem_istemi(tip: KararTipi) -> str:
+    """Kurallar + o karar tipine ait tek örnek."""
+    ornek = _ORNEKLER.get(tip)
+    return f"{_KURALLAR}\n\n{ornek}" if ornek else _KURALLAR
+
 
 # Karar tipine göre gerekçede işi olan sayılar — özellik, kural değeri ve
 # aksiyon ayrımı yapmadan, tek bir izin listesi.
@@ -155,6 +200,22 @@ _ETIKETLER: dict[str, str] = {
     "siparis_miktari": "önerilen sipariş miktarı (adet)",
     "rop": "yeniden sipariş noktası (adet)",
     "hedef_servis_seviyesi": "hedef servis seviyesi",
+}
+
+
+# Kararın yönünü modele **söylüyoruz**, hesaplatmıyoruz.
+#
+# ⚠️ B2.4 ölçümünde model `232 < 656,57` karşılaştırmasını yapamadı ve
+# "656,57 adetlik yeniden sipariş noktasının ÜSTÜNE ulaştı" yazdı — oysa karar
+# `stok.siparis`, yani altına düşmüştü. Guard sessiz kaldı, çünkü iki sayı da
+# izinliydi; uydurulan şey sayı değil **ilişki**.
+#
+# Yön zaten kural motorunun verdiği karardan belli. 1.5B modelden aritmetik
+# beklemek yerine sonucu hazır vermek hem doğru hem ucuz.
+_DURUM_IFADELERI: dict[KararTipi, str] = {
+    KararTipi.STOK_SIPARIS: "kullanılabilir stok yeniden sipariş noktasının ALTINA düştü",
+    KararTipi.STOK_AKSIYON_YOK: "kullanılabilir stok yeniden sipariş noktasının ÜZERİNDE",
+    KararTipi.STOK_TASFIYE: "ürün uzun süredir hiç hareket görmedi",
 }
 
 
@@ -235,11 +296,11 @@ def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) ->
     """
     satirlar = [f"{_etiketle(ad)}: {_tr_sayi(deger)}" for ad, deger in sayi_etiketleri(aday)]
 
-    parcalar = [
-        "VERİLER:",
-        f"karar: {aday.tip.value}",
-        *satirlar,
-    ]
+    parcalar = ["VERİLER:", f"karar: {aday.tip.value}"]
+    durum = _DURUM_IFADELERI.get(aday.tip)
+    if durum:
+        parcalar.append(f"durum: {durum}")
+    parcalar += satirlar
 
     if onceki_red:
         yasak = ", ".join(_tr_sayi(s) for s in onceki_red)
@@ -252,6 +313,21 @@ def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) ->
     parcalar += ["", "GEREKÇE:"]
 
     return "\n".join(parcalar)
+
+
+def anlatilacak_sayi_var_mi(aday: DecisionCandidate) -> bool:
+    """İsteme konacak sayıların hepsi sıfır mı?
+
+    B2.4 ölçümünde 10 kararın 2'si böyleydi: talep 0, stok 0, yeniden sipariş
+    noktası 0. Modelden "hiçbir şey yok" durumundan anlamlı bir cümle kurmasını
+    istemek, olmayan bir sebep uydurmasını davet ediyor. Gerçekten öyle oldu:
+
+        "Bu durum, stok yönetimi kurallarını taklit eden bir durumdur."
+
+    Guard bunu yakalayamaz — cümlede uydurma sayı yok, uydurulan şey **sebep**.
+    Bu kararlarda şablon hem doğru hem anlaşılır, üstelik model hiç çalışmıyor.
+    """
+    return any(deger != 0 for _, deger in sayi_etiketleri(aday))
 
 
 def llm_ureteci(
@@ -271,7 +347,7 @@ def llm_ureteci(
             istemci,
             GerekceCiktisi,
             istem_kur(aday, onceki_red),
-            sistem=SISTEM_ISTEMI,
+            sistem=sistem_istemi(aday.tip),
             sicaklik=sicaklik,
             tohum=tohum,
         )
@@ -298,7 +374,13 @@ def gerekce_uret(
     İkisi farklı arızalar: ilki modelin biçim hatası, ikincisi içerik hatası.
     En kötü durumda 4 model çağrısı olur; ölçümlerde şema uyumu yüksek
     olduğu için pratikte 1-2 çağrı görülüyor.
+
+    Anlatacak sayısı olmayan kararlarda (bkz. `anlatilacak_sayi_var_mi`) model
+    hiç çağrılmaz, doğrudan şablon döner.
     """
+    if not anlatilacak_sayi_var_mi(aday):
+        return explain_stub(aday)
+
     return gerekceyi_guvenceye_al(
         aday,
         llm_ureteci(istemci, sicaklik=sicaklik, tohum=tohum),
