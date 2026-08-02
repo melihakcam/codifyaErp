@@ -77,3 +77,53 @@ def test_izinli_sayilar_uydurma_sayiyi_icermez():
     izinli = decide_stub().izinli_sayilar()
     assert 9999.0 not in izinli
     assert 73.5 not in izinli
+
+
+def test_izinli_sayilar_adet_alani_1_iken_100_uretmez():
+    """Regresyon: Kişi B'nin B2.5 guard incelemesinde bulduğu kusur.
+
+    ×100 karşılığı eskiden değere (0-1 aralığı) göre ekleniyordu; bu da
+    `son_hareket_gun_once` gibi bir adet/gün alanı 1 değerini aldığında
+    "%100" sayısını yanlışlıkla izinli hale getiriyordu — 2.000 SKU'lu bir
+    katalogda dün hareket görmüş her ürün bu durumdaydı. ×100 artık yalnızca
+    `ORAN_ALANLARI`'nda adı geçen alanlar için üretilir.
+
+    `paket_adedi` stub'da varsayılan olarak 100 olduğundan (100'ün başka
+    meşru kaynağı), önce 250'ye çekilir — Kişi B'nin orijinal doğrulamasıyla
+    aynı izolasyon.
+    """
+    stub = decide_stub()
+    temel_ozellik = stub.ozellikler.model_copy(update={"paket_adedi": 250})
+    temel_aday = stub.model_copy(update={"ozellikler": temel_ozellik})
+    assert 100.0 not in temel_aday.izinli_sayilar(), "paket_adedi=250 iken 100 izinli olmamalı"
+
+    ozellikler_1 = temel_ozellik.model_copy(update={"son_hareket_gun_once": 1})
+    aday = stub.model_copy(update={"ozellikler": ozellikler_1})
+    assert 100.0 not in aday.izinli_sayilar()
+
+    for alan in ("yoldaki_stok", "rezerve_stok", "veri_gun_sayisi", "moq", "eldeki_stok"):
+        ozellik_guncel = temel_ozellik.model_copy(update={alan: 1})
+        aday_guncel = stub.model_copy(update={"ozellikler": ozellik_guncel})
+        assert 100.0 not in aday_guncel.izinli_sayilar(), f"{alan}=1 iken 100 izinli olmamalı"
+
+
+def test_izinli_sayilar_oran_sinir_degerlerinde_dogru_calisir():
+    """Oranın kendisi gerçekten 1.0 (%100) veya 0.0 (%0) ise bu meşrudur."""
+    stub = decide_stub()
+
+    tam_teslimat = stub.ozellikler.model_copy(update={"tedarikci_zamaninda_teslim_orani": 1.0})
+    assert 100.0 in stub.model_copy(update={"ozellikler": tam_teslimat}).izinli_sayilar()
+
+    hic_teslimat_yok = stub.ozellikler.model_copy(
+        update={"tedarikci_zamaninda_teslim_orani": 0.0}
+    )
+    assert 0.0 in stub.model_copy(update={"ozellikler": hic_teslimat_yok}).izinli_sayilar()
+
+
+def test_izinli_sayilar_guven_kumede_yok():
+    """Güven skoru iş kullanıcısına gösterilecek bir sayı değil — LLM'in
+    gerekçede güveni yüzde olarak kullanamaması bilinçli bir tercihtir."""
+    aday = decide_stub()
+    izinli = aday.izinli_sayilar()
+    assert aday.guven not in izinli
+    assert aday.guven * 100 not in izinli
