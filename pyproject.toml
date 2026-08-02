@@ -67,6 +67,9 @@ ignore = [
 # Notebook'larda repo kökünü sys.path'e eklemek importlardan önce gelir —
 # bu yaygın ve kasıtlı bir desendir.
 "notebooks/**/*.ipynb" = ["E402", "I001"]
+# Colab notebook'larındaki prompt satırları modele gönderilen cümleler —
+# bölmek prompt'u ve modelin davranışını değiştirir, kod değil.
+"training/**/*.ipynb" = ["E402", "I001", "E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

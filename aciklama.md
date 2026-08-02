@@ -519,3 +519,26 @@ katalogda dün hareket görmüş her ürün bu durumdaydı). Düzeltme: `ORAN_AL
 adlı açık bir liste eklendi, ×100 karşılığı yalnızca gerçek oran alanları için
 üretiliyor artık. Ayrı bir `fix-izinli-sayilar-oran-alanlari` branch'ine
 push edildi (bu dosya ortak/dondurulmuş olduğu için).
+
+**Kişi B'nin SP1 incelemesinde flag'lediği 3 açık `StockFeatures` konusu
+kesinleştirildi** (`app/domain/stock/features.py`, Kişi A tarafında karara
+bağlandı, B'ye danışmaya gerek kalmadı):
+
+1. **`tedarikci_onayli`** — zaten `decide.py`'nin gerçek `tedarikci_skoru_hesapla()`
+   (A2.5) çıktısını kullandığı doğrulandı; `TEDARIKCI_ONAY_ESIGI = 70.0`
+   eşiği gerçek veriyle test edildi: sağlıklı (patolojisiz) koşuda 60
+   tedarikçinin skoru 89,6-93,2 arasında (hiçbiri eşiğin altına düşmüyor),
+   tedarikçi gecikmesi patolojisi enjekte edilince en kötüler 42-52'ye
+   düşüyor. Eşik doğru yerde duruyor — ama **mevcut A3.1 eğitim verisi
+   patolojisiz üretildiği için `tedarikci_onayli=False` durumu training
+   setinde hiç görülmüyor.** Bu bir hata değil, bilinen bir kapsam
+   sınırlaması olarak dokümante edildi (A2.8'deki demand-spike
+   sınırlamasıyla aynı kategoride) — ileride istenirse A3.1 patolojili bir
+   koşuyla genişletilebilir, ama şimdilik kapsam dışı bırakıldı.
+2. **`raf_omru_kalan_gun`** — simülatör parti/lot bazlı yaşlandırma
+   tutmadığı için kategori tipik raf ömrü kullanılıyor; ölü stok tespiti
+   asıl sinyali gerçek `son_hareket_gun_once`'tan aldığı için bu basit
+   kalması işlevsel bir sorun yaratmıyor. Nihai karar: değişmeyecek.
+3. **`rezerve_stok`** — simülatörün olay döngüsü aynı gün sevkiyat yaptığı
+   için yapısal olarak hep 0; ayrı bir rezervasyon kuyruğu eklemek mevcut
+   simülatörün kapsamının dışında. Nihai karar: değişmeyecek.
