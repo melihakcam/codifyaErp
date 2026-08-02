@@ -468,3 +468,84 @@ eğitimi bunun için var.
 
 ROP da 0 olduğu için teknik olarak doğru ama garip okunuyor. Şablon metni
 `sablon_gerekce()` içinde, düzeltilmesi ucuz — B2.4 kapsamı dışında bırakıldı.
+
+## B2.4 · Üçüncü ölçüm — örnek cilası + cümle kırpma (2026-08-02)
+
+İkinci ölçümde kalan kusur dil bilgisi düzeyindeydi: zayıf fiiller, devrik
+cümleler, dolgu üçüncü cümle. İki değişiklik yapıldı.
+
+### 1. Örnek cümleler iyileştirildi
+
+Ölçümün en net bulgusu: **model örneği neredeyse kelimesi kelimesine
+kopyalıyor.**
+
+```
+ornek     : "elde kalan 12 adet, birim maliyeti 225,62 TL uzerinden
+             2.707,43 TL'lik sermayeyi bagliyor"
+cikti #5  : "elde kalan  6 adet, birim maliyeti 312,94 TL uzerinden
+             1.877,61 TL'lik sermayeyi bagliyor"
+```
+
+Tasfiye çıktıları iyiydi çünkü tasfiye örneği iyiydi; sipariş çıktıları zayıftı
+çünkü sipariş örneğinin sonu zayıftı. Örnek yeniden yazıldı:
+
+> **eski:** "...Tedarik süresi boyunca stoksuz kalmamak için 1.200 adet
+> sipariş öneriliyor."
+> **yeni:** "...Günlük 42 adetlik tüketim hızıyla eldeki miktar 12 günlük
+> tedarik süresini karşılamadığından 1.200 adet sipariş açılması öneriliyor."
+
+Sonuç doğrudan yansıdı — `#6`, `#7`, `#8` bu kalıbı aldı.
+
+**Genel ilke: few-shot örneği bir talimat değil, bir kalıptır. Ne yazarsan onu
+alırsın.** Örneği iyileştirmek bu aşamada en ucuz ve en güvenilir kaldıraç.
+
+### 2. Üçüncü cümle kırpılıyor
+
+"EN FAZLA 2 cümle" talimatı **ve** `num_predict=160` sınırı birlikte bile
+yetmedi; model kuralı kabul edip yine de dolgu cümle ekledi:
+
+> "...60 adet sipariş açılması öneriliyor. **Bu durumda hedef servis seviyesi
+> %90'ı karşılayacak şekilde bir sipariş oluşturuluyor.**"
+
+Modele yalvarmak yerine `ilk_cumleleri_al()` ile kırpıldı. Deterministik,
+bedava, geri tepmesi yok.
+
+⚠️ Cümle bölme Türkçede naif `split(".")` ile yapılamaz — `2.707,43` binlik
+ayracı da nokta. Desen noktadan sonra **boşluk + büyük harf** arıyor;
+`2.707,43` ve `12.5mm` bölünmüyor. Üçü de teste bağlı.
+
+Kırpma guard'dan **önce** yapılıyor: atılan cümlede uydurma sayı varsa zaten
+kullanıcıya gitmiyor, guard'ın onu görüp iyi olan ilk iki cümleyi şablona
+düşürmesi gereksiz kayıp olurdu.
+
+### Sonuç — üç ölçümün karşılaştırması
+
+| ölçü | 1. | 2. | 3. |
+|---|---|---|---|
+| ortalama süre | 6,5 sn | 5,5 sn | **5,1 sn** |
+| ters yön hatası | 1 | 0 | 0 |
+| anlamsız metin | 2 | 0 | 0 |
+| örnek sızıntısı | — | 0 | 0 |
+| dolgu 3. cümle | 2 | 5 | **0** |
+| uydurma ürün adı | 0 | 0 | 0 |
+
+### Nitelik (insan okuması)
+
+| | sayı |
+|---|---|
+| akıcı, mantığı doğru | 6 |
+| anlaşılır, hafif devrik | 2 (`#9`, `#10`) |
+| şablon (bilinçli) | 2 (`#1`, `#3`) |
+| yanlış / anlamsız | **0** |
+
+Kalan kusurlar: `#9`'da "önerilen sipariş miktarı 32 adet **öneriliyor**"
+(fiil tekrarı), `#10`'un ikinci cümlesi devrik. İkisi de anlaşılıyor.
+
+### Buradan sonrası
+
+Bu nokta **1.5B taban modelin tavanı** sayılmalı. Bugün 0/10 kullanılabilir
+metinden buraya gelindi ve son iki turda kazanç belirgin şekilde azaldı.
+Kalan devrik cümleler istemle değil, eğitimle düzelir.
+
+B3.5'te aynı 10 karar aynı tohumla tekrarlanacak; karşılaştırma tabanı
+bu tablodur.

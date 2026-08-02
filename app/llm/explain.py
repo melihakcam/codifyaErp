@@ -16,6 +16,7 @@ Türkçe cümle yazılır.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 from app.contracts import ORAN_ALANLARI, DecisionCandidate, Gerekce, GuardSonucu, KararTipi
@@ -93,7 +94,7 @@ Kurallar:
 1. YALNIZCA sana verilen sayıları kullan. Yeni sayı üretme, toplama \
 çıkarma yapma, tahmin etme.
 2. Sayıları sana verildiği biçimde yaz (1.200, 4,75, %94).
-3. 2-3 tam cümle. Başlık, liste, madde işareti kullanma.
+3. EN FAZLA 2 cümle yaz. Başlık, liste, madde işareti kullanma.
 4. Verileri olduğu gibi sıralama; aralarındaki ilişkiyi açıkla.
 5. ÜRÜN ADI VE TEDARİKÇİ ADI YAZMA. Sadece "ürün" veya "bu kalem" de.
 6. Sade iş Türkçesi kullan."""
@@ -119,10 +120,9 @@ yeniden sipariş noktası (adet): 615
 önerilen sipariş miktarı (adet): 1.200
 
 GEREKÇE:
-Günlük ortalama 42 adet tüketim ve 12 günlük tedarik süresi karşısında \
-kullanılabilir stok 270 adede inerek 615 adetlik yeniden sipariş noktasının \
-altına düştü. Tedarik süresi boyunca stoksuz kalmamak için 1.200 adet sipariş \
-öneriliyor.""",
+Kullanılabilir stok 270 adede inerek 615 adetlik yeniden sipariş noktasının \
+altına düştü. Günlük 42 adetlik tüketim hızıyla eldeki miktar 12 günlük \
+tedarik süresini karşılamadığından 1.200 adet sipariş açılması öneriliyor.""",
     KararTipi.STOK_TASFIYE: """ÖRNEK
 
 VERİLER:
@@ -136,7 +136,7 @@ bağlı sermaye (TL): 2.707,43
 GEREKÇE:
 Ürün 216 gündür hiç hareket görmedi ve elde kalan 12 adet, birim maliyeti \
 225,62 TL üzerinden 2.707,43 TL'lik sermayeyi bağlıyor. Talep geri dönmediği \
-sürece bu tutar atıl kalacağından tasfiye değerlendirilmeli.""",
+sürece bu tutar atıl kalacağından tasfiye değerlendirilmesi öneriliyor.""",
     KararTipi.STOK_AKSIYON_YOK: """ÖRNEK
 
 VERİLER:
@@ -148,8 +148,8 @@ yeniden sipariş noktası (adet): 260
 
 GEREKÇE:
 Kullanılabilir 480 adetlik stok, 260 adetlik yeniden sipariş noktasının \
-üzerinde seyrediyor. Günlük ortalama 12 adetlik tüketim hızıyla mevcut stok \
-yeterli olduğundan şu aşamada sipariş açmaya gerek yok.""",
+üzerinde seyrediyor. Günlük 12 adetlik tüketim hızıyla mevcut miktar yeterli \
+olduğundan şu aşamada sipariş açılması gerekmiyor.""",
 }
 
 
@@ -157,6 +157,29 @@ def sistem_istemi(tip: KararTipi) -> str:
     """Kurallar + o karar tipine ait tek örnek."""
     ornek = _ORNEKLER.get(tip)
     return f"{_KURALLAR}\n\n{ornek}" if ornek else _KURALLAR
+
+
+# İki cümlelik Türkçe gerekçe + JSON sarmalı için üst sınır.
+#
+# ⚠️ Bu bir kalite aracı, kaynak tasarrufu değil. "En fazla 2 cümle" talimatı
+# tek başına yetmiyordu: model kuralı kabul edip yine de üçüncü bir dolgu
+# cümlesi ekliyordu ("...bu durumun hedef servis seviyesine uygun oluyor").
+# Bütçeyi kısınca üçüncü cümleye hiç başlayamıyor.
+#
+# Cümle ortasında kesilme riski var; kesilirse JSON bozulur, şema hatası
+# olur ve zincir şablona düşer. Yani en kötü durum guard'ın zaten kapsadığı
+# durum — kullanıcıya yarım cümle gitmez.
+GEREKCE_MAX_TOKEN = 160
+
+MAX_CUMLE = 2
+
+# Cümle sonu: nokta + boşluk + BÜYÜK harf, ya da metnin sonundaki nokta.
+#
+# ⚠️ Naif bir `split(".")` Türkçede çalışmaz: `2.707,43` binlik ayracı da
+# nokta. Buradaki desen noktadan sonra boşluk ARIYOR, `2.707` içindeki nokta
+# boşluksuz olduğu için bölmüyor. Büyük harf koşulu da `12.5mm` gibi ürün
+# ölçülerini koruyor.
+_CUMLE_SONU = re.compile(r"(?<=[.!?])\s+(?=[A-ZÇĞİÖŞÜ])")
 
 
 # Karar tipine göre gerekçede işi olan sayılar — özellik, kural değeri ve
@@ -315,6 +338,26 @@ def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) ->
     return "\n".join(parcalar)
 
 
+def ilk_cumleleri_al(metin: str, en_fazla: int = MAX_CUMLE) -> str:
+    """Metni ilk `en_fazla` cümleye kırpar.
+
+    "En fazla 2 cümle" talimatı ve `num_predict` sınırı tek başına yetmedi:
+    model kuralı kabul edip yine de üçüncü bir dolgu cümlesi ekliyordu.
+
+        "...60 adet sipariş açılması öneriliyor. Bu durumda hedef servis
+         seviyesi %90'ı karşılayacak şekilde bir sipariş oluşturuluyor."
+
+    İkinci cümle kararı açıklıyor, üçüncüsü hiçbir şey söylemiyor. Modele
+    yalvarmak yerine kırpmak deterministik ve bedava.
+
+    ⚠️ Kırpma guard'dan **önce** yapılıyor. Atılan cümlede uydurma sayı varsa
+    zaten kullanıcıya gitmiyor; guard'ın onu görüp metni şablona düşürmesi
+    gereksiz bir kayıp olurdu.
+    """
+    parcalar = _CUMLE_SONU.split(metin.strip())
+    return " ".join(parcalar[:en_fazla]).strip()
+
+
 def anlatilacak_sayi_var_mi(aday: DecisionCandidate) -> bool:
     """İsteme konacak sayıların hepsi sıfır mı?
 
@@ -348,10 +391,11 @@ def llm_ureteci(
             GerekceCiktisi,
             istem_kur(aday, onceki_red),
             sistem=sistem_istemi(aday.tip),
+            max_token=GEREKCE_MAX_TOKEN,
             sicaklik=sicaklik,
             tohum=tohum,
         )
-        return sonuc.deger.gerekce
+        return ilk_cumleleri_al(sonuc.deger.gerekce)
 
     return uret
 

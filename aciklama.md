@@ -1093,10 +1093,52 @@ birbirine benziyorsa model aralarında sızıntı yapıyor.
 | anlamsız metin | 2 | **0** |
 | örnek sızıntısı | — | 0 |
 
-Kalan kusurlar dil bilgisi düzeyinde ("%90 **oluyor**", devrik cümleler),
-olgusal hata değil.
+#### Üçüncü tur: örnek cilası + cümle kırpma
 
-Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4 (iki bölüm).
+Kalan kusurlar dil bilgisi düzeyindeydi. İki şey yapıldı.
+
+**1. Örnek cümleler iyileştirildi.** Ölçümün en net bulgusu şu: model örneği
+**neredeyse kelimesi kelimesine kopyalıyor.**
+
+```
+ornek     : "elde kalan 12 adet, birim maliyeti 225,62 TL uzerinden
+             2.707,43 TL'lik sermayeyi bagliyor"
+cikti #5  : "elde kalan  6 adet, birim maliyeti 312,94 TL uzerinden
+             1.877,61 TL'lik sermayeyi bagliyor"
+```
+
+Tasfiye çıktıları iyiydi çünkü tasfiye örneğim iyiydi. Sipariş örneğini daha
+iyi Türkçeyle yeniden yazdım, sonuç doğrudan yansıdı.
+
+**Genel ilke: few-shot örneği bir talimat değil, bir kalıptır. Ne yazarsan onu
+alırsın.**
+
+**2. Üçüncü cümle kırpılıyor.** "En fazla 2 cümle" talimatı **ve** token
+sınırı birlikte bile yetmedi; model kuralı kabul edip yine de dolgu cümle
+ekliyordu:
+
+> "...60 adet sipariş açılması öneriliyor. **Bu durumda hedef servis seviyesi
+> %90'ı karşılayacak şekilde bir sipariş oluşturuluyor.**"
+
+Modele yalvarmak yerine kırptım. Deterministik ve bedava.
+
+Küçük bir tuzak vardı: Türkçede cümleyi `split(".")` ile bölemezsin, çünkü
+`2.707,43` içindeki de nokta. Desen noktadan sonra **boşluk + büyük harf**
+arıyor; `2.707,43` ve `12.5mm` bölünmüyor. Üçü de teste bağlı.
+
+| ölçü | 1. tur | 2. tur | 3. tur |
+|---|---|---|---|
+| ortalama süre | 6,5 sn | 5,5 sn | **5,1 sn** |
+| ters yön hatası | 1 | 0 | 0 |
+| anlamsız metin | 2 | 0 | 0 |
+| dolgu 3. cümle | 2 | 5 | **0** |
+| yanlış metin | — | — | **0** |
+
+Bu nokta **1.5B taban modelin tavanı** sayılmalı: bugün 0/10 kullanılabilir
+metinden buraya gelindi ve son iki turda kazanç belirgin şekilde azaldı.
+Kalan devrik cümleler istemle değil, Faz 3'teki eğitimle düzelir.
+
+Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4 (üç bölüm).
 
 ### Sırada
 

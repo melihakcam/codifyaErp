@@ -21,6 +21,7 @@ from app.llm.client import OllamaIstemcisi
 from app.llm.explain import (
     anlatilacak_sayi_var_mi,
     gerekce_uret,
+    ilk_cumleleri_al,
     istem_kur,
     llm_ureteci,
     sayi_etiketleri,
@@ -244,6 +245,69 @@ def test_uretici_protokole_uyuyor(aday: DecisionCandidate):
 
     assert uret(aday) == "Stok yeterli."
     assert uret(aday, onceki_red=[9999.0]) == "Stok yeterli."
+
+
+# --- Cümle kırpma -------------------------------------------------------------
+
+
+def test_ucuncu_cumle_kirpiliyor():
+    """⭐ "En fazla 2 cümle" talimatı da token sınırı da yetmedi.
+
+    Model kuralı kabul edip yine de dolgu bir üçüncü cümle ekliyordu. Modele
+    yalvarmak yerine kırpmak deterministik ve bedava.
+    """
+    metin = (
+        "Kullanılabilir stok 10 adede inerek altına düştü. "
+        "Günlük 0,31 adetlik tüketimle 60 adet sipariş öneriliyor. "
+        "Bu durumda hedef servis seviyesi %90'ı karşılayacak şekilde oluşuyor."
+    )
+
+    kirpilmis = ilk_cumleleri_al(metin)
+
+    assert kirpilmis.endswith("60 adet sipariş öneriliyor.")
+    assert "hedef servis" not in kirpilmis
+
+
+def test_binlik_ayraci_cumle_sonu_sanilmiyor():
+    """⚠️ Naif `split(".")` Türkçede çalışmaz: 2.707,43 içindeki nokta da nokta.
+
+    Desen noktadan sonra boşluk arıyor; binlik ayracında boşluk yok.
+    """
+    metin = "Elde kalan 12 adet 2.707,43 TL'lik sermayeyi bağlıyor. Tasfiye öneriliyor."
+
+    assert ilk_cumleleri_al(metin) == metin
+
+
+def test_urun_olculeri_bolunmuyor():
+    """`Alçıpan 12.5mm` gibi ölçüler cümle sonu sanılmamalı."""
+    metin = "Alçıpan 12.5mm için 60 adet sipariş öneriliyor."
+
+    assert ilk_cumleleri_al(metin) == metin
+
+
+def test_iki_cumleden_kisa_metin_bozulmuyor():
+    metin = "Stok yeterli, aksiyon gerekmiyor."
+
+    assert ilk_cumleleri_al(metin) == metin
+
+
+def test_kirpma_guarddan_once_yapiliyor(aday: DecisionCandidate):
+    """Atılan cümledeki uydurma sayı guard'a hiç ulaşmamalı.
+
+    Ulaşsaydı guard metni reddeder ve iyi olan ilk iki cümle boşuna şablona
+    düşerdi — kullanıcıya zaten gitmeyecek bir cümle yüzünden.
+    """
+    metin = (
+        "Günlük 42 adet tüketim var. "
+        "Kullanılabilir stok 270 adede düştü. "
+        "Toplam 9999 adet uydurma sayı burada."
+    )
+    istemci = _istemci([_cevap(metin)])
+
+    gerekce = gerekce_uret(aday, istemci)
+
+    assert gerekce.guard_sonucu is GuardSonucu.GECTI
+    assert "9999" not in gerekce.metin
 
 
 # --- Anlatacak sayısı olmayan kararlar ----------------------------------------
