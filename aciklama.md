@@ -1309,24 +1309,53 @@ ilk giren PR'da):
 `notebooks/**/*.ipynb` satırını eklemişti. Çözüm: **iki satırı da tut**, ama
 aynı anahtarı iki kez yazma (TOML yinelenen anahtar kabul etmez).
 
-## Açık konular
+## Açık konular (2026-08-03 itibarıyla güncellendi)
 
-**1. `StockFeatures`'ta üç alanın kaynağı yok** (Kişi B'nin SP1 incelemesinden):
+**1. ✅ Kapandı — `StockFeatures`'ta üç alanın kaynağı.** Kişi A kesinleştirdi:
+`tedarikci_onayli` eşiği (70.0) gerçek veriyle doğrulandı, `raf_omru_kalan_gun`
+ve `rezerve_stok` mevcut haliyle nihai karar olarak işaretlendi (detay
+yukarıda, A3.5 sonrası bölümünde).
 
-- `tedarikci_onayli` — **güvenlik kapısı girdisi**, tedarikçi onaylı değilse
-  karar tutarı ne olursa olsun onaya gidiyor. Simülatörde `guvenilirlik`
-  (0-1 sürekli) var ama boolean onay bayrağı yok.
-- `raf_omru_kalan_gun` — tabloda statik raf ömrü var, parti giriş tarihi yok.
-- `rezerve_stok` — olay döngüsü aynı gün sevk ettiği için yapısal olarak 0.
+**2. ✅ Kapandı — A3.5** (train/val/test bölme + golden set adayı). SKU bazlı
+bölme, sızıntı yok, golden set 7/7 araç kapsıyor. **Yalnızca golden set'in
+nihai onayı** ("ikiniz birlikte 300-500 örneği elle gözden geçirin") hâlâ
+bekliyor — bu, tanım gereği tek başına kapatılamayan tek adım.
 
-**2. A3.5** (train/val/test bölme + golden set) — Kişi B'nin router şemasını
-bekliyor.
+**3. ⬜ Hâlâ açık — `decisions.py` hâlâ `decide_stub()` çağırıyor.** Merge
+sonrası kontrol edildi, gerçek `stok_karari_uret()`/`gerekce_uret()`'e geçiş
+henüz yapılmadı. Kişi B'nin kararı — muhtemelen Faz 3 (LoRA) tamamlanınca,
+gerçek üretilmiş model hazır olduğunda yapılması mantıklı.
 
-**3. `decisions.py` hâlâ `decide_stub()` çağırıyor** — Kişi A'nın
-`stok_karari_uret()`'ine geçiş SP2'de yapılacak, tek satırlık değişiklik.
+**4. ✅ Kapandı — A3.2'deki 7 araç listesi.** Kişi B gerçek router şemasını
+(`app/llm/schemas.py::AracAdi`) A3.2'nin geçici listesiyle **birebir aynı**
+tutarak yazdı — yeniden üretmeye gerek kalmadı. Tek fark: `sku_adi` parametre
+anahtarı `sku_id` olarak düzeltildi (içerik zaten SKU koduydu), iki taraf da
+buna göre hizalandı.
 
-**4. A3.2'deki 7 araç listesi geçici** — Kişi B gerçek router şemasını yazınca
-veri seti yeniden üretilecek.
+**5. YENİ — `stok.tedarikci_degisim` hiç üretilmiyor.** `KararTipi` enum'unda
+tanımlı ama `decide.py::ozellikten_karar_uret` bu kararı hiçbir zaman
+üretmiyor (tedarikçi değişim mantığı hiç yazılmadı). Golden set'e bu yüzden
+örneği eklenemedi. Kod hatası değil, ileride ele alınabilecek yazılmamış bir
+özellik — şimdilik kapsam dışı.
+
+## Merge + branch temizliği (2026-08-03)
+
+PR #2 (`faz2-llm` → `main`, 36 commit, Faz 1-5'in tamamı) her iki tarafın da
+bağımsız doğrulamasından (Kişi B: 271 test + ruff + alembic yerelde; GitHub
+Actions CI: Ubuntu'da yeşil) geçtikten sonra merge edildi
+(`6a50f7d8`). `main` artık projenin **tek gerçek kaynağı** — simülatör, kural
+motoru, ML, LLM client/router/guard/gerçek gerekçe üretimi, DB katmanı, API
+uçları, CI hepsi tek ağaçta.
+
+Merge sonrası 6 branch (`faz1-simulator`, `faz2-kural-motoru`,
+`faz3-egitim-verisi`, `fix-izinli-sayilar-oran-alanlari`, `faz1-servis`,
+`faz2-llm`) `git merge-base --is-ancestor` ile **tek tek** doğrulanıp (hepsi
+`main`'in ataları — hiçbir commit kaybolmuyor) hem yerelde hem GitHub'da
+silindi. Artık ekip yalnızca `main`'den branch açıyor.
+
+**Bilinçli olarak yapılmadı:** `main`'in canlı davranışı değişmedi —
+`app/api/decisions.py` hâlâ stub veri döndürüyor (bkz. Açık konular #3).
+Merge "kodun birleşmesi", "sistemin canlanması" değil.
 
 ## Faydalı komutlar
 
@@ -1361,3 +1390,6 @@ Sonra <http://localhost:8000> → Swagger arayüzü açılır.
 | 2026-07-30 | **A:** Faz 2 (kural motoru + ML), Faz 3 A3.1–A3.4 (eğitim verisi), Faz 4-5 (genellenebilirlik + para metriği) tamamlandı. |
 | 2026-07-30 | **Ortak:** iki ayrı `aciklama.md` tek dosyada birleştirildi. |
 | 2026-07-30 | **B:** B2.1 bitti — model indirildi, `client.py` yazıldı (18 test, modelsiz), hız ölçüldü (22,4 token/sn @ 4 iplik), ısı koruması kondu. Ölçümler `dokumantasyon/OLCUMLER.md`'de. |
+| 2026-08-02 | **B:** B2.2 (yapılandırılmış çıktı), B2.3 (router + `/v1/ask`), B2.5 (guard, 41 test — Kişi A bağımsız doğruladı), B2.4 (gerçek gerekçe üretimi, 261 test — Kişi A bağımsız doğruladı), B2.6 ölçümü (2.000 SKU / 5,31 dk, karar-gerekçe arası 88x fark) tamamlandı. **Faz 2 kapandı.** |
+| 2026-08-02 | **A:** A3.5 sonrası — Kişi B'nin bulduğu router dengesizliği (3.808x→~143x), `sku_adi`→`sku_id` düzeltmesi, golden set yeniden dengelendi (2/7→7/7 araç) + `tedarikci_onayli=False` sentetik vaka eklendi. `StockFeatures`'ın 3 açık alanı kesinleştirildi. |
+| 2026-08-03 | **Ortak:** PR #2 (`faz2-llm`→`main`, 36 commit) her iki tarafın bağımsız doğrulamasından (yerel + GitHub Actions CI) geçip merge edildi (`6a50f7d8`). 6 eski branch güvenle silindi (`git merge-base --is-ancestor` ile tek tek doğrulanarak). `main` artık projenin tek gerçek kaynağı. Sırada: Kişi B'nin Faz 3'ü (LoRA eğitimi) ve golden set'in nihai ortak onayı. |
