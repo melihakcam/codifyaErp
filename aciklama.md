@@ -834,13 +834,75 @@ edilebilir). **Kabul ölçütü "2.000 SKU < 10 dakika" merge'i bekliyor** —
 gerçek kural motoru gerekiyor. Kod hazır, `karar_ureteci` parametresine
 `stok_karari_uret()` geçirilecek, başka bir şey değişmeyecek.
 
+### B2.5 · ⭐ Guard — projenin en kritik parçası (bitti ✅)
+
+Mimarinin birinci kuralını hayata geçiren kod: **LLM asla sayı üretmez.**
+Metindeki her sayı `izinli_sayilar()` kümesinde yoksa metin reddedilir.
+
+Bu kural teorik değil. Modelin bu projede **gerçekten** yaptıkları:
+
+```
+B2.1  "Kırmızı Tuğla için 35 adet ek satışı yapar"   ← 35 uydurma
+B2.2  "163..."                                       ← uydurma
+B2.2  "42 + 615 - 1200 = 397..."                     ← uydurma + aritmetik
+B2.2  "1976-03-14T13:44:00Z..."                      ← rastgele tarih
+```
+
+Dördü de guard testine **birebir test vakası** olarak kondu. Hayali örnek
+kullanmadık.
+
+**Zincir:** üret → doğrula → geçmezse 1 kez yeniden üret → yine geçmezse
+şablona düş. Sonuç her koşulda denetim kaydına yazılır. Üreteç patlasa bile
+(LLM erişilemez) şablona düşülüyor — **karar hiçbir koşulda bloke olmuyor.**
+
+#### İki tasarım kararı, ikisi de ölçümle alındı
+
+**1. Maskeleme zorunlu.** Ürün/tedarikçi adlarındaki rakamlar sayı değil.
+Maskeleme olmadan **kendi şablon gerekçemiz kendi guard'ımızdan geçmiyor** —
+iki motorda da doğrulandı:
+
+```
+stub          maskesiz: REDDEDER [19, 9, 5]   ← "Kırmızı Tuğla 19x9x5"
+gerçek motor  maskesiz: REDDEDER [125]        ← "Alçıpan 12.5mm"
+```
+
+İkincisi daha sinsi: `12.5mm` Türkçe biçimde ayrıştırılınca **125** oluyor.
+Şablon guard'ın geri dönüş noktası; o da reddedilirse sistemin güvenli çıkışı
+kalmaz. Fikir Kişi A'nın `label_rationale.py::_metni_maskele`'sinden geldi —
+onun kodunu incelemek benim yapacağım bir hatayı önledi.
+
+**2. Tolerans hem yuvarlamayı kabul etmeli hem kabalığı kesmeli.** Üç kural
+gerçek vakalarla karşılaştırıldı:
+
+| kural | `27,38 → "%27"` | `4,75 → "5"` |
+|---|---|---|
+| mutlak tolerans (0,01) | ❌ reddediyor | ✅ |
+| yalnız yuvarlama | ✅ | ❌ **geçiriyor** |
+| **yuvarlama + bağıl %2** | ✅ | ✅ |
+
+Seçilen: **birebir eşleşme VEYA (yazılan hassasiyette doğru yuvarlama VE
+bağıl fark ≤ %2)**. Bağıl sınır olmasa `0,94 → "1"` geçerdi ve gerekçede
+"1 adet" yazan bir uydurma kullanıcıya giderdi.
+
+#### Kişi A için çağrılabilir arayüz
+
+Görev dosyası: *"Ona sade, çağrılabilir bir fonksiyon arayüzü bırak."*
+
+```python
+sayilari_dogrula(metin, izinli, maskelenecek=...) -> DogrulamaSonucu
+```
+
+`DecisionCandidate` bilmiyor — yalnızca metin, izinli küme ve maskelenecek
+metinler alıyor. Böylece eğitim verisi üretiminde de çalışma zamanında da
+**aynı kod** çalışır. `label_rationale.py` kendi kopyasını silip bunu import
+edebilir.
+
+41 test. Hiçbiri model çalıştırmıyor.
+
 ### Sırada
 
-- ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası, model gerektirmiyor)
-- ⬜ B2.4 — gerçek gerekçe üretimi (guard'a dayanıyor)
-
-İkisi de merge'i bekliyor: guard düzeltilmiş `contracts.py` üstüne
-yazılmalı.
+- ⬜ B2.4 — gerçek gerekçe üretimi (guard'ın üstüne)
+- ⬜ B2.6 ölçümü — "2.000 SKU < 10 dakika" (gerçek motor artık elimizde)
 
 ---
 ---
