@@ -190,3 +190,139 @@ def yapi_malzemesi_toptancisi() -> CompanyProfile:
         n_musteri=800,
         kategoriler=kategoriler,
     )
+
+
+def kucuk_nalbur_dukkani() -> CompanyProfile:
+    """Faz 4 A4.2 — küçük ölçek: mahalle nalbur/hırdavat dükkânı.
+
+    Kural motorunun **ölçeğe aşırı uyum** (overfitting) gösterip
+    göstermediğini sınamak için kasıtlı olarak varsayılan profilin ~1/8'i
+    büyüklüğünde: ~250 SKU, ~10 tedarikçi, ~150 müşteri. Kategori karması da
+    daha dar (yalnızca hırdavat/boya/tuğla) ve sezonsallık daha zayıf —
+    büyük toptancı gibi güçlü inşaat-sezonu dalgası yaşamaz, yıl boyu
+    nispeten dengeli satar.
+    """
+    kategoriler = (
+        KategoriProfili(
+            ad="hirdavat",
+            birim_maliyet_min=5,
+            birim_maliyet_max=350,
+            marj_min=0.30,
+            marj_max=0.55,
+            sezonsallik_genligi=0.10,
+            sezon_fazi=0.50,
+            paket_adedi_secenekleri=(1, 10, 50, 100),
+        ),
+        KategoriProfili(
+            ad="boya",
+            birim_maliyet_min=150,
+            birim_maliyet_max=1200,
+            marj_min=0.25,
+            marj_max=0.45,
+            sezonsallik_genligi=0.20,
+            sezon_fazi=0.45,
+            paket_adedi_secenekleri=(1, 4, 12),
+            raf_omru_gun=730,
+        ),
+        KategoriProfili(
+            ad="tugla",
+            birim_maliyet_min=2,
+            birim_maliyet_max=8,
+            marj_min=0.15,
+            marj_max=0.25,
+            sezonsallik_genligi=0.25,
+            sezon_fazi=0.35,
+            paket_adedi_secenekleri=(100, 250),
+        ),
+    )
+
+    return CompanyProfile(
+        ad="Küçük Nalbur Dükkânı",
+        n_sku=250,
+        n_tedarikci=10,
+        n_musteri=150,
+        kategoriler=kategoriler,
+        toplam_yillik_hedef_ciro_tl=3_000_000.0,
+        tedarikci_ort_tedarik_suresi_min=1.0,
+        tedarikci_ort_tedarik_suresi_max=7.0,
+        musteri_segmentleri=("usta", "bireysel"),
+        musteri_segment_agirliklari=(0.55, 0.45),
+        musteri_odeme_vadesi_gun={"usta": 15, "bireysel": 0},
+    )
+
+
+def buyuk_insaat_deposu() -> CompanyProfile:
+    """Faz 4 A4.2 — büyük ölçek: bölgesel kaba yapı malzemesi dağıtım deposu.
+
+    Varsayılan profilin ~2.5 katı büyüklüğünde (~5.000 SKU, ~150 tedarikçi,
+    ~2.000 müşteri), yalnızca kaba yapı kategorilerine (çimento/demir/tuğla/
+    alçı/izolasyon) odaklı ve **daha güçlü** inşaat-sezonu dalgası. Amaç:
+    kural motorunun büyük ölçekte de (özellikle EOQ/ROP'un çok daha büyük
+    hacimlerde makul kalıp kalmadığını) sınamak.
+    """
+    kategoriler = (
+        KategoriProfili(
+            ad="cimento",
+            birim_maliyet_min=80,
+            birim_maliyet_max=180,
+            marj_min=0.10,
+            marj_max=0.18,
+            sezonsallik_genligi=0.70,
+            sezon_fazi=0.35,
+            paket_adedi_secenekleri=(1, 10, 25, 50),
+        ),
+        KategoriProfili(
+            ad="demir",
+            birim_maliyet_min=15000,
+            birim_maliyet_max=28000,
+            marj_min=0.06,
+            marj_max=0.12,
+            sezonsallik_genligi=0.60,
+            sezon_fazi=0.30,
+            paket_adedi_secenekleri=(1, 1, 2, 5),
+        ),
+        KategoriProfili(
+            ad="tugla",
+            birim_maliyet_min=2,
+            birim_maliyet_max=8,
+            marj_min=0.12,
+            marj_max=0.20,
+            sezonsallik_genligi=0.65,
+            sezon_fazi=0.35,
+            paket_adedi_secenekleri=(250, 500, 1000),
+        ),
+        KategoriProfili(
+            ad="alci",
+            birim_maliyet_min=40,
+            birim_maliyet_max=90,
+            marj_min=0.15,
+            marj_max=0.25,
+            sezonsallik_genligi=0.45,
+            sezon_fazi=0.40,
+            paket_adedi_secenekleri=(1, 5, 20, 50),
+        ),
+        KategoriProfili(
+            ad="izolasyon",
+            birim_maliyet_min=60,
+            birim_maliyet_max=400,
+            marj_min=0.15,
+            marj_max=0.28,
+            sezonsallik_genligi=0.40,
+            sezon_fazi=0.25,
+            paket_adedi_secenekleri=(1, 6, 20, 50),
+        ),
+    )
+
+    return CompanyProfile(
+        ad="Büyük İnşaat Deposu",
+        n_sku=5000,
+        n_tedarikci=150,
+        n_musteri=2000,
+        kategoriler=kategoriler,
+        toplam_yillik_hedef_ciro_tl=500_000_000.0,
+        tedarikci_ort_tedarik_suresi_min=5.0,
+        tedarikci_ort_tedarik_suresi_max=35.0,
+        musteri_segmentleri=("perakendeci", "santiye"),
+        musteri_segment_agirliklari=(0.30, 0.70),
+        musteri_odeme_vadesi_gun={"perakendeci": 30, "santiye": 60},
+    )

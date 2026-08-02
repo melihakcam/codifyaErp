@@ -21,10 +21,29 @@ tüm geçmişe daralır — ayrı bir "yetersiz veri" dalı yazmaya gerek kalmaz
 `abc_sinifi`, `xyz_sinifi`, `hedef_servis_seviyesi` (A2.4) ve `tedarikci_skoru`
 (A2.5) bu modülün sorumluluğunda değildir — parametre olarak alınır, makul
 varsayılanlarla. `decide.py` gerçek sınıflandırma/skorlama fonksiyonlarını
-yazınca bu varsayılanların yerini alacak. `raf_omru_kalan_gun` da benzer bir
-basitleştirme taşır: simülatör parti/lot bazlı stok yaşlandırması tutmadığı
-için katalogdaki statik `raf_omru_gun` doğrudan kullanılır (gerçek "kalan"
-süre değil, kategori tipik raf ömrü).
+zaten kullanıyor (`siniflandirma` argümanı) — buradaki varsayılanlar yalnızca
+`siniflandirma` verilmediğinde (ör. `decide.py` dışında doğrudan çağrılırsa)
+devreye girer.
+
+**`StockFeatures`'ın üç alanı hakkında kesinleşmiş kararlar** (B'nin SP1
+incelemesinde kaynağı sorulmuştu — üçü de simülatörün mevcut tasarımının
+doğal sonucu, Kişi A tarafında kesinleştirildi):
+
+- `tedarikci_onayli` — yukarıda `TEDARIKCI_ONAY_ESIGI` docstring'inde detaylı.
+- `raf_omru_kalan_gun` — simülatör parti/lot bazlı stok yaşlandırması
+  tutmuyor (yalnızca toplam eldeki stok, hangi partiden geldiği izlenmiyor),
+  bu yüzden gerçek "kalan" süre hesaplanamaz. Katalogdaki statik
+  `raf_omru_gun` (kategori tipik raf ömrü) doğrudan kullanılıyor. Bu ölü
+  stok tespitini bozmuyor çünkü `rules.py::olu_stok_degerlendir` asıl
+  sinyali `son_hareket_gun_once`'tan alıyor (gerçek, ölçülen bir alan);
+  `raf_omru_kalan_gun` yalnızca raf ömrü kritikse (≤30 gün) iskonto oranını
+  artıran ikincil bir düzeltme.
+- `rezerve_stok` — simülatörün olay döngüsü siparişi aynı gün stoktan
+  düşüp sevk ediyor (bkz. `simulator/run.py`), ayrı bir "sipariş alındı ama
+  henüz sevk edilmedi" kuyruğu modellenmiyor. Bu yüzden yapısal olarak her
+  zaman 0 — `kullanilabilir_stok` pratikte `eldeki_stok`'a eşit. Lot bazlı
+  rezervasyon eklemek gerçek bir B2B/B2C ayrımı gerektirir, mevcut
+  simülatörün kapsamı dışında tutuldu.
 """
 
 from __future__ import annotations
@@ -43,9 +62,20 @@ VARSAYILAN_ABC_SINIFI = ABCSinifi.C
 VARSAYILAN_XYZ_SINIFI = XYZSinifi.Z
 VARSAYILAN_HEDEF_SERVIS_SEVIYESI = 0.90
 TEDARIKCI_ONAY_ESIGI = 70.0
-"""A2.5 tedarikçi skorlaması yazılana kadar `guvenilirlik * 100` skor olarak
-kullanılır; bu eşiğin üstü 'onaylı' sayılır. Nihai eşik iş kararıdır, Kişi B ile
-birlikte gözden geçirilmeli."""
+"""Bu eşiğin üstü 'onaylı' sayılır — gerçek `tedarikci_skoru_hesapla()` (A2.5)
+skoru mevcutsa o kullanılır (bkz. aşağıda `siniflandirma` dalı); yalnızca
+`siniflandirma` verilmediğinde `guvenilirlik * 100` geri düşülür.
+
+Eşik gerçek veriyle kalibre edildi (karar: Kişi A, sonuç kesinleşti):
+sağlıklı (patolojisiz) 3 yıllık koşuda 60 tedarikçinin skoru 89,6-93,2
+aralığında — hiçbiri 70'in altına düşmüyor. Tedarikçi gecikmesi patolojisi
+enjekte edilince en kötü tedarikçiler 42-52'ye düşüyor, medyan ~76'ya
+iniyor. Yani 70.0 "sağlıklı" ile "gerçekten kötü" arasında anlamlı bir
+yerde duruyor — ama şu anki A3.1 eğitim verisi patolojisiz üretildiği için
+`tedarikci_onayli=False` durumu training setinde HİÇ görülmüyor. Bu, kural
+motorunun bir hatası değil, eğitim verisinin kapsamındaki bilinen bir sınır
+— ölü stok tespitindeki demand-spike sınırlamasıyla aynı kategoride
+(bkz. aciklama.md, A2.8)."""
 
 
 def _talep_penceresi_istatistikleri(

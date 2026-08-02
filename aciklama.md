@@ -335,7 +335,69 @@ neredeyse birebir örtüşüyor. 6,7 saniyede tamamlandı (tamamı yerel — yal
 - ✅ A3.2 — router soru şablonları (24.999 çift, geçici araç listesiyle)
 - ✅ A3.3 — soru başkalaştırma (35.375 satır)
 - ✅ A3.4 — gerekçe etiketleme (50.050 satır, guard %100)
-- ⬜ A3.5 — train/val/test bölme + golden set (**Kişi B ile birlikte**)
+- ✅ A3.5 — SKU bazlı train/val/test bölme + golden set adayı
+  (golden set'in **nihai onayı** hâlâ ikisi birlikte)
+
+---
+
+### A3.5 sonrası — Kişi B'nin bulduğu üç sorun düzeltildi
+
+Kişi B, Drive'a yüklenen veriyi bağımsız doğrularken (satır sayıları, SKU
+sızıntısı, sıra bağımsızlığı — hepsini kendi testleriyle) iki ciddi bulgu
+buldu:
+
+**1. Router verisi 3.808x dengesiz.** `siparis_onerisi_sorgula` (2.000
+SKU'dan üretildiği için) toplam verinin %95,6'sını kaplıyordu —
+`onay_kuyrugu_sorgula` 14, `genel_stok_durumu_sorgula` 11 satırla
+karşılaştırıldığında. Riski netti: LoRA "her şeye siparis_onerisi de"
+öğrenebilir, ve val/test AYNI dengesizlikte olduğu için bu risk kendi
+ölçümünde bile görünmez kalır — hep aynı cevabı veren bir model kendi
+testinde %95 "başarı" gösterir.
+
+**Düzeltme:** `training/veri_bolme.py`'ye `router_verisini_dengele()`
+eklendi — baskın aracı tekilleştirmeden SONRA 2.000'e alt örnekliyor.
+Dengesizlik **3.808x'ten ~143x'e düştü** (2.000/14). Bunu, golden set'in
+router kısmının da saf rastgele örnekleme yerine **her araçtan taban pay
+garanti eden** stratified örneklemeye geçirilmesi izledi — önceki golden
+set adayı yalnızca 2 araçtan örnek içeriyordu (diğer 5'i hiç ölçemiyordu),
+yenisi 7 aracın 7'sini de kapsıyor (en seyrek ikisi hâlâ ince: 4 ve 1 örnek
+— test bölmesinde o kadar satır olduğu için, daha fazlası yok).
+
+**Not (henüz yapılmadı, isteğe bağlı):** Bu düzeltme tamamen yerel/koddan
+yapıldı, ek bir Colab turu gerektirmedi. Seyrek araçları (özellikle
+parametresiz `onay_kuyrugu_sorgula`/`genel_stok_durumu_sorgula`) 500-2.000
+bandına daha da yaklaştırmak isteniyorsa ek bir paraphrase turu (daha
+yüksek `n`) gerekir — ama bu iki aracın doğal dil çeşitliliği zaten sınırlı
+(parametre yok, tek bir statik niyet), 500+ farklı doğal cümle üretmek
+zorlama/tekrar riski taşır. Alternatif: LoRA eğitiminde class-weighted
+sampling — bu, B'nin karar vereceği bir eğitim-tarafı tercihi.
+
+**2. `sku_adi` parametresi aslında SKU KODU taşıyordu, ürün adı değil**
+(`{"sku_adi": "S-01971"}`). Bu, B'nin taban çizgi karşılaştırmasını
+(beklenen değerler ürün adıydı) geçersiz kılabilirdi. **Karar: parametre
+anahtarı `sku_id` olarak yeniden adlandırıldı** (`build_dataset.py`'nin
+`ARAC_TANIMLARI`sı, `PLACEHOLDER_TOKENLARI`, `veri_bolme.py`'nin SKU
+eşleştirmesi) — içerik zaten hep ID'ydi, artık adı da öyle. Var olan
+`sablon_parafraz.jsonl`/`sablon_listesi.jsonl` dosyaları (Colab'dan gelen,
+yeniden üretmesi maliyetli) alan adı düzeltmesiyle yerinde güncellendi,
+Colab'a tekrar gidilmedi. B kendi tarafında `schemas.py`'yi buna göre
+güncelleyecek.
+
+**3. Golden set'e iki vaka daha eklendi:** `tedarikci_onayli=False`
+sentetik bir örnek elle oluşturuldu (gerçek `decide.py` + `sablon_gerekce`
+üzerinden, `sentetik_not` alanıyla işaretli) — bu durum eğitim verisinde
+hiç görülmüyor (bkz. yukarıdaki `TEDARIKCI_ONAY_ESIGI` notu) ama onay
+kuyruğu politikasının bunu doğru yakalayıp yakalamadığını test etmek
+önemli. **`stok.tedarikci_degisim` eklenemedi** — `KararTipi` enum'unda
+tanımlı olsa da `decide.py::ozellikten_karar_uret` bu kararı hiçbir zaman
+üretmiyor (tedarikçi değişim mantığı hiç yazılmadı). Golden set, sistemin
+üretmediği bir kararın örneğini içeremez — bu, veri hazırlığının bir
+eksiği değil, decide.py'de henüz yazılmamış bir özelliğin işareti; B'ye ve
+gerekirse gelecekteki bir role/faz'a not olarak bırakıldı.
+
+Yeniden üretilen tüm veri (`router_sorulari.jsonl`, `router_sorulari_parafraz.jsonl`,
+`router_train/val/test.jsonl`, `golden_set_aday.jsonl`) Drive'a tekrar
+yüklenmeli.
 
 ---
 
