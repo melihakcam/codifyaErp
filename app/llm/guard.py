@@ -14,8 +14,9 @@ Bu kural teorik bir önlem değil — bu projede modelin gerçekten yaptığı �
     B2.2  "42 + 615 - 1200 = 397..."                      ← uydurma + aritmetik
     B2.2  "1976-03-14T13:44:00Z..."                       ← rastgele tarih
 
-Üçü de şema zorlamalı çağrılarda çıktı. **Şema biçimi garanti eder, anlamı
-etmez.** Guard olmadan bu sayılar kullanıcıya gider.
+İlki şemasız bir çağrıydı; **son üçü şema zorlamalı çağrılarda çıktı.** Yani
+şema biçimi garanti ediyor, anlamı etmiyor. Guard olmadan bu sayılar
+kullanıcıya gider.
 
 Zincir (görev dosyası B2.5):
 
