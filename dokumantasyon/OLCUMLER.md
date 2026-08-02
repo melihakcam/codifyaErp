@@ -549,3 +549,77 @@ Kalan devrik cümleler istemle değil, eğitimle düzelir.
 
 B3.5'te aynı 10 karar aynı tohumla tekrarlanacak; karşılaştırma tabanı
 bu tablodur.
+
+## B2.6 · Gecelik tarama suresi (2026-08-02)
+
+Gorev dosyasinin olcutu: **"2.000 SKU'luk gecelik tarama < 10 dakika."**
+
+| | |
+|---|---|
+| Karar ureteci | `stok_karari_uret()` — Kisi A'nin gercek motoru |
+| Gerekce ureteci | `llm_gerekce_ureteci()` — B2.4, guard'li, gercek LLM |
+| Model | `qwen2.5:1.5b-instruct`, `iplik=4`, `sicaklik=0.0`, `tohum=42` |
+| Gerekce ust N | 25 (`.env`'deki gercek deger) |
+| Veritabani | SQLite, WAL, `foreign_keys=ON` |
+
+⚠️ Sablonla olcmek yalanci sonuc verirdi: sablon aninda uretiyor, LLM ~6,7 sn.
+Bu olcum bastan sona gercek zincirle yapildi.
+
+### Sonuc
+
+| olcu | deger |
+|---|---|
+| taranan karar | 2.000 |
+| hata / atlanan | **0** |
+| onay kuyruguna giren | 743 |
+| gerekce uretilen | 25 |
+| gerekce atlanan | 1.975 |
+| icgoru yazilan | 26 |
+
+| sure | |
+|---|---|
+| karar | 152,2 sn |
+| gerekce | 166,6 sn |
+| **toplam** | **318,8 sn = 5,31 dakika** |
+| hedef | 10 dakika |
+| **pay** | **4,69 dakika** ✅ |
+
+### Mimarinin iki iddiasi artik olculu
+
+**1. "Karar milisaniyelerde cikar, gerekce saniyeler surer."**
+
+```
+karar basina    :   76,1 ms
+gerekce basina  : 6.700   ms
+                  --------
+fark            :      88 kat
+```
+
+Kural motoru + politika + veritabani yazimi bir karar icin 76 milisaniye.
+Ayni karar icin Turkce cumle yazmak 6,7 saniye. Bu yuzden `KosuOzeti` iki
+sureyi ayri tutuyor ve `commit()` iki kez atiliyor — kararlar gerekce
+beklemeden gorunur oluyor.
+
+**2. "Gerekce yalnizca ust N icin uretilir."**
+
+1.975 karar icin gerekce uretilmedi. Uretilseydi:
+
+```
+2.000 x 6,7 sn = 13.400 sn = 3 saat 43 dakika
+```
+
+Hedefin **22 katı**. Ust-N kısıtı bir optimizasyon degil, isin calisabilmesinin
+on sarti. Kalan kararlar gerekcesiz kaydediliyor; birine bakilmasi gerekirse
+gerekce sonradan uretilebiliyor.
+
+### Sinirlar
+
+- Tek makine, tek Ollama ornegi, 4 iplik. Paralellestirme denenmedi.
+- Simulasyon dunyasinin yuklenmesi (19,0 sn) taramaya **dahil degil**: dunya
+  bir kez yukleniyor ve gercek ERP'de veri zaten veritabaninda olur.
+- 743 kararin onay kuyruguna dusmesi `shadow` modun beklenen davranisi.
+
+### B3.5'te tekrarlanacak
+
+Egitilmis model daha uzun/kisa cumle uretirse `gerekce basina` degisir.
+Karsilastirma tabani: **76,1 ms / 6,7 sn / 5,31 dakika**.

@@ -790,7 +790,7 @@ Kişi A'ya iletildi. Önerilen: `siparis_onerisi`'ni ~2.000'e alt örnekle
 Ayrıntılar `dokumantasyon/OLCUMLER.md`'de.
 
 ### Sırada
-### B2.6 · Gecelik iş + tetikleyiciler (kod bitti ✅, ölçüm merge'i bekliyor)
+### B2.6 · Gecelik iş + tetikleyiciler (bitti ✅)
 
 **`app/jobs/nightly.py`** — mimarinin can alıcı noktasını hayata geçiriyor.
 
@@ -1142,7 +1142,70 @@ Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4 (üç bölüm).
 
 ### Sırada
 
-- ⬜ B2.6 ölçümü — "2.000 SKU < 10 dakika" (gerçek motor artık elimizde)
+### B2.6 ölçümü — 2.000 SKU taraması
+
+Kabul ölçütü: **"2.000 SKU'luk gecelik tarama < 10 dakika."**
+
+Ölçüm baştan sona **gerçek zincirle** yapıldı: Melih'in gerçek karar motoru +
+B2.4'ün guard'lı LLM gerekçe üreteci. Şablonla ölçmek yalancı sonuç verirdi —
+şablon anında üretiyor, LLM 6,7 saniye.
+
+```
+taranan karar        2.000      hata: 0
+onay kuyruguna       743
+gerekce uretilen     25         (atlanan: 1.975)
+
+karar suresi         152,2 sn
+gerekce suresi       166,6 sn
+TOPLAM               318,8 sn  =  5,31 dakika
+
+HEDEF 10 dakika  ->  GECTI, 4,69 dakika pay
+```
+
+#### Mimarinin iki iddiası artık ölçülü
+
+**"Karar milisaniyelerde çıkar, gerekçe saniyeler sürer."**
+
+```
+karar basina       76 ms
+gerekce basina  6.700 ms      ->  88 KAT fark
+```
+
+Kural motoru + politika + veritabanı yazımı bir karar için 76 milisaniye.
+Aynı karar için Türkçe cümle yazmak 6,7 saniye. `KosuOzeti`'nin iki süreyi
+ayrı tutması ve `commit()`'in iki kez atılması bu yüzden — kararlar gerekçe
+beklemeden görünür oluyor.
+
+**"Gerekçe yalnızca üst N için üretilir."**
+
+1.975 karar için gerekçe üretilmedi. Üretilseydi:
+
+```
+2.000 x 6,7 sn = 3 saat 43 dakika        (hedefin 22 kati)
+```
+
+Yani üst-N kısıtı bir hız iyileştirmesi değil, **işin çalışabilmesinin ön
+şartı**. Kalan kararlar gerekçesiz kaydediliyor; birine bakılması gerekirse
+gerekçe sonradan üretilebiliyor.
+
+Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.6.
+
+---
+
+## FAZ 2 TAMAMLANDI ✅
+
+| iş | durum |
+|---|---|
+| B2.1 model + istemci | ✅ |
+| B2.2 yapılandırılmış çıktı | ✅ |
+| B2.3 router + taban çizgi | ✅ |
+| B2.4 gerçek gerekçe üretimi | ✅ |
+| B2.5 guard | ✅ |
+| B2.6 gecelik iş + tetikleyiciler | ✅ |
+
+Altı işin de kodu yazıldı, ölçümü yapıldı ve `dokumantasyon/OLCUMLER.md`'ye
+kaydedildi. Sırada Faz 3 (LoRA eğitimi) var — o iş Colab'da yapılacak,
+bilgisayara yük binmeyecek.
 
 ---
 ---
