@@ -48,10 +48,42 @@ class Ayarlar(BaseSettings):
     llm_timeout_sn: float = 60.0
     llm_gerekce_max_token: int = 220
 
+    # Modelin kullanacağı CPU iş parçacığı sayısı.
+    # ⚠️ Varsayılan bilinçli olarak DÜŞÜK. Ollama hiçbir sınır verilmezse tüm
+    # çekirdekleri kullanır; dizüstü bilgisayarda bu sürekli tam yük ve ısınma
+    # demek. 1,5B model CPU'da bellek bant genişliğine takıldığı için iş
+    # parçacığı sayısını düşürmek hızın küçük bir kısmını kaybettirir ama ısıyı
+    # belirgin azaltır. Doğru değer makineye göre değişir — B2.1'de ölçülüp
+    # buraya yazılacak.
+    llm_iplik_sayisi: int = 4
+
+    # 0 = deterministik. Gerekçe metninde yaratıcılık istemiyoruz; aynı karara
+    # aynı cümle çıksın ki guard'ın davranışı tekrarlanabilir olsun.
+    llm_sicaklik: float = 0.2
+
+    # Ağ/zaman aşımı hatalarında kaç kez yeniden denensin (ilk deneme hariç).
+    # Şema uyumsuzluğu gibi içerik hataları burada değil, çağıran tarafta
+    # ele alınır.
+    llm_yeniden_deneme: int = 2
+
     # --- Gecelik iş ---
     # 2.000 SKU × ~7 sn = 4 saat olurdu. Gerekçe yalnızca insanın gerçekten
     # baktığı ilk N karar için üretilir; geri kalanı kuyrukta bekler.
     gecelik_gerekce_ust_n: int = 25
+
+    # --- Olay tetikleyicileri (B2.6) ---
+    # Gecelik taramayı beklemeden anında ele alınması gereken durumlar.
+    # Eşikler burada çünkü iş kararı: sahada "büyük sipariş" neye denir,
+    # şirkete göre değişir ve kod dağıtmadan ayarlanabilmeli.
+    tetik_buyuk_siparis_tutar_tl: float = 25_000.0
+
+    # Kullanılabilir stok kaç günlük tüketimin altına düşerse kritik sayılır.
+    # Tedarik süresinden bağımsız kaba bir alarm — asıl ROP hesabı kural
+    # motorunda; bu yalnızca "hemen bak" sinyali.
+    tetik_kritik_stok_gun: float = 3.0
+
+    # Bir günde açılan siparişlerin toplamı bu tutarı aşarsa uyarı.
+    tetik_gunluk_siparis_limiti_tl: float = 250_000.0
 
     # --- Simülasyon verisi ---
     sim_veri_koku: Path = PROJE_KOKU / "data" / "sim"

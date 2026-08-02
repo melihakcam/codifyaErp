@@ -1,0 +1,68 @@
+# Codifya Karar Motoru — sürekli entegrasyon
+#
+# Sahip: Kişi B · Faz 1 B1.6
+#
+# Amaç: "main her zaman yeşil". Bu workflow + `main` branch protection
+# birleştiğinde kural kendiliğinden zorunlu olur — kırmızı bir PR merge
+# edilemez.
+#
+# ⚠️ Bu dosya tek başına yeterli DEĞİL. GitHub'da şunlar açılmalı:
+#   Settings > Branches > Add branch protection rule
+#     · Branch name pattern: main
+#     · Require a pull request before merging
+#     · Require status checks to pass  ->  "kontrol" işini seç
+#   Bunlar açılmadan CI sadece bilgi verir, hiçbir şeyi engellemez.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Aynı branch'e üst üste push atılırsa eski koşumu iptal et — ücretsiz
+# dakikaları boşa harcamayalım.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kontrol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: uv kurulumu
+        # Yeni bir ana sürüm çıkarsa (v6, v7...) burayı güncelleyin.
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          # Kilit dosyası değişmedikçe indirilen paketler cache'ten gelir.
+          cache-dependency-glob: uv.lock
+
+      - name: Bağımlılıklar
+        # `--frozen`: uv.lock'u GÜNCELLEMEZ, güncel değilse hata verir.
+        # Böylece "pyproject.toml'a paket ekledim ama lock'u işlemedim"
+        # durumu PR aşamasında yakalanır — yerelde çalışıp CI'da patlayan
+        # bağımlılık farkının en sık sebebi bu.
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Testler
+        run: uv run pytest
+
+      - name: Migration'lar uygulanabiliyor mu
+        # Boş bir veritabanına sıfırdan uygular. `tests/test_migrations.py`
+        # bunu geçici dosyalarla da sınıyor; buradaki koşum gerçek
+        # `config.py` yolunu kullanır, yani yapılandırma hatalarını da yakalar.
+        run: uv run alembic upgrade head
+
+      - name: Model ile migration uyumlu mu
+        # ⭐ "Modeli değiştirdim ama migration üretmeyi unuttum" hatasını
+        # yakalar. İki kişiyle çalışırken kaçırılması çok kolay ve sonucu
+        # ağır: şema kimde ne durumda belirsizleşir.
+        run: uv run alembic check

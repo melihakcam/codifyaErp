@@ -199,6 +199,23 @@ class FiredRule(BaseModel):
 # Karar adayı — A'nın ürettiği, B'nin tükettiği ana nesne
 # ---------------------------------------------------------------------------
 
+ORAN_ALANLARI: frozenset[str] = frozenset(
+    {
+        "hedef_servis_seviyesi",
+        "tedarikci_zamaninda_teslim_orani",
+        "talep_varyasyon_katsayisi",
+    }
+)
+"""Yüzde olarak da yazılabilen oran alanları. Adı burada olmayan bir alan için
+×100 karşılığı ÜRETİLMEZ. Bu liste bilinçli olarak açık: koşulu değere göre
+kurmak (0-1 aralığı) adet/gün alanlarını da yakalıyordu —
+`son_hareket_gun_once=1` olan bir ürün için "%100" izinli hale geliyordu.
+
+Yeni bir oran alanı eklenirse (`FiredRule.degerler` içinde veya
+`StockFeatures`'a) buraya da eklenmeli. Unutulursa sonuç GÜVENLİ tarafa
+düşer: yüzdesi izinli olmaz, guard reddeder, gerekçe şablona düşer — karar
+hiçbir koşulda bloke olmaz, yalnızca o cümle yazılamaz."""
+
 
 class DecisionCandidate(BaseModel):
     """Kural motoru + ML'in ürettiği karar adayı.
@@ -246,34 +263,45 @@ class DecisionCandidate(BaseModel):
         bu metodu barındırması bilinçlidir: "hangi sayılar meşru" sorusunun
         cevabı A ile B arasında tek bir yerde tanımlı olsun.
 
-        0-1 aralığındaki her değer için ×100 karşılığı da eklenir; çünkü
-        0.94 oranı gerekçede "%94" olarak yazılır.
+        `ORAN_ALANLARI`'nda adı geçen alanlar için ×100 karşılığı da eklenir;
+        çünkü 0.94 oranı gerekçede "%94" olarak yazılır. Bu kontrol **alan
+        adına** göre yapılır, değerin 0-1 aralığında olmasına göre değil —
+        aksi halde adet/gün alanları (`son_hareket_gun_once`, `eldeki_stok`
+        vb.) 1 değerini aldığında "%100" sayısı da yanlışlıkla izinli hale
+        gelirdi (bkz. Kişi B'nin B2.5 guard incelemesinde bulduğu kusur:
+        `son_hareket_gun_once=1` iken 100 izinliydi — dün hareket görmüş her
+        SKU için "%100" gerekçede kullanılabilir hale geliyordu).
+
+        Not: `guven` bu kümenin dışındadır — LLM gerekçede güven skorunu
+        yüzde olarak kullanamaz. Bilinçli bir tercih: güven skoru iş
+        kullanıcısına gösterilecek bir sayı değil, iç politika kararı
+        (`app/core/policy.py`) için üretilir.
         """
         sayilar: set[float] = set()
 
-        def ekle(v: object) -> None:
+        def ekle(v: object, ad: str = "") -> None:
             if isinstance(v, bool) or not isinstance(v, (int, float)):
                 return
             f = float(v)
             sayilar.add(f)
-            if 0.0 <= f <= 1.0:
+            if ad in ORAN_ALANLARI:
                 sayilar.add(f * 100.0)
 
         # Özellikler (hesaplanan property'ler dahil)
-        for deger in self.ozellikler.model_dump().values():
-            ekle(deger)
-        ekle(self.ozellikler.kullanilabilir_stok)
-        ekle(self.ozellikler.talep_varyasyon_katsayisi)
+        for ad, deger in self.ozellikler.model_dump().items():
+            ekle(deger, ad)
+        ekle(self.ozellikler.kullanilabilir_stok, "kullanilabilir_stok")
+        ekle(self.ozellikler.talep_varyasyon_katsayisi, "talep_varyasyon_katsayisi")
 
         # Kuralların hesapladığı sayılar
         for kural in self.tetiklenen_kurallar:
-            for deger in kural.degerler.values():
-                ekle(deger)
+            for ad, deger in kural.degerler.items():
+                ekle(deger, ad)
 
         # Aksiyon ve tutar
-        for deger in self.aksiyon.values():
-            ekle(deger)
-        ekle(self.tahmini_tutar_tl)
+        for ad, deger in self.aksiyon.items():
+            ekle(deger, ad)
+        ekle(self.tahmini_tutar_tl, "tahmini_tutar_tl")
 
         return sayilar
 

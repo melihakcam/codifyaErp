@@ -1,0 +1,1363 @@
+# Açıklama — Codifya Karar Motoru, basit dille
+
+> Bu dosya, projede yapılan her önemli adımın **sade Türkçe** özetidir. Kod
+> detaylarını değil, "ne yaptık ve neden yaptık"ı anlatır.
+>
+> **İki bölümden oluşur:** Kişi A (Melih — Veri & Alan) ve Kişi B (Esmanur —
+> Servis & Model). Herkes kendi bölümünü günceller; ortak bölümler birlikte.
+> Kod değişti ama burası değişmediyse, burası yanlıştır.
+
+---
+
+## Genel resim: ne inşa ediyoruz?
+
+Codifya ERP'ye bir **yapay zekâ karar mekanizması** ekliyoruz. Amaç: stok
+yönetiminde ("şu üründen ne zaman, ne kadar sipariş verilsin?") kararları
+otomatikleştirmek. Ama küçük bir dil modeli (1,5B parametre, GPU'suz makinede
+çalışacak) sayısal hesap yapamıyor — uydurma yapar. Bu yüzden mimari
+**hibrit**:
+
+- **Sayısal karar** → kural motoru + basit ML (Kişi A'nın işi)
+- **Türkçe açıklama metni** → küçük LLM (Kişi B'nin işi)
+
+İki kişi `app/contracts.py` adında dondurulmuş bir "sözleşme" üzerinden
+anlaşıyor — Kişi A ürettiği veri tiplerini Kişi B tüketiyor, birbirlerini
+beklemeden paralel çalışabiliyorlar.
+
+### Sistemi ayakta tutan iki kural
+
+**1. Dil modeli asla sayı üretmez.** Sayılar ona *verilir*, o sadece cümleye
+yerleştirir. Ürettiği metindeki her sayı, karardan gelen "izinli sayılar"
+kümesinde yoksa metin **reddedilir**. Bu kontrolü yapan koda **guard** deniyor
+(Faz 2 B2.5) — projenin en kritik parçası.
+
+**2. ERP asla dil modelini beklemez.** Karar milisaniyelerde çıkar. Gerekçe
+metni ancak istenirse üretilir (CPU'da 6-8 saniye sürüyor).
+
+---
+
+## Kim ne yapıyor?
+
+| | Kişi A (Melih) | Kişi B (Esmanur) |
+|---|---|---|
+| **Sahiplendiği** | `simulator/`, `app/domain/stock/`, `training/build_dataset.py`, `training/label_rationale.py` | `app/api/`, `app/core/`, `app/models/`, `app/llm/`, `app/jobs/`, `training/train_lora.ipynb`, CI |
+| **Öğrendiği** | pandas, numpy, stok formülleri, XGBoost, Parquet | FastAPI, SQLAlchemy, pytest, Ollama, LoRA eğitimi |
+
+`app/contracts.py` **dondurulmuş** — tek taraflı değiştirilmez, iki kişi
+birlikte tek PR'da değiştirir.
+
+---
+
+## Şu an neredeyiz?
+
+| Faz | Kişi A | Kişi B |
+|---|---|---|
+| **Faz 1** | ✅ Simülatör | ✅ Veri katmanı + API + CI |
+| **Faz 2** | ✅ Kural motoru + ML | 🔄 LLM katmanı (B2.1 başladı) |
+| **Faz 3** | ✅ A3.1–A3.4 · ⬜ A3.5 (B ile birlikte) | ⬜ LoRA eğitimi |
+| **Faz 4-5** | ✅ Genellenebilirlik + para metriği | ⬜ Sağlamlaştırma + benchmark |
+
+---
+---
+
+# KİŞİ A — Veri & Alan (Melih)
+
+## A · Faz 1 — Simülatör (TAMAMLANDI ✅)
+
+Elimizde gerçek ERP verisi olmadığı için, önce **sahte ama gerçekçi bir
+dünya** kurduk — bir yapı malzemesi toptancısı hayal edip onun 3 yıllık
+geçmişini simüle ettik.
+
+1. **`company.py`** — şirket profili: 2000 ürün, 60 tedarikçi, 800 müşteri;
+   8 kategori (çimento, demir, tuğla, boya...) her birinin kendi
+   maliyet/marj/sezonsallık özellikleriyle.
+2. **`catalog.py`** — bu profile göre gerçek katalog verisi üretti: her
+   ürüne isim, fiyat, tedarikçi, paket büyüklüğü atadı. Önemli detay:
+   ürünlerin **%20'si cironun %80'ini** taşıyacak şekilde kurgulandı
+   (Pareto ilkesi — gerçek hayatta da böyledir).
+3. **`demand.py`** — her ürün için 3 yıllık günlük talep üretti: mevsimsellik
+   (yaz aylarında inşaat sezonu zirvesi), haftalık desen (pazar kapalı),
+   yıllık trend, ve gerçekçi rastgelelik (bazı ürünler düzenli satar,
+   bazıları seyrek ama toplu satar).
+4. **`run.py`** — asıl simülasyon motoru: her gün sırayla müşteri siparişi
+   düşürüp stoktan karşıladı, stok azalınca (kasıtlı olarak **kötü/vasat**
+   bir kuralla — "10 günlük stok kalınca 30 günlük sipariş ver") tedarikçiye
+   sipariş açtı. Bu vasat politika bizim **karşılaştırma tabanımız** —
+   ileride yazılan akıllı kural motorunun "ne kadar daha iyi" olduğu buna
+   göre ölçülecek.
+5. **`pathologies.py`** — gerçek hayatta olan sorunları isteğe bağlı enjekte
+   edebiliyoruz: tedarikçi gecikmesi, ani talep patlaması, ölü stok, fiyat
+   zammı vb. Hepsi loglanıyor ki "sistemimiz bu sorunu yakaladı mı?" diye
+   ölçülebilsin.
+6. Son olarak bunları **Parquet dosyalarına** kaydettik ve bir **Jupyter
+   notebook**'ta tüm grafikleri/kontrolleri belgeledik.
+
+Bunu bitirince **`faz1-simulator`** adında bir GitHub branch'ine push edildi.
+
+> **Kişi B'nin incelemesi (SP1):** A1.1–A1.5'in tüm kabul ölçütleri bağımsız
+> olarak ölçüldü ve geçti — determinizm (11 tablo bit bit aynı), Pareto
+> (%80,0), mutabakat farkı tam sıfır, patoloji ayrımı. Onaylandı.
+> Ayrıca üç sözleşme boşluğu bulundu, aşağıda "Açık konular"da.
+
+---
+
+## A · Faz 2 — Kural motoru (TAMAMLANDI ✅)
+
+Artık sahte dünyamız var, şimdi bu dünyaya bakıp **akıllı kararlar** üreten
+kodu yazdık.
+
+### `features.py`
+
+Ham simülasyon verisinden (talep geçmişi, stok seviyesi) her ürün için bir
+"özet kart" (`StockFeatures`) çıkarıyor: ortalama günlük talep, talep
+değişkenliği, stok durumu, tedarikçi bilgisi vs. 30 ve 90 günlük hareketli
+ortalamalarla hesaplanıyor.
+
+### `rules.py`
+
+Gerçek iş mantığı formülleri:
+
+- **Emniyet stoğu + ROP**: "ne zaman sipariş verilmeli" hesabı — hem talebin
+  hem tedarikçinin belirsizliğini hesaba katıyor.
+- **EOQ + MOQ**: "ne kadar sipariş verilmeli" — ekonomik sipariş miktarı,
+  ama gerçek dünyada olduğu gibi paket büyüklüğüne yuvarlanıyor (1187 tuğla
+  değil, 1200 tuğla sipariş edilir).
+- **ABC/XYZ sınıflandırma**: hangi ürün ne kadar önemli (ciroya göre) ve ne
+  kadar öngörülebilir (talep düzenliliğine göre) — buna göre hedef servis
+  seviyesi belirleniyor (önemli+düzenli ürüne %99 stok garantisi,
+  önemsiz+kaotik ürüne %85 yeter).
+- **Ölü stok tespiti**: uzun süredir satmayan ürünleri bulup
+  iskonto/tasfiye öneriyor.
+- **Tedarikçi skoru**: gerçekleşen teslimat performansına bakıp 0-100 puan
+  veriyor (kötü tedarikçiyi tespit etmek için).
+
+Bu adımda **iki gerçek hata bulunup düzeltildi**: tedarikçi skoru yanlış
+indeksleniyordu (hep 100 puan çıkıyordu), ölü stok eşiği çok agresifti
+(sağlıklı ürünleri bile "ölü" damgalıyordu). İkisi de gerçek veriyle test
+edilerek yakalandı.
+
+### `decide.py` (⭐ en kritik dosya)
+
+Yukarıdakilerin **hepsini birleştiriyor**: bir ürün için özellikleri
+çıkarır, kuralları çalıştırır, hangi kararı vereceğine karar verir (sipariş
+ver / tasfiye et / bir şey yapma), ve bu kararın **güven skorunu**
+hesaplar. Test edildi: gerçekten çalışıyor, mantıklı sonuçlar üretiyor
+(örnek: bir ürün için "60 adet sipariş ver, T-0004 tedarikçisinden"
+kararı + gerekçesi).
+
+### `ml.py` — talep tahmini + anomali + oracle karşılaştırması
+
+**A2.7 — Talep tahmini:** Hızlı hareket eden ürünler için tek bir XGBoost
+modeli (SKU/kategori özellik olarak giriyor), çok yavaş/seyrek satan ürünler
+için ise **Croston yöntemi** (aralıklı talebe özel bir istatistik yöntemi —
+basit ortalama almak büyük hata olurdu). Eğitim/test bölmesi **tarihe göre**
+yapıldı (rastgele değil — yoksa gelecekten geçmişe sızıntı olur).
+
+Sonuç: model, "son 30 günün ortalaması" naif tahminden **%35 daha iyi**
+çıktı (hata payı 3.87 → 2.50). Yani XGBoost gerçekten işe yarıyor, kullanıma
+uygun.
+
+**A2.8 — Anomali tespiti + oracle karşılaştırması:**
+
+- Ani tüketim sıçraması ve fiyat sapması tespiti için IsolationForest
+  kullanıldı. Fiyat sapması tespitinde ilk denemede bir hata buldum:
+  tedarikçi bazında karşılaştırma yapıyordum, ama bir tedarikçi çok farklı
+  fiyatlı ürünler taşıyabiliyor (5 TL'lik tuğla + 20.000 TL'lik demir), bu
+  karışım gerçek zam sinyalini gizliyordu. **SKU bazında** karşılaştırmaya
+  geçince başarı oranı %3.4'ten **%78.6'ya** çıktı.
+- Talep sıçraması tespitinde ise dürüstçe söylemem gerekiyor: başarı oranı
+  düşük kaldı (~%10-15) çünkü enjekte ettiğimiz "yapay" talep patlamaları,
+  simülatörün zaten ürettiği doğal gürültüyle (promosyonlar, aralıklı satış
+  dalgalanmaları) büyüklük olarak örtüşüyor — ayırt etmek zor. Bu bir kod
+  hatası değil, iyileştirmeye açık bir sınırlama, olduğu gibi raporlanıyor.
+- **Oracle karşılaştırması** (projenin en önemli ölçümü): aynı talep
+  üzerinde üç politika paralel koşturuldu — **vasat taban** (Faz 1'deki
+  kötü/kaba kural), **kural motorumuz** (ROP/EOQ formülleri), **oracle**
+  (geleceği mükemmel bilen hayali politika). Sonuç beklendiği gibi çıktı:
+  - Stok tükenme oranı: vasat %6.97 → kural motoru **%0.67** → oracle %0.05
+  - Toplam maliyet (kayıp kâr + envanter + sipariş maliyeti): vasat 21.85M →
+    kural motoru **18.66M** → oracle 15.50M TL
+
+  Yani **kural motorumuz vasat politikadan kesin olarak daha iyi, mükemmel
+  bilgiden (oracle) daha kötü** — beklenen ve istenen sonuç tam bu. Bu
+  ölçüm ilk denemede tutmadı (oracle bir noktada kural motorundan "kötü"
+  çıkmıştı), iki gerçek hata buldum ve düzelttim: (1) oracle'ın tedarik
+  süresi belirsizliğini hesaba katmaması, (2) kayıp satışın ciro yerine
+  kâr marjı + "itibar kaybı" çarpanıyla hesaplanması gerektiği, (3) EOQ'nun
+  sipariş sıklığı avantajının maliyet toplamına hiç girmemesi.
+
+`features.py`, `rules.py`, `decide.py`, `ml.py` — hepsi yazıldı, test
+edildi, gerçek veriyle doğrulandı.
+
+---
+
+## A · Faz 3 — Eğitim verisi üretimi
+
+Artık kural motoru çalışıyor. Şimdi bu motorun ürettiği kararları
+örnekleyip küçük LLM'e "Türkçe konuşmayı" öğretecek eğitim verisini
+hazırlıyoruz. Etiketler kural motorundan geldiği için (deterministik)
+halüsinasyon imkânsız.
+
+### `build_dataset.py` — A3.1 (bitti ✅)
+
+3 yıllık simülasyon zaman çizgisinden **50.050 karar noktası** örnekledim
+(SKU x hafta, rastgele gün). Her nokta için özellikler çıkarıldı, kural
+motoru çalıştırıldı, sonuç `data/egitim/karar_noktalari.jsonl` dosyasına
+yazıldı.
+
+Dağılım: %67 "aksiyon yok", %25 "tasfiye", %8 "sipariş ver". Tasfiye oranı
+ilk bakışta yüksek görünüyor ama bu bir hata değil — katalog Pareto
+dağılımlı olduğu için (SKU'ların büyük kısmı az satan "kuyruk" ürünler),
+gerçekten de ürünlerin önemli bir kısmı doğal olarak "ölü stok" sayılıyor.
+
+İlk denemede bir performans sorunu buldum: her hafta için tüm 2.19 milyon
+satırlık talep tablosunun tamamını yeniden işliyordum (143 kez tekrarlanınca
+çok yavaşladı). SKU alt kümesine göre önceden filtreleyince çalışma süresi
+makul seviyeye indi (~2 dakika).
+
+### `build_dataset.py` — A3.2 (bitti ✅) — router soru şablonları
+
+Kişi B'nin router'ı (`app/llm/router.py`, `app/api/ask.py`) henüz Faz 2
+B2.2-B2.3'te yazılacak — yani gerçek bir "araç listesi" henüz yok. Bu yüzden
+roadmap'teki tek somut ipucuna ve mevcut API stub'larına dayanarak **geçici
+ama makul** 7 araç tanımladım: kritik stok, ölü stok, tedarikçi performansı,
+sipariş önerisi, onay kuyruğu, gecelik özet, genel stok durumu. Kişi B
+gerçek router şemasını yazınca bu liste güncellenip veri seti yeniden
+üretilecek.
+
+Sonuç: **24.999 soru-araç çifti** (`data/egitim/router_sorulari.jsonl`),
+4 stil çeşitliliğiyle (resmi/günlük/kısaltmalı/yazım hatalı).
+
+Burada da bir hata bulup düzelttim: ilk denemede yalnızca **1.884** satır
+çıktı. Sebep: katalogdaki ürün isimleri sınırlı sayıda şablon+marka
+kombinasyonundan üretiliyor, aynı isim onlarca farklı üründe tekrarlanabiliyor
+— metin bazlı tekilleştirme bu tekrarların çoğunu eledi. Çözüm: soru metnine
+ürün adının yanına SKU kodunu da eklemek (`"Portland Çimento 32.5 R - Çimsa
+(S-01636)"`) — hem gerçekçi hem de benzersizliği garanti ediyor.
+
+### A3.3 — büyük LLM ile soru başkalaştırma (bitti ✅, iki turda)
+
+`training/paraphrase_colab.ipynb` yazıldı, Colab'da (T4 GPU, Qwen2.5-7B-Instruct
+4-bit) çalıştırıldı. İki tasarım hatası bulunup düzeltildi:
+
+1. **Performans:** İlk denemede 24.999 satırın HER BİRİ ayrı ayrı modele
+   gönderiliyordu — 100 satır 357 sn, tüm veri seti ~25 saate karşılık
+   geliyordu (Colab sınırı ~12 saat). Çözüm: yalnızca arkadaki **~84 benzersiz
+   şablonu** başkalaştırıp sonucu yerelde gerçek varlıklarla çoğaltmak.
+   ~250x hızlanma, ~5 dakikaya indi.
+2. **Prompt sızıntısı:** Talimat metnindeki "tire" kelimesini model çıktının
+   parçası sanıp taklit ediyordu. Kelime kaldırıldı, regex güvenlik ağı eklendi.
+
+**Ama asıl sorun ilk turda çözülemedi:** Model bazı cümlelerde **anlamı
+tersine çeviriyordu** — "listesini görebilir miyim?" → "listeden kaldırılmasını
+istiyorum" gibi, ~%40 oranında. Eğitim verisi için kabul edilemez. Adım geçici
+olarak **askıya alındı.**
+
+**A3.4'ün dersleriyle geri dönüldü.** Orada aynı sınıf bir hatayı (karar
+tipinin iş anlamını prompt'a yazmayınca modelin yönü karıştırması) çözmüştük.
+İki düzeltme uygulandı:
+
+1. **Niyet-koruma kuralı:** Prompt'a cümlenin bir SORU olduğu, asla KOMUT'a
+   çevrilmemesi gerektiği açıkça yazıldı + doğru/yanlış örnek çifti.
+2. **İkinci LLM ile doğrulama (guard deseni):** Üretilen her aday parafraz,
+   aynı modele ikinci kısa bir çağrıyla ("bu iki cümle aynı bilgiyi mi
+   istiyor?") doğrulanıyor. A3.4'teki guard/retry/fallback zincirinin birebir
+   aynı fikri.
+
+İlk gerçek denemede **%64,7 red oranı** çıktı — ama elle bakılan örneklerde
+kabul edilenlerin çoğu doğruydu. Kök neden: doğrulayıcıya yalnızca
+`max_new_tokens=5` veriliyordu; model "EVET/HAYIR" demeden önce birkaç kelime
+tereddütle başlayınca kesiliyor ve sessizce "HAYIR" sayılıyordu.
+`max_new_tokens` 16'ya çıkarıldı, biçim hatası artık **kabul** tarafına
+düşüyor (bu bir kalite süzgeci, A3.4'teki sayısal guard kadar sert bir
+güvenlik sınırı değil), ayrı bir `belirsiz` sayacı eklendi, İngilizce sızıntısı
+için `LATIN_YABANCI_DESENI` filtresi kondu.
+
+Yeniden denemede **`BELİRSİZ %0`** çıktı — teori doğrulandı. Kalan %58,9 red
+bu sefer gerçek: doğrulayıcı, "verilmesi **gereken**" (gereklilik) ifadesini
+"verilecek" (kesinleşmiş gelecek) yapan varyantları doğru eliyor. Sistem
+tasarlandığı gibi çalışıyor: yanlışı üretmektense üretmemeyi tercih ediyor.
+
+**Sonuç:** 84 şablondan 61'i doğrulanmış parafraz aldı, 23'ü güvenle orijinal
+kaldı (veri kaybı yok). **35.375 soru-araç çifti**,
+`data/egitim/router_sorulari_parafraz.jsonl`.
+
+### `label_rationale.py` — A3.4 (bitti ✅) — gerekçe etiketleme + guard
+
+Amaç: her kararı Türkçe, doğal bir gerekçe cümlesine çevirmek — büyük bir
+LLM'in yazdığı, ama halüsinasyon içermediği garanti edilmiş bir cümle.
+
+**Tasarım kararı:** 50.050 satırın her birini ayrı ayrı büyük modele göndermek
+~25 saat sürerdi. Fark ettim ki `decide.py` her karar tipi için **sabit bir
+kural kodu dizisi** üretiyor — yani 50.050 satır aslında birkaç "ŞEKİL"in
+tekrarı. Büyük modele şekil başına birkaç kez soruldu (yer tutucu token'lı),
+gerçek sayılar bu varyantlara yerelde basıldı. Elli bin değil, onlarca LLM
+çağrısı. Gerçek veride yalnızca **3 benzersiz şekil** bulundu — tasarım
+varsayımı doğrulandı.
+
+**Guard'la ilgili not:** `app/llm/guard.py` (Kişi B, B2.5) henüz yazılmadı.
+A3.4 bunu bekleyemeyeceği için `label_rationale.py` kendi sayı-doğrulama
+eşleniğini taşıyor (`_metni_dogrula`) — `izinli_sayilar()` ile aynı kaynağı
+kullanan, gerçek guard yazılınca hizalanması gereken bağımsız bir kopya.
+Kişi B'nin `app/llm/` alanına dokunmadım (sözleşme gereği).
+
+Doğrulama zinciri: şekil varyantı doldurulur → sayılar `izinli_sayilar` ile
+karşılaştırılır (ürün adındaki rakamlar önce maskelenir, "Tuğla 19x9x5"
+içindeki 19/9/5 uydurma sanılmasın diye) → geçmezse `explain.py`'deki
+`sablon_gerekce()`'ye düşülür.
+
+**Gerçek modelle üç sorun bulundu ve düzeltildi:**
+
+1. **Anlam tersine dönüyordu** — prompt yalnızca `karar_tipi` kodunu veriyordu,
+   iş anlamını açıklamıyordu. `KARAR_TIPI_ACIKLAMASI` + `SLOT_ACIKLAMALARI`
+   eklendi.
+2. **Zorunlu yer tutucular atlanıyordu** — "hiçbirini atlama" vurgusu güçlendirildi.
+3. **Çince metin sızıntısı** — Qwen2.5 ailesinde bilinen sorun, `_CJK_DESENI`
+   filtresi eklendi.
+
+Ayrıca zayıf modelle (`llama3.2:1b`) duman testinde bir hata daha çıktı: model
+talimatı kendi cevabıymış gibi geri döndürüyordu ve "token'lar var mı" kontrolünden
+geçiyordu. `_YANKI_IFADELERI` kara listesi eklendi.
+
+Son olarak tam veri setine ilk uygulamada `stok.siparis` şeklinin tamamı
+(3.838 satır) şablona düştü: sabit 300 karakterlik uzunluk sınırım vardı ama
+7 yer tutuculu doğru bir cümlenin doğal uzunluğu 338-362 karakterdi. Sınır
+artık yer tutucu sayısına göre ölçekleniyor.
+
+**Sonuç — tam 50.050 satırlık koşu:** `data/egitim/gerekceler.jsonl`,
+**guard geçme oranı %100** (0 şablona düşme). Karar tipi dağılımı A3.1 ile
+neredeyse birebir örtüşüyor. 6,7 saniyede tamamlandı (tamamı yerel — yalnızca
+3 Colab çağrısının sonucu 50.050 satıra uygulandı).
+
+### Faz 3 durumu
+
+- ✅ A3.1 — karar noktası örnekleme (50.050 nokta)
+- ✅ A3.2 — router soru şablonları (24.999 çift, geçici araç listesiyle)
+- ✅ A3.3 — soru başkalaştırma (35.375 satır)
+- ✅ A3.4 — gerekçe etiketleme (50.050 satır, guard %100)
+- ✅ A3.5 — SKU bazlı train/val/test bölme + golden set adayı
+  (golden set'in **nihai onayı** hâlâ ikisi birlikte)
+
+---
+
+### A3.5 sonrası — Kişi B'nin bulduğu üç sorun düzeltildi
+
+Kişi B, Drive'a yüklenen veriyi bağımsız doğrularken (satır sayıları, SKU
+sızıntısı, sıra bağımsızlığı — hepsini kendi testleriyle) iki ciddi bulgu
+buldu:
+
+**1. Router verisi 3.808x dengesiz.** `siparis_onerisi_sorgula` (2.000
+SKU'dan üretildiği için) toplam verinin %95,6'sını kaplıyordu —
+`onay_kuyrugu_sorgula` 14, `genel_stok_durumu_sorgula` 11 satırla
+karşılaştırıldığında. Riski netti: LoRA "her şeye siparis_onerisi de"
+öğrenebilir, ve val/test AYNI dengesizlikte olduğu için bu risk kendi
+ölçümünde bile görünmez kalır — hep aynı cevabı veren bir model kendi
+testinde %95 "başarı" gösterir.
+
+**Düzeltme:** `training/veri_bolme.py`'ye `router_verisini_dengele()`
+eklendi — baskın aracı tekilleştirmeden SONRA 2.000'e alt örnekliyor.
+Dengesizlik **3.808x'ten ~143x'e düştü** (2.000/14). Bunu, golden set'in
+router kısmının da saf rastgele örnekleme yerine **her araçtan taban pay
+garanti eden** stratified örneklemeye geçirilmesi izledi — önceki golden
+set adayı yalnızca 2 araçtan örnek içeriyordu (diğer 5'i hiç ölçemiyordu),
+yenisi 7 aracın 7'sini de kapsıyor (en seyrek ikisi hâlâ ince: 4 ve 1 örnek
+— test bölmesinde o kadar satır olduğu için, daha fazlası yok).
+
+**Not (henüz yapılmadı, isteğe bağlı):** Bu düzeltme tamamen yerel/koddan
+yapıldı, ek bir Colab turu gerektirmedi. Seyrek araçları (özellikle
+parametresiz `onay_kuyrugu_sorgula`/`genel_stok_durumu_sorgula`) 500-2.000
+bandına daha da yaklaştırmak isteniyorsa ek bir paraphrase turu (daha
+yüksek `n`) gerekir — ama bu iki aracın doğal dil çeşitliliği zaten sınırlı
+(parametre yok, tek bir statik niyet), 500+ farklı doğal cümle üretmek
+zorlama/tekrar riski taşır. Alternatif: LoRA eğitiminde class-weighted
+sampling — bu, B'nin karar vereceği bir eğitim-tarafı tercihi.
+
+**2. `sku_adi` parametresi aslında SKU KODU taşıyordu, ürün adı değil**
+(`{"sku_adi": "S-01971"}`). Bu, B'nin taban çizgi karşılaştırmasını
+(beklenen değerler ürün adıydı) geçersiz kılabilirdi. **Karar: parametre
+anahtarı `sku_id` olarak yeniden adlandırıldı** (`build_dataset.py`'nin
+`ARAC_TANIMLARI`sı, `PLACEHOLDER_TOKENLARI`, `veri_bolme.py`'nin SKU
+eşleştirmesi) — içerik zaten hep ID'ydi, artık adı da öyle. Var olan
+`sablon_parafraz.jsonl`/`sablon_listesi.jsonl` dosyaları (Colab'dan gelen,
+yeniden üretmesi maliyetli) alan adı düzeltmesiyle yerinde güncellendi,
+Colab'a tekrar gidilmedi. B kendi tarafında `schemas.py`'yi buna göre
+güncelleyecek.
+
+**3. Golden set'e iki vaka daha eklendi:** `tedarikci_onayli=False`
+sentetik bir örnek elle oluşturuldu (gerçek `decide.py` + `sablon_gerekce`
+üzerinden, `sentetik_not` alanıyla işaretli) — bu durum eğitim verisinde
+hiç görülmüyor (bkz. yukarıdaki `TEDARIKCI_ONAY_ESIGI` notu) ama onay
+kuyruğu politikasının bunu doğru yakalayıp yakalamadığını test etmek
+önemli. **`stok.tedarikci_degisim` eklenemedi** — `KararTipi` enum'unda
+tanımlı olsa da `decide.py::ozellikten_karar_uret` bu kararı hiçbir zaman
+üretmiyor (tedarikçi değişim mantığı hiç yazılmadı). Golden set, sistemin
+üretmediği bir kararın örneğini içeremez — bu, veri hazırlığının bir
+eksiği değil, decide.py'de henüz yazılmamış bir özelliğin işareti; B'ye ve
+gerekirse gelecekteki bir role/faz'a not olarak bırakıldı.
+
+Yeniden üretilen tüm veri (`router_sorulari.jsonl`, `router_sorulari_parafraz.jsonl`,
+`router_train/val/test.jsonl`, `golden_set_aday.jsonl`) Drive'a tekrar
+yüklenmeli.
+
+---
+
+## A · Faz 4-5 — Genellenebilirlik testi + para metriği (✅)
+
+A3.5 Kişi B'yi beklediği için, ona hiç bağımlı olmayan Faz 4-5 işlerine
+geçildi.
+
+### 2 yeni şirket profili (A4.2)
+
+`kucuk_nalbur_dukkani()` (~250 SKU, dar kategori, zayıf sezonsallık) ve
+`buyuk_insaat_deposu()` (~5.000 SKU, güçlü sezonsallık) eklendi — varsayılan
+~2.000 SKU'luk profilin yanına, ölçek ve karma bakımından iki uç nokta.
+
+### `maliyet_raporu_uret()` (A4.4)
+
+Kendi simülasyon döngüsünü çalıştırmaz — `simulasyon_calistir()`'in **gerçek**
+tablolarını doğrudan işler, yani herhangi bir koşuya (sağlıklı, patolojili,
+farklı seed/profil) uygulanabilir. 6 birim testiyle doğrulandı.
+
+### A4.2 sonucu
+
+3 profil × 3 seed = 9 kombinasyonun **tamamında** kural motoru vasat
+politikadan hem daha düşük stok tükenme oranı hem daha düşük toplam maliyet
+üretti. İyileşme ölçekle büyüyor: küçük dükkânda %1,4-3,2, varsayılan profilde
+%15-19, büyük depoda %39-45.
+
+**İlginç bir bulgu:** `kucuk_nalbur_dukkani` + seed=2026'da oracle'ın ham stok
+tükenme sayısı (maliyeti değil) baseline'lardan yüksek çıktı. Kök neden: bu
+profilde tedarik süresi kısa olduğu için oracle çok daha sık sipariş veriyor
+(3049 vs ~700-1100); her döngüde sabit 3-sigma tamponunu aşma olasılığına
+(~%0,13) yeniden maruz kalıyor — 3049 tekrarda en az bir "kötü şans" çekme
+olasılığı ~%98. Kod hatası değil, oracle'ın sabit-tampon tasarımının bilinen
+bir sınırlaması; script bunu gizlemek yerine açıkça gösteriyor.
+
+### Faz 5 — projenin can alıcı sonucu
+
+Eğitim verisi üretiminde hiç kullanılmamış taze bir seed'le
+(`FAZ5_HELD_OUT_SEED=20250801`), varsayılan profilde, 3 yıllık tutulmamış koşu:
+
+| Politika | Stok tükenme | Kayıp kâr | Aşırı stok | Sipariş maliyeti | **Toplam** |
+|---|---|---|---|---|---|
+| vasat | %5,31 | 7,69M | 9,41M | 1,72M | **18,82M TL** |
+| kural motoru | %0,47 | 3,82M | 12,41M | 1,16M | **17,40M TL** |
+| oracle | ~%0 | 0,20M | 8,70M | 6,00M | **14,90M TL** |
+
+**Kural motoru toplam maliyeti %7,6 düşürdü, stok tükenme oranını %5,31'den
+%0,47'ye indirdi.**
+
+İki nokta bilinçli olarak raporlanıyor:
+
+1. Kural motorunun **aşırı stok maliyeti vasat'tan yüksek** (12,41M vs 9,41M)
+   — hata değil, kasıtlı değiş tokuş: önemli ürünlere %99 servis seviyesi
+   hedeflemek daha fazla emniyet stoğu demek. Karşılığında kayıp kâr yarıya
+   düşüyor, net etki lehine.
+2. Oracle'ın sipariş maliyeti (6,00M) en yüksek — 40.021 sipariş verdiği için.
+   Mükemmel bilgiyle stok maliyetini minimize etmek mümkün ama bedeli çok sık,
+   küçük siparişler. Teoriyle tam uyumlu.
+
+---
+---
+
+# KİŞİ B — Servis & Model (Esmanur)
+
+## B · Adım 0 — Ortam kurulumu
+
+| Yapılan | Neden |
+|---|---|
+| `uv` kuruldu | Projenin paket yöneticisi. `pip` + `venv` + `pyenv` yerine tek araç |
+| Python 3.12.13 indirildi | Sistemde 3.11 vardı, proje 3.12+ istiyor. `uv` kendi indirdi |
+| 140 paket kuruldu | `uv.lock` sayesinde Melih'le **birebir aynı** sürümler |
+| Cache'ler `D:\ERP\.cache`'e yönlendirildi | C: sürücüsünde 5,8 GB kalmıştı. Cache 725 MB oldu ama C: hiç dolmadı |
+| `.env` oluşturuldu | Ayarlar (`AUTONOMY_LEVEL=shadow` gibi) |
+
+**Bu projede `pip install` asla kullanılmaz.** Yeni paket gerekirse `uv add`.
+`pip install` paketi sadece tek bilgisayara kurar, `uv.lock`'a girmez, CI'da
+patlar.
+
+## B · Adım 1 — Kod okuma turu
+
+Faz 0'da hazır gelen kod anlatıldı. İki kritik konu:
+
+**`izinli_sayilar()`** — Bir karar için, gerekçe metninde geçmesine izin
+verilen sayıların listesi. Taklit karar için tam **25 sayı**. Faz 2'de guard
+bunu kullanacak: metindeki bir sayı bu listede yoksa metin çöpe gidecek.
+
+**`sonuc` ≠ `uygulandi`** — İki ayrı şey:
+
+- `sonuc` = politikanın hükmü ("bu karar otomatik uygulanabilir")
+- `uygulandi` = gerçekten olan şey ("ama shadow moddayız, dokunmadım")
+
+Bir hafta shadow modda çalışıp bu ikisini karşılaştırdığında elde ettiğin sayı,
+sistemi gerçekten uygulama moduna (`threshold`) geçirme iznin oluyor.
+
+---
+
+## B · Faz 1 — Veri katmanı + API + CI (TAMAMLANDI ✅)
+
+**Testler: 25 → 91**, hepsi yeşil. `faz1-servis` branch'ine push edildi,
+CI GitHub'da yeşil (34 saniye).
+
+### B1.1 · Veritabanı tabloları
+
+Altı tablo:
+
+| Tablo | Ne tutuyor |
+|---|---|
+| `decision` | Üretilen her karar + politikanın hükmü + (varsa) gerekçe |
+| `decision_audit` | **Değişmez** denetim izi. Her olay için bir satır, asla güncellenmez |
+| `approval` | Onay kuyruğu — kim, ne zaman, ne dedi |
+| `feedback` | İnsan geri bildirimi — sonraki eğitim turunun verisi |
+| `policy` | Eşik tablosu |
+| `insight` | Gecelik bulgular (Faz 2'de dolacak) |
+
+**`alembic` nedir:** Veritabanı yapısını kodla değiştirmenin yolu.
+`alembic upgrade head` yazınca tablolar oluşuyor. Yapı değişince yeni bir
+"migration" dosyası yazılıyor; böylece iki bilgisayardaki tablolar aynı kalıyor.
+
+**En önemli tasarım:** `decision` satırından sözleşme nesnesi geri
+kurulabiliyor. Bu şart, çünkü gerekçe **sonradan** üretiliyor — guard saatler
+sonra çalıştığında "izinli sayılar"ı o satırdan çıkaracak.
+
+### B1.2 · Veritabanı katmanı
+
+Uygulamanın veritabanına nasıl bağlandığı (`app/core/db.py`).
+
+**Buradaki asıl bulgu:** SQLite yabancı anahtarları **varsayılan olarak
+zorlamıyor**. Test ettim, var olmayan bir karara onay satırı yazılabiliyordu.
+Yani B1.1'de yazdığım koruma kuralları **süstü**.
+
+Üç ayar eklendi, her yeni bağlantıda çalışıyor:
+
+| Ayar | Ne işe yarıyor |
+|---|---|
+| `foreign_keys=ON` | Yukarıdaki açığı kapatıyor |
+| `journal_mode=WAL` | Gecelik iş yazarken API okumaya devam edebilsin |
+| `busy_timeout=5000` | Kilitte hemen hata vermek yerine 5 sn bekle |
+
+Ayrıca `GET /health/db` ucu eklendi: bağlantı durumu ve koruma kuralının açık
+olduğu tek istekle görülebiliyor.
+
+### B1.3 · Denetim kaydı
+
+Projenin kuralı: **denetim kaydı olmayan bir karar yolu birleştirilmez.**
+
+`app/core/audit.py` bu kuralı yoruma bırakmıyor:
+
+- `karari_kaydet()` — kararı kaydetmenin **tek** yolu. Karar satırını ve
+  denetim satırını **birlikte, aynı işlemde** yazıyor.
+- `girdi_hash_hesapla()` — girdinin parmak izi (SHA-256). "Aynı girdiye aynı
+  kararı verdik mi" sorusunun cevabı.
+
+**Hash'e yalnızca özellikler giriyor**, karar kimliği ve zaman girmiyor.
+Girseler her çalıştırmada farklı hash çıkar ve karşılaştırma imkânsız olur.
+
+**Neden aynı işlem:** ayrı ayrı kaydedilseydi, aradaki bir çökme *denetim izi
+olmayan bir karar* bırakırdı — tam olarak engellemek istediğimiz şey.
+
+### B1.4 · Eşikler koddan tabloya
+
+Önce eşikler (5.000 TL, güven 0,85) kodda sabitti. Artık `policy` tablosunda,
+karar tipi başına ayrı satır.
+
+**Neden:** eşiği değiştirmek için kod dağıtmak gerekmesin. Kanıtı — canlıda tek
+`UPDATE` ile davranış değişti:
+
+```
+eşik 5.000 -> 10.000
+sonuç: onay_kuyrugu  ->  oto_uygula
+```
+
+Üç durum ayırt ediliyor: `db` (normal), `config` (kasıtlı veritabanısız yol),
+`config_yedek` (**veritabanına bakıldı, satır yoktu**). Üçüncüsü gerekçe
+kodlarına `ESIK_VARSAYILANA_DUSTU` ekliyor — sessizce yedeğe düşmek, eşik
+tablosunun boş olduğunu aylarca fark etmemek demekti.
+
+Mevcut `tests/test_policy.py` **hiç değiştirilmedi** ve geçmeye devam ediyor.
+
+### B1.5 · API uçları
+
+| Uç | Ne yapıyor |
+|---|---|
+| `GET /v1/approvals` | Onay kuyruğu, **risk skoruna göre azalan** |
+| `POST /v1/approvals/{karar_id}` | Onayla / reddet / düzelt |
+| `POST /v1/feedback` | Ek geri bildirim |
+| `GET /v1/insights` | Gecelik bulgular (Faz 2'de dolacak) |
+
+**Dört tasarım kararı:**
+
+1. **Kuyruğa yalnızca onay bekleyen kararlar girer.** Shadow modda eşik altı
+   kalan karar kaydedilir ama kuyruğa girmez — kimsenin bakmayacağı kaydı
+   insanın önüne koymak kuyruğu değersizleştirir.
+2. **`uygulandi` onay ucunda değişmez.** O alan "sistem uyguladı mı" demek;
+   insan onayı sistemin uygulaması değil.
+3. **İş akışı ucu ile veri ucu ayrı.** Onay ucu kararı bir kez sonuçlandırır
+   (ikincisi 409). Feedback ucu sınırsız yorum alır — çünkü kullanıcı bir hafta
+   sonra "fazlaydı" derse iş akışı değişmemeli ama eğitim verisine girmeli.
+4. **Kuyruk riske göre sıralı.** İnsanın zamanı kısıtlı.
+
+Ayrıca `GET /` → `/docs` yönlendirmesi eklendi. FastAPI köke hiçbir şey
+koymuyor; `localhost:8000` açan biri 404 görüp servisi çökmüş sanıyordu.
+
+**Elle doğrulandı:** `/docs` üzerinden karar üretildi, kuyrukta görüldü,
+reddedildi, `feedback` tablosuna düştüğü doğrulandı. Kırmızı senaryolar da
+geçti: kullanıcı eksik → 422, düzeltme aksiyonu yok → 422, aynı kararı iki kez
+→ 409, olmayan karar → 404.
+
+### B1.6 · CI (otomatik kontrol)
+
+`.github/workflows/ci.yml` — her pull request'te otomatik koşuyor:
+
+| Adım | Ne kontrol ediyor |
+|---|---|
+| `uv sync --frozen` | Kilit dosyası güncel mi |
+| `ruff check .` | Kod stili |
+| `pytest` | 91 test |
+| `alembic upgrade head` | Migration'lar boş veritabanında uygulanabiliyor mu |
+| `alembic check` | Model ile migration uyumlu mu |
+
+⚠️ **Bu dosya tek başına yeterli değil.** GitHub'da `main` için branch
+protection açılmalı (Settings → Branches), yoksa CI sadece bilgi verir.
+
+---
+
+## B · Faz 2 — LLM katmanı (başladı 🔄)
+
+### B2.1 · Model + istemci (bitti ✅)
+
+`qwen2.5:1.5b-instruct` indirildi (986 MB, `D:\Ollama\models` — C: sürücüsüne
+hiç dokunmadı). `app/llm/client.py` yazıldı: modelin **tek giriş kapısı**.
+Zaman aşımı, yeniden deneme, token/süre ölçümü tek yerde.
+
+**18 test, hiçbiri gerçek modeli çalıştırmıyor** — sahte cevaplarla. Yani CI'da
+Ollama olmadan koşuyorlar ve geliştirme sırasında işlemciyi yormuyorlar.
+
+**Isınma endişesi vardı, ölçerek çözüldü.** Geliştirme makinesi tek ve yedeği
+yok; "muhtemelen sorun olmaz" yeterli bir cevap değildi. İki koruma kondu:
+
+| Koruma | Ne yapıyor |
+|---|---|
+| İşlemci üst sınırı %60 | Windows güç planı; çip o ısıya hiç ulaşamıyor |
+| `LLM_IPLIK_SAYISI=4` | Model 22 çekirdeğin sadece 4'ünü kullanıyor |
+
+Sonra 2/4/8/16/22 iş parçacığıyla ölçüldü. **22 iş parçacığı 16'dan yavaş
+çıktı** — bu işlemcide üç tip çekirdek var, hepsini birden kullanınca hızlılar
+yavaşları bekliyor.
+
+`4` seçildi. En hızlısı değil, bilinçli: 16'ya çıkmak gecelik işi 4,1 dakikadan
+2,9 dakikaya indiriyor — gece, kimse başında değilken çalışan bir iş için 1,2
+dakika kazanç. Dört kat çekirdek yükünü karşılamıyor.
+
+**Sonuç: 22,4 token/sn → gerekçe ~9,8 sn → gecelik iş ~4,1 dakika** (hedef
+< 10 dk). Ayrıntılı tablolar `dokumantasyon/OLCUMLER.md`'de.
+
+**Yan bulgu — model ilk çağrıda sayı uydurdu.** Basit bir istemle:
+
+> *"Kirmizi Tugla için **35** adet ek satışı yapar."*
+
+Verilen sayılar 42, 12, 270, 1200'dü; **35** hiçbir yerde yoktu. Mimarinin
+birinci kuralının neden var olduğunun canlı kanıtı — ilk denemede,
+kendiliğinden. İsteme "yeni sayı üretme" eklenince kayboldu, ama bu bir garanti
+değil yalnızca olasılık düşürme. Guard (B2.5) bu yüzden zorunlu.
+
+### B2.2 · Yapılandırılmış çıktı (bitti ✅)
+
+Modelden düz metin değil **şemaya uyan JSON** istiyoruz. `app/llm/schemas.py`:
+
+- `AracAdi` — router'ın seçebileceği 7 araç. **Kişi A'nın eğitim verisindeki
+  adlarla birebir aynı**; ayrışırsa model öğrendiği etiketi tanımaz ve router
+  sessizce başarısız olur. Bir test bunu kilitliyor.
+- `AracCagrisi` — araç + parametre. Yanlış parametre reddediliyor: model doğru
+  aracı seçip uydurma parametre ekleyebiliyor, bu aşağı akışta anlamsız sorgu
+  demek.
+- `GerekceCiktisi` — tek alanlı. Model düz metin istendiğinde başına "İşte
+  açıklama:" gibi girişler ekliyordu; tek alanlı şema bunu yapısal olarak
+  engelliyor.
+- `yapilandirilmis_uret()` — şemaya uymazsa yeniden dener, olmazsa
+  `SemaUyumsuz` fırlatır (çağıran şablona düşer, karar bloke olmaz).
+
+**Kabul ölçütü: 20/20 geçerli JSON, hepsi ilk denemede.** Yedek plan (llama.cpp
+GBNF grammar) gerekmedi.
+
+**Ama önemli bir ders çıktı: şema biçimi garanti eder, anlamı etmez.**
+
+Yirmi çıktının hepsi kusursuz JSON'du. İçerik değildi:
+
+```
+#18  "163..."                       ← UYDURMA SAYI
+#19  "42 + 615 - 1200 = 397..."     ← UYDURMA + aritmetik
+#20  "1976-03-14T13:44:00Z..."      ← RASTGELE TARİH
+```
+
+Bu sayıların hiçbiri isteme verilmemişti. Guard'ın (B2.5) neden pazarlık
+konusu olmadığının ikinci kanıtı — birincisi B2.1'deki `35`'ti.
+
+Router tarafında ön bulgu: 14 sorudan 11'i doğru. Model **açık** ifadelerde
+iyi, **dolaylı** ifadelerde takılıyor ("kuyrukta ne var" → yanlış araç). Resmî
+taban çizgi B2.3'te, 30 dengeli soruyla ölçülecek.
+
+### B2.3 · Router + taban çizgi (bitti ✅)
+
+`app/llm/router.py` — Türkçe soruyu 7 araçtan birine yönlendiriyor. Henüz
+eğitim yok, few-shot örneklerle çalışıyor. `POST /v1/ask` ucu da eklendi.
+
+Uç **yalnızca yönlendirme** yapıyor, aracı çalıştırmıyor. Bilinçli: B2.3'ün
+ölçtüğü şey "doğru aracı seçebiliyor muyuz". Çalıştırmayı da aynı adıma
+sıkıştırmak, yanlış yönlendirmeyi doğru sonucun arkasına gizlerdi.
+
+**Taban çizgi ölçüldü — bu sayı projenin en kritik ölçümlerinden.** Faz 3'te
+LoRA eğitildikten sonra aynı 30 soru yeniden koşturulup karşılaştırılacak.
+Şimdi ölçülmeseydi "eğitim işe yaradı mı" sorusu kalıcı olarak cevapsız
+kalırdı.
+
+| Ölçüt | Değer | Faz 5 hedefi |
+|---|---|---|
+| Araç doğru | **%76,7** (23/30) | — |
+| Araç + parametre | **%73,3** (22/30) | **> %95** |
+
+Arada 22 puan var. LoRA'nın kapatması gereken mesafe bu.
+
+Ölçüme **üç koruma** eklendi (Kişi A'nın verisini inceledikten sonra):
+
+1. **Parametre biçimi esnek.** Eğitim verisinde `sku_adi` parametresi ürün
+   adını değil **kodunu** taşıyor (`"S-01971"`). Model eğitimden sonra kod
+   üretmeye başlarsa katı karşılaştırma doğru cevabı yanlış sayar ve LoRA
+   öncesi/sonrası kıyaslaması geçersiz olurdu. Beklenen değer artık liste —
+   ad da kod da kabul.
+2. **Uydurma parametre dedektörü.** Model parametreyi ancak sorudan
+   çıkarabilir; soruda geçmeyen bir değer üretiyorsa ayrıca sayılıyor.
+   İlk koşuda 1 tane yakaladı.
+3. **Çöküş dedektörü** (aşağıda).
+
+Ham sonuçlar `training/eval/router_taban_sonuc.json`'a kaydediliyor —
+B3.5'te puanlama değişirse modeli tekrar çalıştırmaya gerek kalmasın.
+
+**Asıl bulgu:** sekiz hatanın **dördü tek bir araçta**. Model "ölü stok"u
+(satılmayan, fazla mal) "kritik stok"la (tükenen, eksik mal) karıştırıyor —
+ikisi de "stok sorunu" ama iş anlamı zıt.
+
+```
+olu_stok_sorgula : 1/5     ←←← 
+diğer altı araç  : 21/25
+```
+
+En çarpıcısı: *"Ölü stok durumundaki ürünleri listeler misin?"* sorusunda
+**"ölü stok" kelimesi birebir geçiyor** ve model yine kritik stoğa
+yönlendirdi. Few-shot prompt bu ayrımı öğretemiyor; LoRA'nın somut olarak
+çözmesi gereken şey bu.
+
+Soru seti **elle yazıldı**, Kişi A'nın otomatik ürettiği eğitim verisinden
+bilinçli olarak ayrı — aynı şablonlardan türeyen bir test seti, modelin
+şablonu ezberlemesini "başarı" diye ölçerdi.
+
+### ⚠️ Eğitim verisi dengesizliği — LoRA öncesi çözülmeli
+
+Kişi A'nın Drive'daki verisi bağımsız olarak incelendi (2026-08-02). Satır
+sayılarının hepsi tutuyor, **sızıntı yok** (train/val/test SKU kümeleri
+tamamen ayrık, hem `sku_id` hem `sku_adi` üzerinden doğrulandı). Ama araç
+dağılımı çok çarpık:
+
+```
+siparis_onerisi_sorgula      41.886   %95,6
+tedarikci_performansi          1.325
+kritik_stok_sorgula              256
+olu_stok_sorgula                 240
+gecelik_ozet_sorgula              66
+onay_kuyrugu_sorgula              14
+genel_stok_durumu_sorgula         11
+```
+
+**En sık / en seyrek = 3808 kat.**
+
+Bu veriyle eğitilen model "her şeye `siparis_onerisi` de" davranışına
+çökebilir. Asıl tehlike şu: **Kişi A'nın val/test bölmeleri de aynı
+dengesizlikte**, yani hep aynı cevabı veren bir model onun test setinde
+**%95 doğruluk** gösterir. Rakam mükemmel görünür, router çalışmaz.
+
+Bu çarpıklığı görebilecek tek ölçüm **dengeli olan taban çizgi seti**. Bu
+yüzden `router_taban.py`'ye **çöküş dedektörü** eklendi: model tek araca
+%40'tan fazla yığılırsa açıkça uyarı basıyor. "Doğruluk düştü" ile "model
+ayrım yapmayı bıraktı" farklı sorunlar — birincisi daha çok veri ister,
+ikincisi dengeyi düzeltmeyi.
+
+Kök sebep yapısal, bir hata değil: `siparis_onerisi` 2.000 SKU'dan
+üretiliyor, `kritik_stok` yalnızca ~8 kategoriden.
+
+Kişi A'ya iletildi. Önerilen: `siparis_onerisi`'ni ~2.000'e alt örnekle
+(3808x → 150x) **ve** seyrek araçları A3.3 parafraz makinesiyle çoğalt.
+
+Ayrıntılar `dokumantasyon/OLCUMLER.md`'de.
+
+### Sırada
+### B2.6 · Gecelik iş + tetikleyiciler (bitti ✅)
+
+**`app/jobs/nightly.py`** — mimarinin can alıcı noktasını hayata geçiriyor.
+
+Naif tasarım şöyle olurdu: her SKU için karar üret, her karar için gerekçe
+yaz. 2.000 × ~9 sn = **5 saat.** Onun yerine:
+
+1. Tüm SKU'lar için karar üretilir — kural motoru, milisaniyeler
+2. Kararlar **önem sırasına** dizilir (risk skoru)
+3. Gerekçe **yalnızca üst 25** karar için yazılır
+
+Geri kalan kararlar gerekçesiz kaydedilir; denetim kaydına `ATLANDI` yazılır.
+Bu bir eksiklik değil, tasarım — insan zaten ilk 25'e bakıyor.
+
+`KosuOzeti` **karar süresiyle gerekçe süresini ayrı** raporluyor. Mimarinin
+"karar hızlı, gerekçe yavaş" iddiası ancak ayrı ölçülürse doğrulanabilir; tek
+bir toplam süre bu ayrımı gizlerdi.
+
+Bir performans detayı: eşikler karar tipi başına **bir kez** okunuyor. Bu
+önbellek olmadan 2.000 SKU = 2.000 ayrı SELECT olurdu; 4 karar tipi olduğu
+için hepsi 4 sorguya iniyor. 10 dakikalık bütçenin korunmasında en ucuz
+kazanç bu.
+
+**`app/jobs/triggers.py`** — üç tetikleyici: büyük sipariş, kritik stok,
+limit aşımı. Eşikler `config.py`'de, çünkü sahada "büyük sipariş" neye denir
+şirkete göre değişir.
+
+Tetikleyici **karar üretmez**, üretilmiş bir kararı değerlendirir. Ayrım
+önemli: tetikleyici mantığı karar mantığına karışırsa iş kuralı iki yerde
+yaşar ve zamanla ayrışır.
+
+İki incelik:
+
+- **Talep sıfırsa kritik stok tetiklenmiyor.** "Kaç gün yeter" sorusunun
+  cevabı yok; 0 dönmek "hemen bitecek" demek olurdu ve hiç satmayan bir ürün
+  için her gece yanlış alarm üretirdi.
+- **Önem skoru eşiğin kaç katı aşıldığı**, sabit 1.0 değil. Limitin iki katı
+  bir sipariş, sınırda olandan daha acil ve kuyrukta üstte görünmeli.
+
+24 test eklendi, hiçbiri model çalıştırmıyor (gerekçe üreteci enjekte
+edilebilir). **Kabul ölçütü "2.000 SKU < 10 dakika" merge'i bekliyor** —
+gerçek kural motoru gerekiyor. Kod hazır, `karar_ureteci` parametresine
+`stok_karari_uret()` geçirilecek, başka bir şey değişmeyecek.
+
+### B2.5 · ⭐ Guard — projenin en kritik parçası (bitti ✅)
+
+Mimarinin birinci kuralını hayata geçiren kod: **LLM asla sayı üretmez.**
+Metindeki her sayı `izinli_sayilar()` kümesinde yoksa metin reddedilir.
+
+Bu kural teorik değil. Modelin bu projede **gerçekten** yaptıkları:
+
+```
+B2.1  "Kırmızı Tuğla için 35 adet ek satışı yapar"   ← 35 uydurma
+B2.2  "163..."                                       ← uydurma
+B2.2  "42 + 615 - 1200 = 397..."                     ← uydurma + aritmetik
+B2.2  "1976-03-14T13:44:00Z..."                      ← rastgele tarih
+```
+
+Dördü de guard testine **birebir test vakası** olarak kondu. Hayali örnek
+kullanmadık.
+
+**Zincir:** üret → doğrula → geçmezse 1 kez yeniden üret → yine geçmezse
+şablona düş. Sonuç her koşulda denetim kaydına yazılır. Üreteç patlasa bile
+(LLM erişilemez) şablona düşülüyor — **karar hiçbir koşulda bloke olmuyor.**
+
+#### İki tasarım kararı, ikisi de ölçümle alındı
+
+**1. Maskeleme zorunlu.** Ürün/tedarikçi adlarındaki rakamlar sayı değil.
+Maskeleme olmadan **kendi şablon gerekçemiz kendi guard'ımızdan geçmiyor** —
+iki motorda da doğrulandı:
+
+```
+stub          maskesiz: REDDEDER [19, 9, 5]   ← "Kırmızı Tuğla 19x9x5"
+gerçek motor  maskesiz: REDDEDER [125]        ← "Alçıpan 12.5mm"
+```
+
+İkincisi daha sinsi: `12.5mm` Türkçe biçimde ayrıştırılınca **125** oluyor.
+Şablon guard'ın geri dönüş noktası; o da reddedilirse sistemin güvenli çıkışı
+kalmaz. Fikir Kişi A'nın `label_rationale.py::_metni_maskele`'sinden geldi —
+onun kodunu incelemek benim yapacağım bir hatayı önledi.
+
+**2. Tolerans hem yuvarlamayı kabul etmeli hem kabalığı kesmeli.** Üç kural
+gerçek vakalarla karşılaştırıldı:
+
+| kural | `27,38 → "%27"` | `4,75 → "5"` |
+|---|---|---|
+| mutlak tolerans (0,01) | ❌ reddediyor | ✅ |
+| yalnız yuvarlama | ✅ | ❌ **geçiriyor** |
+| **yuvarlama + bağıl %2** | ✅ | ✅ |
+
+Seçilen: **birebir eşleşme VEYA (yazılan hassasiyette doğru yuvarlama VE
+bağıl fark ≤ %2)**. Bağıl sınır olmasa `0,94 → "1"` geçerdi ve gerekçede
+"1 adet" yazan bir uydurma kullanıcıya giderdi.
+
+#### Kişi A için çağrılabilir arayüz
+
+Görev dosyası: *"Ona sade, çağrılabilir bir fonksiyon arayüzü bırak."*
+
+```python
+sayilari_dogrula(metin, izinli, maskelenecek=...) -> DogrulamaSonucu
+```
+
+`DecisionCandidate` bilmiyor — yalnızca metin, izinli küme ve maskelenecek
+metinler alıyor. Böylece eğitim verisi üretiminde de çalışma zamanında da
+**aynı kod** çalışır. `label_rationale.py` kendi kopyasını silip bunu import
+edebilir.
+
+42 test. Hiçbiri model çalıştırmıyor.
+
+#### Kişi A'nın incelemesi ve çıkan tek düzeltme
+
+Kişi A guard'ı bağımsız olarak kendi makinesinde çalıştırdı (ayrı bir `git
+worktree` ile) ve onayladı. Bir gözlem bıraktı: `"14.03.1976"` gibi nokta
+ayraçlı bir tarih **tek bir sayı** olarak okunuyor ve `14031976` diye garip
+bir değer olarak reddediliyor.
+
+Bunu değiştirmedik, çünkü değiştirmek **tehlikeli**. Neden:
+
+Guard bir belirteci çözemezse (`None` döndürürse) o belirteci **yok sayar**.
+Yani "14.03.1976 geçersiz binlik gruplaması, `None` döndüreyim" diye
+"düzeltmek" tarihi guard'dan **geçirir**. Garip görünen sayı, güvenli olan
+davranış. Ayrıca `reddedilen_sayilar` sözleşmede `list[float]` — dondurulmuş,
+zaten metin tutamaz.
+
+Yapılan: davranışı kilitleyen bir test eklendi
+(`test_nokta_ayracli_tarih_reddediliyor`), gerekçesi test docstring'ine
+yazıldı. Böylece ileride biri "iyileştirme" niyetiyle bu kapıyı açamaz.
+
+### B2.4 · Gerçek gerekçe üretimi (kod bitti ✅, insan okuması bekliyor)
+
+Guard'ın üstüne gerçek LLM üretimi kondu: `app/llm/explain.py`.
+
+Şimdiye kadar gerekçeler **şablondan** geliyordu — doğru ama kalıp cümleler.
+Artık modele yazdırıyoruz, guard da yazdığını denetliyor.
+
+#### Modele sayı listesi veriliyor, üstelik adlandırılmış
+
+En kritik tasarım kararı bu. Modele "işte karar, gerekçe yaz" demek yerine
+kullanabileceği sayılar **etiketli** olarak veriliyor:
+
+```
+Kullanabileceğin sayılar (BUNLARIN DIŞINA ÇIKMA):
+günlük ortalama talep (adet): 42
+tedarik süresi (gün): 12
+kullanılabilir stok (adet): 270
+önerilen sipariş miktarı (adet): 1.200
+```
+
+Etiket olmadan model **doğru sayıyı yanlış cümlede** kullanıyor — "tedarik
+süresi 270 gün" gibi. Guard bunu yakalayamaz, çünkü 270 meşru bir sayı.
+Guard sayının varlığını denetler, yerini değil. Etiket bu boşluğu kapatan
+tek şey.
+
+Sayılar isteme **Türkçe biçimde** yazılıyor (`1.200`, `4,75`). Model gördüğü
+biçimi kopyalar, guard da Türkçe biçim bekler; ikisini hizalamak bedava.
+
+#### Sayı listesi bilinçli olarak dar
+
+İzinli küme 25 sayı içeriyor ama isteme yalnızca karar tipiyle ilgili olanlar
+konuyor (sipariş kararında tedarik süresi var, raf ömrü yok). İki sebep:
+25 sayının hepsi metni sayı çöplüğüne çeviriyor, ve konuyla ilgisiz sayıyı
+vermek onu kullanmaya davet ediyor.
+
+**Testle kilitlenen değişmez:** isteme konan her sayı `izinli_sayilar()`
+içinde olmalı. Olmazsa model o sayıyı iyi niyetle kullanır ve metin **her
+seferinde** şablona düşer — hata yok, log yok, sadece gerekçeler hiç
+LLM'den gelmez. Sessiz arıza. Test hem stub hem gerçek motorla koşuyor.
+
+#### İkinci deneme birincisinden farklı
+
+Guard reddederse ikinci istemin sonuna ekleniyor:
+
+```
+UYARI: Önceki denemende şu sayıları uydurdun: 9.999.
+Bu sayıları kullanma, yukarıdaki listede olmayan hiçbir sayı yazma.
+```
+
+Bu, B2.5'te guard'a koyduğum `onceki_red` kancasının varlık sebebiydi;
+şimdi gerçekten kullanılıyor.
+
+#### İki ayrı yeniden deneme katmanı var
+
+Karıştırılmaması gereken bir ayrım:
+
+| katman | neyi yakalar |
+|---|---|
+| `yapilandirilmis_uret` (B2.2) | bozuk JSON, şemaya uymayan çıktı — **biçim** hatası |
+| `gerekceyi_guvenceye_al` (B2.5) | şema tuttu ama sayı uydurdu — **içerik** hatası |
+
+En kötü durumda 4 model çağrısı. Pratikte şema uyumu yüksek olduğu için
+1-2 çağrı görülüyor.
+
+#### Döngüsel import çıktı, doğru yönde çözüldü
+
+`guard.py` şablonu çağırıyordu, `explain.py` de guard'ı çağırmaya başlayınca
+Python döngüye girdi. Doğru bağımlılık yönü **explain → guard** (explain üst
+katman). Bu yüzden guard'ın şablon import'u fonksiyon içine alındı — guard
+şablona yalnızca geri düşerken ihtiyaç duyuyor, modül yüklenirken değil.
+
+#### Nereye bağlandı, nereye bağlanmadı
+
+**Gecelik iş:** `llm_gerekce_ureteci(istemci)` ile takılıyor. Varsayılan
+**şablon kaldı** — bilinçli. Gerçek üreteci varsayılan yapmak, Ollama kurulu
+olmayan her ortamda gecelik işi 25 kez bağlantı hatasına sokardı; sonuç yine
+şablon olurdu ama boşuna beklenerek.
+
+**API (`?gerekce=true`) bağlanmadı** — bunu bilerek yapmadım. Bir HTTP
+isteğinin içinde LLM beklemek 9-36 saniye sürer ve o süre boyunca veritabanı
+oturumu açık kalır. Mimarinin ikinci kuralı "ERP asla LLM'i beklemez" tam da
+bunu yasaklıyor. Gerekçe toplu işte (gecelik) üretilip kaydediliyor, API
+kayıtlı olanı okuyor. Bu bir eksiklik değil, kuralın uygulanması.
+
+18 test, hiçbiri model çalıştırmıyor. Toplam **263 test yeşil**.
+
+#### Ölçüm: ilk deneme çöktü, istem üç kez düzeltildi
+
+Modeli gerçekten çalıştırınca kod doğru ama **istem yanlış** çıktı. Üç tur:
+
+**1. tur — 10/10 çöp, ama guard "7 geçti" dedi.** İstem sayı listesiyle
+bitiyordu, model listeyi devam ettirip **istemi olduğu gibi geri yazdı**:
+
+> "Ürün: Astar Boya - Filli Boya / Kullanabileceğin sayılar: ..."
+
+Guard bunu geçirdi çünkü echo edilen sayılar zaten izinli sayılardı. **Bu,
+projenin en öğretici anı:** guard sayıyı denetliyor, metnin gerekçe olduğunu
+denetlemiyor. Sayıya bakıp "%70 başarı" demek yanıltıcı olurdu.
+
+Çözüm: istemin sonuna `GEREKÇE:` satırı + sistem istemine bir örnek. Tek
+satırlık bir işaret, tüm zincirin çalışıp çalışmamasını belirliyor.
+
+**2. tur — cümle geliyor ama veri dökümü.** Model 10 sayının hepsini
+sıralıyordu ("eldeki stok 10 adetlik ve tedarikçi skoru 91,60 olarak
+belirtilen durumda, emniyet stoğu 6,58 adetlik ve..."). Oranları da `0,90`
+diye yazıyordu.
+
+Çözüm: sayı listesi 10'dan 3-6'ya indirildi, oranlar yüzde olarak veriliyor
+(`0,90` yerine `90`). Sayı azalınca model ilişki kurmak zorunda kalıyor.
+
+**3. tur — ürün adını uyduruyor.** "Astar Boya" → *starboy*, "İzocam" →
+*isyancı yalıtım levhası*. Guard bunu yakalayamaz, uydurulan şey sayı değil.
+
+Çözüm: **ürün ve tedarikçi adı isteme hiç konmuyor.** Ad zaten ERP'de
+kararın yanında duruyor. Şablon adı yazmaya devam ediyor — o deterministik.
+
+**Sonuç: 10/10 guard'dan geçiyor, ortalama 6,5 saniye.**
+
+#### Guard'ın kör noktası artık teorik değil
+
+Ölçüm iki gerçek örnek verdi:
+
+> "Son hareketten bu yana geçen günlerde **216 adet** tasfiye edilmiştir."
+
+`216` gün sayısı, adet değil. Doğru sayı, yanlış cümle.
+
+> "232 adede inerek 656,57 adetlik yeniden sipariş noktasının **üstüne** ulaştı."
+
+232 < 656,57 — altına düştü. Model yönü ters yazdı.
+
+İkisinde de sayılar izinli olduğu için guard sessiz kaldı. Bunu kaydetmek
+önemli: guard sayı uydurmasını **tamamen** engelliyor, ama sayının doğru
+cümlede kullanıldığını garanti etmiyor. O iş dil modelinin kalitesine kalıyor
+ve Faz 3'teki eğitimin hedefi tam olarak bu.
+
+**Karar yolu etkilenmiyor:** gerekçe bozuk olsa bile karar, sayılar ve
+politika sonucu kural motorundan geliyor.
+
+#### İkinci tur: iki kusur da kapatıldı
+
+İlk ölçümdeki iki somut hatayı hedefleyen üç değişiklik yapıldı.
+
+**1. Sayısı sıfır olan kararlarda model hiç çağrılmıyor.** İki karar
+(`#1`, `#3`) tüm değerleri sıfırdı — talep 0, stok 0, eşik 0. Modelden
+"hiçbir şey yok" durumundan cümle istemek, olmayan bir **sebep** uydurmasını
+davet ediyordu ("stok yönetimi kurallarını taklit eden bir durumdur"). Guard
+yakalayamaz, uydurulan şey sayı değil. Artık bu kararlar doğrudan şablona
+gidiyor — hem doğru cümle çıkıyor hem model 2 kez daha az çalışıyor.
+
+**2. Kararın yönü modele söyleniyor.** Model `232 < 656,57` karşılaştırmasını
+yapamıyordu. Artık isteme hazır satır giriyor:
+
+```
+durum: kullanılabilir stok yeniden sipariş noktasının ALTINA düştü
+```
+
+Yön zaten kural motorunun kararından belli; 1.5B modelden aritmetik beklemek
+yerine sonucu vermek hem doğru hem ucuz. **Ters yön hatası kalmadı.**
+
+**3. Her karar tipine yalnızca kendi örneği gösteriliyor.** Bu, ara denemede
+öğrenilen bir ders: üç örneği birden verince sonuç **kötüleşti**. Model
+örnekleri harmanladı — sipariş kararının gerekçesi "tasfiye değerlendirilmeli"
+diye bitti, bir diğeri "sipariş açmaya gerek yoktur" dedi, yani kararın tam
+tersi. Tek örneğe inince karışma bitti.
+
+Kaydedilmeye değer: **örnek eklemek her zaman iyileştirmiyor.** Örnekler
+birbirine benziyorsa model aralarında sızıntı yapıyor.
+
+| | 1. ölçüm | 2. ölçüm |
+|---|---|---|
+| ortalama süre | 6,5 sn | **5,5 sn** |
+| ters yön hatası | 1 | **0** |
+| anlamsız metin | 2 | **0** |
+| örnek sızıntısı | — | 0 |
+
+#### Üçüncü tur: örnek cilası + cümle kırpma
+
+Kalan kusurlar dil bilgisi düzeyindeydi. İki şey yapıldı.
+
+**1. Örnek cümleler iyileştirildi.** Ölçümün en net bulgusu şu: model örneği
+**neredeyse kelimesi kelimesine kopyalıyor.**
+
+```
+ornek     : "elde kalan 12 adet, birim maliyeti 225,62 TL uzerinden
+             2.707,43 TL'lik sermayeyi bagliyor"
+cikti #5  : "elde kalan  6 adet, birim maliyeti 312,94 TL uzerinden
+             1.877,61 TL'lik sermayeyi bagliyor"
+```
+
+Tasfiye çıktıları iyiydi çünkü tasfiye örneğim iyiydi. Sipariş örneğini daha
+iyi Türkçeyle yeniden yazdım, sonuç doğrudan yansıdı.
+
+**Genel ilke: few-shot örneği bir talimat değil, bir kalıptır. Ne yazarsan onu
+alırsın.**
+
+**2. Üçüncü cümle kırpılıyor.** "En fazla 2 cümle" talimatı **ve** token
+sınırı birlikte bile yetmedi; model kuralı kabul edip yine de dolgu cümle
+ekliyordu:
+
+> "...60 adet sipariş açılması öneriliyor. **Bu durumda hedef servis seviyesi
+> %90'ı karşılayacak şekilde bir sipariş oluşturuluyor.**"
+
+Modele yalvarmak yerine kırptım. Deterministik ve bedava.
+
+Küçük bir tuzak vardı: Türkçede cümleyi `split(".")` ile bölemezsin, çünkü
+`2.707,43` içindeki de nokta. Desen noktadan sonra **boşluk + büyük harf**
+arıyor; `2.707,43` ve `12.5mm` bölünmüyor. Üçü de teste bağlı.
+
+| ölçü | 1. tur | 2. tur | 3. tur |
+|---|---|---|---|
+| ortalama süre | 6,5 sn | 5,5 sn | **5,1 sn** |
+| ters yön hatası | 1 | 0 | 0 |
+| anlamsız metin | 2 | 0 | 0 |
+| dolgu 3. cümle | 2 | 5 | **0** |
+| yanlış metin | — | — | **0** |
+
+Bu nokta **1.5B taban modelin tavanı** sayılmalı: bugün 0/10 kullanılabilir
+metinden buraya gelindi ve son iki turda kazanç belirgin şekilde azaldı.
+Kalan devrik cümleler istemle değil, Faz 3'teki eğitimle düzelir.
+
+Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4 (üç bölüm).
+
+### Sırada
+
+### B2.6 ölçümü — 2.000 SKU taraması
+
+Kabul ölçütü: **"2.000 SKU'luk gecelik tarama < 10 dakika."**
+
+Ölçüm baştan sona **gerçek zincirle** yapıldı: Melih'in gerçek karar motoru +
+B2.4'ün guard'lı LLM gerekçe üreteci. Şablonla ölçmek yalancı sonuç verirdi —
+şablon anında üretiyor, LLM 6,7 saniye.
+
+```
+taranan karar        2.000      hata: 0
+onay kuyruguna       743
+gerekce uretilen     25         (atlanan: 1.975)
+
+karar suresi         152,2 sn
+gerekce suresi       166,6 sn
+TOPLAM               318,8 sn  =  5,31 dakika
+
+HEDEF 10 dakika  ->  GECTI, 4,69 dakika pay
+```
+
+#### Mimarinin iki iddiası artık ölçülü
+
+**"Karar milisaniyelerde çıkar, gerekçe saniyeler sürer."**
+
+```
+karar basina       76 ms
+gerekce basina  6.700 ms      ->  88 KAT fark
+```
+
+Kural motoru + politika + veritabanı yazımı bir karar için 76 milisaniye.
+Aynı karar için Türkçe cümle yazmak 6,7 saniye. `KosuOzeti`'nin iki süreyi
+ayrı tutması ve `commit()`'in iki kez atılması bu yüzden — kararlar gerekçe
+beklemeden görünür oluyor.
+
+**"Gerekçe yalnızca üst N için üretilir."**
+
+1.975 karar için gerekçe üretilmedi. Üretilseydi:
+
+```
+2.000 x 6,7 sn = 3 saat 43 dakika        (hedefin 22 kati)
+```
+
+Yani üst-N kısıtı bir hız iyileştirmesi değil, **işin çalışabilmesinin ön
+şartı**. Kalan kararlar gerekçesiz kaydediliyor; birine bakılması gerekirse
+gerekçe sonradan üretilebiliyor.
+
+Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.6.
+
+---
+
+## FAZ 2 TAMAMLANDI ✅
+
+| iş | durum |
+|---|---|
+| B2.1 model + istemci | ✅ |
+| B2.2 yapılandırılmış çıktı | ✅ |
+| B2.3 router + taban çizgi | ✅ |
+| B2.4 gerçek gerekçe üretimi | ✅ |
+| B2.5 guard | ✅ |
+| B2.6 gecelik iş + tetikleyiciler | ✅ |
+
+Altı işin de kodu yazıldı, ölçümü yapıldı ve `dokumantasyon/OLCUMLER.md`'ye
+kaydedildi. Sırada Faz 3 (LoRA eğitimi) var — o iş Colab'da yapılacak,
+bilgisayara yük binmeyecek.
+
+---
+---
+
+# ORTAK
+
+## Yolda bulunan hatalar ve tuzaklar
+
+Tekrar yaşanmasın diye:
+
+| Ne | Sonucu | Çözüm |
+|---|---|---|
+| `.gitignore`'da `models/` | `app/models/` git tarafından **sessizce yok sayılıyordu** | `/models/` (başına eğik çizgi) |
+| `alembic.ini`'de Türkçe | Her alembic komutu `UnicodeDecodeError` (o dosya locale kodlamasıyla okunuyor) | Dosya **sadece ASCII**; Türkçe açıklamalar `env.py`'de |
+| Alembic'in ürettiği dosyalar lint'e uymuyor | Her migration CI'yı kırardı | `post_write_hooks` ile otomatik `ruff` |
+| SQLite koruma kuralları kapalı | `CASCADE` tanımları süstü | `PRAGMA foreign_keys=ON` her bağlantıda |
+| Tohum migration'ı çakıştı | Mevcut satır varsa `upgrade` yarıda kalıyordu | Yalnızca eksik satırlar ekleniyor |
+| Migration çıktısını filtrelemek | Hata mesajı görünmedi, çöktüğü fark edilmedi | Migration çıktısı **filtrelenmez** |
+| Windows konsolu (cp1254) | Türkçe karakterde `UnicodeEncodeError` | `sys.stdout.reconfigure` |
+| LLM'e satır satır çağrı | 50.050 satır ~25 saat sürerdi | **Şekil/şablon bazlı** üretim, sonra yerelde çoğaltma |
+| Qwen2.5 Çince sızıntısı | Türkçe cümle ortasında Çince karakterler | `_CJK_DESENI` regex filtresi |
+| Doğrulayıcıya kısa token limiti | Model tereddütle başlayınca sessizce "HAYIR" sayılıyordu | Limit 16'ya çıkarıldı, biçim hatası **kabul** tarafına |
+
+## Sözleşme kusuru — bulundu ve düzeltildi ✅
+
+**Kişi B buldu (B2.5 guard hazırlığında):** `izinli_sayilar()` içindeki `×100`
+kuralı, bir sayının 0-1 aralığında olup olmadığına bakarak karar veriyordu —
+**değerine göre, alan adına göre değil.** Bu yüzden `son_hareket_gun_once` gibi
+bir adet/gün alanı `1` değerini aldığında `%100` sayısı yanlışlıkla gerekçede
+kullanılabilir hale geliyordu.
+
+**Neden ciddiydi:** `son_hareket_gun_once = 1` demek "ürün dün hareket görmüş".
+2.000 SKU'lu bir katalogda aktif ürünlerin büyük kısmı bu durumda — yani delik
+sürekli açıktı. Ve `%100` bir dil modelinin uydurmaya en yatkın olduğu
+sayılardan ("stok %100 tükendi", "tedarikçi %100 zamanında teslim yapıyor").
+
+**Kişi A düzeltti:** `ORAN_ALANLARI` adlı açık bir liste eklendi, `×100`
+karşılığı yalnızca gerçek oran alanları için üretiliyor. 3 regresyon testi
+eklendi. Ayrı bir `fix-izinli-sayilar-oran-alanlari` branch'ine push edildi
+(dosya ortak/dondurulmuş olduğu için).
+
+**Doğrulandı:** İki branch geçici bir kopyada birleştirilip test edildi —
+**94 test geçiyor**, lint temiz. Sözleşme değişikliği Kişi B'nin kodunu
+bozmuyor.
+
+Ek karar: `guven` bilinçli olarak kümenin dışında — güven skoru iç politika
+kararı için üretilir, iş kullanıcısına gösterilecek bir sayı değil.
+
+## Merge planı — `main` hâlâ Faz 0'da
+
+Beş branch birden Faz 0'dan ayrılmış durumda, hiçbiri birleştirilmemiş. Dallar
+şöyle bağlı:
+
+```
+main (Faz 0)
+ ├── faz1-servis                          (Kişi B, 7 commit)
+ └── faz1-simulator                       (1)
+      └── faz2-kural-motoru               (2)
+           ├── fix-izinli-sayilar-...     (3)  ← sözleşme düzeltmesi
+           └── faz3-egitim-verisi         (11) ← düzeltme YOK (kardeş dal)
+```
+
+`fix-...` branch'i `faz1-simulator` ve `faz2-kural-motoru`'nu **zaten
+içeriyor** — onu birleştirmek üçünü birden getiriyor. Yani beş değil **üç
+merge** yeterli.
+
+**Prova yapıldı** (geçici bir kopyada, sırayla birleştirilip test edildi):
+
+| Sıra | Branch | Sonuç |
+|---|---|---|
+| 1 | `faz1-servis` | temiz |
+| 2 | `fix-izinli-sayilar-oran-alanlari` | `aciklama.md` çakışması |
+| 3 | `faz3-egitim-verisi` | `aciklama.md` çakışması |
+
+Birleşik ağaçta **130 test geçiyor**, `alembic upgrade head` ve `alembic check`
+temiz, `contracts.py` düzeltmesi hayatta, `decide_stub()` duruyor.
+
+**Çakışma çözümü hep aynı:** `aciklama.md` için birleşik sürümü koru
+(`git checkout --ours aciklama.md`) — o dosya zaten ikisinin içeriğini taşıyor.
+
+Birleştirme bitince `faz1-simulator` ve `faz2-kural-motoru` silinebilir
+(içerikleri `fix-...` üzerinden geldi).
+
+### Provada bulunan sorun: CI kırmızı olacaktı
+
+`training/paraphrase_colab.ipynb` içinde üç satır 100 karakteri aşıyor —
+notebook hücrelerindeki **prompt metinleri**. Kod değil, modele gönderilen
+cümleler; bölmek prompt'u ve modelin davranışını değiştirir.
+
+Kişi A'nın branch'leri CI'ı hiç görmedi (CI Kişi B'nin branch'inde), o yüzden
+fark edilmemişti. Merge sonrası `main`'de patlardı.
+
+Düzeltme `pyproject.toml`'a eklendi (`faz1-servis` branch'inde, yani `main`'e
+ilk giren PR'da):
+
+```toml
+"training/**/*.ipynb" = ["E402", "I001", "E501"]
+```
+
+⚠️ **2. merge'de `pyproject.toml` de çakışabilir** — Kişi A aynı bölüme
+`notebooks/**/*.ipynb` satırını eklemişti. Çözüm: **iki satırı da tut**, ama
+aynı anahtarı iki kez yazma (TOML yinelenen anahtar kabul etmez).
+
+## Açık konular
+
+**1. `StockFeatures`'ta üç alanın kaynağı yok** (Kişi B'nin SP1 incelemesinden):
+
+- `tedarikci_onayli` — **güvenlik kapısı girdisi**, tedarikçi onaylı değilse
+  karar tutarı ne olursa olsun onaya gidiyor. Simülatörde `guvenilirlik`
+  (0-1 sürekli) var ama boolean onay bayrağı yok.
+- `raf_omru_kalan_gun` — tabloda statik raf ömrü var, parti giriş tarihi yok.
+- `rezerve_stok` — olay döngüsü aynı gün sevk ettiği için yapısal olarak 0.
+
+**2. A3.5** (train/val/test bölme + golden set) — Kişi B'nin router şemasını
+bekliyor.
+
+**3. `decisions.py` hâlâ `decide_stub()` çağırıyor** — Kişi A'nın
+`stok_karari_uret()`'ine geçiş SP2'de yapılacak, tek satırlık değişiklik.
+
+**4. A3.2'deki 7 araç listesi geçici** — Kişi B gerçek router şemasını yazınca
+veri seti yeniden üretilecek.
+
+## Faydalı komutlar
+
+```bash
+uv sync
+```
+
+```bash
+uv run pytest
+```
+
+```bash
+uv run ruff check .
+```
+
+```bash
+uv run alembic upgrade head
+```
+
+```bash
+uv run uvicorn app.main:app --reload
+```
+
+Sonra <http://localhost:8000> → Swagger arayüzü açılır.
+
+## Güncelleme geçmişi
+
+| Tarih | Ne oldu |
+|---|---|
+| 2026-07-30 | **B:** Adım 0 (ortam), Adım 1 (okuma), B1.1–B1.6 tamamlandı, `faz1-servis` push edildi, CI yeşil. Kişi A'nın Faz 1 PR'ı incelendi ve onaylandı. |
+| 2026-07-30 | **B:** `contracts.py` ×100 kusuru ölçüldü, yama önerildi. **A:** düzeltmeyi uyguladı, 3 regresyon testi ekledi. Birleşik ağaçta 94 test yeşil. |
+| 2026-07-30 | **A:** Faz 2 (kural motoru + ML), Faz 3 A3.1–A3.4 (eğitim verisi), Faz 4-5 (genellenebilirlik + para metriği) tamamlandı. |
+| 2026-07-30 | **Ortak:** iki ayrı `aciklama.md` tek dosyada birleştirildi. |
+| 2026-07-30 | **B:** B2.1 bitti — model indirildi, `client.py` yazıldı (18 test, modelsiz), hız ölçüldü (22,4 token/sn @ 4 iplik), ısı koruması kondu. Ölçümler `dokumantasyon/OLCUMLER.md`'de. |
