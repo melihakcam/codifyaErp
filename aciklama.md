@@ -651,10 +651,25 @@ kalırdı.
 
 | Ölçüt | Değer | Faz 5 hedefi |
 |---|---|---|
-| Araç doğru | **%73,3** (22/30) | — |
-| Araç + parametre | **%70,0** (21/30) | **> %95** |
+| Araç doğru | **%76,7** (23/30) | — |
+| Araç + parametre | **%73,3** (22/30) | **> %95** |
 
-Arada 25 puan var. LoRA'nın kapatması gereken mesafe bu.
+Arada 22 puan var. LoRA'nın kapatması gereken mesafe bu.
+
+Ölçüme **üç koruma** eklendi (Kişi A'nın verisini inceledikten sonra):
+
+1. **Parametre biçimi esnek.** Eğitim verisinde `sku_adi` parametresi ürün
+   adını değil **kodunu** taşıyor (`"S-01971"`). Model eğitimden sonra kod
+   üretmeye başlarsa katı karşılaştırma doğru cevabı yanlış sayar ve LoRA
+   öncesi/sonrası kıyaslaması geçersiz olurdu. Beklenen değer artık liste —
+   ad da kod da kabul.
+2. **Uydurma parametre dedektörü.** Model parametreyi ancak sorudan
+   çıkarabilir; soruda geçmeyen bir değer üretiyorsa ayrıca sayılıyor.
+   İlk koşuda 1 tane yakaladı.
+3. **Çöküş dedektörü** (aşağıda).
+
+Ham sonuçlar `training/eval/router_taban_sonuc.json`'a kaydediliyor —
+B3.5'te puanlama değişirse modeli tekrar çalıştırmaya gerek kalmasın.
 
 **Asıl bulgu:** sekiz hatanın **dördü tek bir araçta**. Model "ölü stok"u
 (satılmayan, fazla mal) "kritik stok"la (tükenen, eksik mal) karıştırıyor —
@@ -673,6 +688,42 @@ yönlendirdi. Few-shot prompt bu ayrımı öğretemiyor; LoRA'nın somut olarak
 Soru seti **elle yazıldı**, Kişi A'nın otomatik ürettiği eğitim verisinden
 bilinçli olarak ayrı — aynı şablonlardan türeyen bir test seti, modelin
 şablonu ezberlemesini "başarı" diye ölçerdi.
+
+### ⚠️ Eğitim verisi dengesizliği — LoRA öncesi çözülmeli
+
+Kişi A'nın Drive'daki verisi bağımsız olarak incelendi (2026-08-02). Satır
+sayılarının hepsi tutuyor, **sızıntı yok** (train/val/test SKU kümeleri
+tamamen ayrık, hem `sku_id` hem `sku_adi` üzerinden doğrulandı). Ama araç
+dağılımı çok çarpık:
+
+```
+siparis_onerisi_sorgula      41.886   %95,6
+tedarikci_performansi          1.325
+kritik_stok_sorgula              256
+olu_stok_sorgula                 240
+gecelik_ozet_sorgula              66
+onay_kuyrugu_sorgula              14
+genel_stok_durumu_sorgula         11
+```
+
+**En sık / en seyrek = 3808 kat.**
+
+Bu veriyle eğitilen model "her şeye `siparis_onerisi` de" davranışına
+çökebilir. Asıl tehlike şu: **Kişi A'nın val/test bölmeleri de aynı
+dengesizlikte**, yani hep aynı cevabı veren bir model onun test setinde
+**%95 doğruluk** gösterir. Rakam mükemmel görünür, router çalışmaz.
+
+Bu çarpıklığı görebilecek tek ölçüm **dengeli olan taban çizgi seti**. Bu
+yüzden `router_taban.py`'ye **çöküş dedektörü** eklendi: model tek araca
+%40'tan fazla yığılırsa açıkça uyarı basıyor. "Doğruluk düştü" ile "model
+ayrım yapmayı bıraktı" farklı sorunlar — birincisi daha çok veri ister,
+ikincisi dengeyi düzeltmeyi.
+
+Kök sebep yapısal, bir hata değil: `siparis_onerisi` 2.000 SKU'dan
+üretiliyor, `kritik_stok` yalnızca ~8 kategoriden.
+
+Kişi A'ya iletildi. Önerilen: `siparis_onerisi`'ni ~2.000'e alt örnekle
+(3808x → 150x) **ve** seyrek araçları A3.3 parafraz makinesiyle çoğalt.
 
 Ayrıntılar `dokumantasyon/OLCUMLER.md`'de.
 

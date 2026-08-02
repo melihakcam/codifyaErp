@@ -166,20 +166,34 @@ ayrı; aynı şablonlardan türeyen bir test seti, modelin şablonu ezberlemesin
 
 ### Sonuç
 
+Ham sonuçlar: `training/eval/router_taban_sonuc.json` (etiket
+`taban-cizgi-egitim-oncesi`). B3.5'te puanlama mantığı değişirse ölçüm
+modeli tekrar çalıştırmadan yeniden puanlanabilsin diye saklanıyor.
+
 | Ölçüt | Değer | Faz 5 hedefi |
 |---|---|---|
-| **Araç doğru** | **22/30 · %73,3** | — |
-| **Araç + parametre tam eşleşme** | **21/30 · %70,0** | **> %95** |
-| Şema hatası (yönlendirilemedi) | 1 | — |
-| Toplam süre | 52,8 sn | — |
+| **Araç doğru** | **23/30 · %76,7** | — |
+| **Araç + parametre tam eşleşme** | **22/30 · %73,3** | **> %95** |
+| Şema hatası (yönlendirilemedi) | 0 | — |
+| Uydurma parametre | 1 | 0 |
+| Çöküş (tek araca yığılma) | yok — en sık araç %20 | < %40 |
+| Toplam süre | 73,5 sn | — |
 
-Hedefle arada **25 puan** var. LoRA'nın kapatması gereken mesafe bu.
+Hedefle arada **22 puan** var. LoRA'nın kapatması gereken mesafe bu.
+
+> **Not:** İlk ölçümde %73,3 / %70,0 çıkmıştı. Aradaki fark soru setinin
+> düzeltilmesinden geliyor: eğitim verisinde `sku_adi` parametresi ürün
+> **adını değil kodunu** taşıdığı için (`"S-01971"`), sorulara SKU kodları
+> eklendi ve beklenen değerler her iki biçimi de kabul edecek şekilde
+> güncellendi. Aksi halde model kod üretmeye başladığında doğru cevabı
+> yanlış sayardık ve LoRA öncesi/sonrası kıyaslaması geçersiz olurdu.
+> **Geçerli taban çizgi bu tablodur.**
 
 ### Stile göre
 
 | stil | doğru | oran |
 |---|---|---|
-| açık | 10/12 | %83 |
+| açık | 11/12 | %92 |
 | dolaylı | 9/13 | %69 |
 | günlük dil | 3/5 | %60 |
 
@@ -187,15 +201,15 @@ Beklenen yönde: ifade ne kadar dolaylı/serbestse doğruluk o kadar düşüyor.
 
 ### Araca göre — asıl bulgu
 
-| araç | doğru |
-|---|---|
-| `gecelik_ozet_sorgula` | 3/3 |
-| `genel_stok_durumu_sorgula` | 2/2 |
-| `kritik_stok_sorgula` | 4/5 |
-| **`olu_stok_sorgula`** | **1/5** |
-| `onay_kuyrugu_sorgula` | 4/5 |
-| `siparis_onerisi_sorgula` | 4/5 |
-| `tedarikci_performansi_sorgula` | 4/5 |
+| araç | doğru | eğitim verisinde kaç örnek |
+|---|---|---|
+| `gecelik_ozet_sorgula` | 3/3 | 66 |
+| `genel_stok_durumu_sorgula` | 2/2 | **11** |
+| `kritik_stok_sorgula` | 4/5 | 256 |
+| **`olu_stok_sorgula`** | **1/5** | **240** |
+| `onay_kuyrugu_sorgula` | 4/5 | **14** |
+| `siparis_onerisi_sorgula` | 5/5 | **41.886** |
+| `tedarikci_performansi_sorgula` | 4/5 | 1.325 |
 
 **Sekiz hatanın dördü tek bir araçta.** Model "ölü stok"u (satılmayan,
 hareketsiz, fazla mal) "kritik stok"la (azalan, tükenen, eksik mal)
@@ -218,12 +232,52 @@ Yanlış yönlendirilenler:
 model yine kritik stoğa yönlendirdi. Bu, few-shot prompt'un bu ayrımı
 öğretemediğini gösteriyor — LoRA'nın somut olarak çözmesi gereken şey.
 
+### ⚠️ Eğitim verisi dengesizliği — LoRA öncesi çözülmeli
+
+Kişi A'nın Drive'daki router eğitim verisi bağımsız olarak incelendi
+(2026-08-02). Araç dağılımı:
+
+| araç | train | val | test |
+|---|---|---|---|
+| `siparis_onerisi_sorgula` | **41.886** (%95,6) | 5.902 | 4.212 |
+| `tedarikci_performansi_sorgula` | 1.325 | 160 | 165 |
+| `kritik_stok_sorgula` | 256 | 33 | 26 |
+| `olu_stok_sorgula` | 240 | 21 | 27 |
+| `gecelik_ozet_sorgula` | 66 | 5 | 9 |
+| `onay_kuyrugu_sorgula` | **14** | 1 | 4 |
+| `genel_stok_durumu_sorgula` | **11** | 2 | 1 |
+
+**En sık / en seyrek = 3808 kat.**
+
+Bu veriyle eğitilen model "her şeye `siparis_onerisi` de" davranışına
+çökebilir. Tehlikeli olan: **val/test bölmeleri de aynı dengesizlikte**, yani
+hep aynı cevabı veren bir model o setlerde **%95 doğruluk** gösterir. Rakam
+mükemmel görünür, router çalışmaz.
+
+Bu çarpıklığı görebilecek tek ölçüm **dengeli olan bu taban çizgi seti**
+(30 soru, 7 araca eşit dağılmış). Bu yüzden `router_taban.py`'ye bir
+**çöküş dedektörü** eklendi: model dengeli bir sette tek araca %40'tan fazla
+yığılırsa açıkça uyarı basıyor. "Doğruluk düştü" ile "model ayrım yapmayı
+bıraktı" farklı sorunlar, karıştırılmamalı.
+
+Kök sebep yapısal, bir hata değil: `siparis_onerisi` 2.000 SKU'dan
+üretiliyor, `kritik_stok` yalnızca ~8 kategoriden. Varlık havuzları farklı
+büyüklükte.
+
+Önerilen düzeltme (Kişi A'ya iletildi): `siparis_onerisi`'ni ~2.000'e alt
+örnekle (dengesizlik 3808x → 150x) **ve** seyrek araçları A3.3'teki parafraz
+makinesiyle çoğalt.
+
 ### B3.5'te bakılacak
 
-1. Genel doğruluk %70'ten ne kadar yükseldi?
+1. Genel doğruluk %73,3'ten ne kadar yükseldi? (hedef > %95)
 2. **`olu_stok_sorgula` 1/5'ten kurtuldu mu?** Eğitimin işe yarayıp
-   yaramadığının en keskin göstergesi bu.
-3. Günlük dil (%60) ile açık dil (%83) arasındaki fark kapandı mı?
+   yaramadığının en keskin göstergesi bu — hem taban çizgide en zayıf nokta,
+   hem eğitim verisinde yalnızca 240 örneği var.
+3. **Çöküş dedektörü ne diyor?** Dengesizlik düzeltilmeden eğitilirse burası
+   uyarı basmalı.
+4. Günlük dil (%60) ile açık dil (%92) arasındaki fark kapandı mı?
+5. Uydurma parametre 0'a indi mi?
 
 ## B3.5 · LoRA sonrası ölçüm
 

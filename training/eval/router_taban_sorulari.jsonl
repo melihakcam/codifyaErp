@@ -1,23 +1,23 @@
 {"soru": "Kritik stok seviyesine düşen ürünler hangileri?", "arac": "kritik_stok_sorgula", "parametreler": {}, "stil": "acik"}
-{"soru": "Boya kategorisinde kritik stok var mı?", "arac": "kritik_stok_sorgula", "parametreler": {"kategori": "Boya"}, "stil": "acik"}
+{"soru": "Boya kategorisinde kritik stok var mı?", "arac": "kritik_stok_sorgula", "parametreler": {"kategori": ["Boya", "boya"]}, "stil": "acik"}
 {"soru": "Hangi ürünler tükenmek üzere?", "arac": "kritik_stok_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "Neyin acilen sipariş edilmesi gerekiyor?", "arac": "kritik_stok_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "stok azalan var mi", "arac": "kritik_stok_sorgula", "parametreler": {}, "stil": "gunluk"}
 {"soru": "Ölü stok durumundaki ürünleri listeler misin?", "arac": "olu_stok_sorgula", "parametreler": {}, "stil": "acik"}
-{"soru": "Çimento kategorisinde hareketsiz ürün var mı?", "arac": "olu_stok_sorgula", "parametreler": {"kategori": "Çimento"}, "stil": "acik"}
+{"soru": "Çimento kategorisinde hareketsiz ürün var mı?", "arac": "olu_stok_sorgula", "parametreler": {"kategori": ["Çimento", "cimento", "çimento"]}, "stil": "acik"}
 {"soru": "Aylardır dönmeyen mal var mı elimizde?", "arac": "olu_stok_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "Rafta bekleyip duran ürünleri görebilir miyim?", "arac": "olu_stok_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "tasfiye onerlen urun var mi", "arac": "olu_stok_sorgula", "parametreler": {}, "stil": "gunluk"}
-{"soru": "T-0014 tedarikçisinin performansı nedir?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": "T-0014"}, "stil": "acik"}
-{"soru": "Yılmaz Yapı'nın teslimat skoru kaç?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": "Yılmaz Yapı"}, "stil": "acik"}
+{"soru": "T-0014 tedarikçisinin performansı nedir?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": ["T-0014", "t-0014"]}, "stil": "acik"}
+{"soru": "Yılmaz Yapı'nın teslimat skoru kaç?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": ["Yılmaz Yapı", "Yılmaz Yapı'nın"]}, "stil": "acik"}
 {"soru": "Bizi kim geciktiriyor?", "arac": "tedarikci_performansi_sorgula", "parametreler": {}, "stil": "dolayli"}
-{"soru": "T-0031 güvenilir mi?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": "T-0031"}, "stil": "dolayli"}
-{"soru": "t-0007 gecikiyomu", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": "T-0007"}, "stil": "gunluk"}
-{"soru": "Kırmızı Tuğla için sipariş önerisi nedir?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": "Kırmızı Tuğla"}, "stil": "acik"}
-{"soru": "Alçıpan için ne kadar sipariş verilmeli?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": "Alçıpan"}, "stil": "acik"}
-{"soru": "Portland Çimento'dan kaç tane almalıyım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": "Portland Çimento"}, "stil": "dolayli"}
-{"soru": "Demir profil için ne ısmarlayalım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": "Demir profil"}, "stil": "dolayli"}
-{"soru": "kirmizi tugla kac adet siparis verelim", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": "Kırmızı Tuğla"}, "stil": "gunluk"}
+{"soru": "T-0031 güvenilir mi?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": ["T-0031", "t-0031"]}, "stil": "dolayli"}
+{"soru": "t-0007 gecikiyomu", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": ["T-0007", "t-0007"]}, "stil": "gunluk"}
+{"soru": "Kırmızı Tuğla (S-01432) için sipariş önerisi nedir?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Kırmızı Tuğla", "S-01432"]}, "stil": "acik"}
+{"soru": "Alçıpan (S-00318) için ne kadar sipariş verilmeli?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Alçıpan", "S-00318"]}, "stil": "acik"}
+{"soru": "Portland Çimento (S-01949) ürününden kaç tane almalıyım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Portland Çimento", "S-01949"]}, "stil": "dolayli"}
+{"soru": "Demir profil (S-01971) için ne ısmarlayalım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Demir profil", "S-01971"]}, "stil": "dolayli"}
+{"soru": "kirmizi tugla (S-01432) kac adet siparis verelim", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Kırmızı Tuğla", "kirmizi tugla", "S-01432"]}, "stil": "gunluk"}
 {"soru": "Onay bekleyen kararlar var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "acik"}
 {"soru": "Onay kuyruğunu gösterir misin?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "acik"}
 {"soru": "Benim onaylamam gereken bir şey var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}

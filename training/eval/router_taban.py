@@ -15,6 +15,27 @@ durumu geri getirilemez.
 Soru seti `router_taban_sorulari.jsonl`'de ve **elle** yazıldı. Kişi A'nın
 otomatik ürettiği eğitim verisinden bilinçli olarak ayrı: aynı şablonlardan
 türeyen bir test seti, modelin şablonu ezberlemesini "başarı" diye ölçerdi.
+
+Üç koruma var, üçü de eğitim verisindeki bilinen sorunlara karşı:
+
+1. **Parametre biçimi esnek.** Eğitim verisinde `sku_adi` parametresi ürün
+   ADINI değil KODUNU taşıyor (`"S-01971"`). Model eğitimden sonra kod
+   üretmeye başlarsa katı bir karşılaştırma doğru cevabı yanlış sayardı ve
+   öncesi/sonrası kıyaslaması geçersiz olurdu. Beklenen değer liste olarak
+   verilebiliyor (herhangi biri kabul).
+
+2. **Parametre halüsinasyon kontrolü.** Model parametreyi ancak soruda geçen
+   bir şeyden çıkarabilir. Soruda hiç geçmeyen bir değer üretiyorsa bu
+   uydurmadır — ayrıca sayılıyor.
+
+3. **Çöküş dedektörü.** Eğitim verisi 3808 kat dengesiz
+   (`siparis_onerisi_sorgula` %95,6). Bu veriyle eğitilen model "her şeye aynı
+   aracı de" davranışına çökebilir. Dengeli bir test setinde tek araca aşırı
+   yığılma açıkça uyarı basıyor — "doğruluk düştü" ile "model çöktü" çok
+   farklı sorunlar, karıştırılmamalı.
+
+Sonuçlar `router_taban_sonuc.json`'a yazılıyor: B3.5'te yeniden puanlama
+gerekirse modeli tekrar çalıştırmaya gerek kalmasın.
 """
 
 from __future__ import annotations
@@ -22,15 +43,21 @@ from __future__ import annotations
 import argparse
 import json
 import time
-from collections import defaultdict
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from app.llm.client import LLMErisilemiyor, OllamaIstemcisi
 from app.llm.router import soruyu_yonlendir
 from app.llm.schemas import SemaUyumsuz
 
 SORU_DOSYASI = Path(__file__).with_name("router_taban_sorulari.jsonl")
+SONUC_DOSYASI = Path(__file__).with_name("router_taban_sonuc.json")
+
+# Dengeli bir test setinde 7 araç varsa tek aracın payı ~%14 olmalı. Bu eşiğin
+# üstü, modelin ayrım yapmayı bırakıp tek cevaba yığıldığına işaret eder.
+COKUS_ESIGI = 0.40
 
 
 @dataclass
@@ -38,7 +65,9 @@ class Kayit:
     soru: str
     stil: str
     beklenen_arac: str
-    beklenen_parametreler: dict[str, str]
+    # Değer bir liste olabilir: kabul edilen biçimlerin herhangi biri yeter
+    # (ör. ürün adı VEYA SKU kodu).
+    beklenen_parametreler: dict[str, list[str]] = field(default_factory=dict)
     secilen_arac: str | None = None
     secilen_parametreler: dict[str, str] | None = None
     hata: str | None = None
@@ -50,18 +79,40 @@ class Kayit:
         return self.secilen_arac == self.beklenen_arac
 
     @property
-    def tam_dogru(self) -> bool:
-        """Araç + parametre birlikte doğru mu.
+    def parametre_dogru(self) -> bool:
+        """Beklenen her parametre için kabul edilen biçimlerden biri gelmiş mi.
 
-        Parametre karşılaştırması büyük/küçük harf ve boşluk duyarsız:
-        modelin "kirmizi tugla" yazması ile "Kırmızı Tuğla" yazması arasındaki
-        fark bu ölçümün konusu değil — aşağı akışta arama zaten esnek olacak.
+        Karşılaştırma büyük/küçük harf ve boşluk duyarsız: modelin "kirmizi
+        tugla" yazması ile "Kırmızı Tuğla" yazması arasındaki fark bu ölçümün
+        konusu değil.
         """
-        if not self.arac_dogru:
-            return False
         secilen = {k: v.strip().casefold() for k, v in (self.secilen_parametreler or {}).items()}
-        beklenen = {k: v.strip().casefold() for k, v in self.beklenen_parametreler.items()}
-        return secilen == beklenen
+
+        if set(secilen) != set(self.beklenen_parametreler):
+            return False
+
+        return all(
+            secilen[ad] in {d.strip().casefold() for d in kabul_edilenler}
+            for ad, kabul_edilenler in self.beklenen_parametreler.items()
+        )
+
+    @property
+    def tam_dogru(self) -> bool:
+        return self.arac_dogru and self.parametre_dogru
+
+    @property
+    def uydurma_parametre(self) -> list[str]:
+        """Soruda hiç geçmeyen parametre değerleri.
+
+        Model parametreyi ancak sorudan çıkarabilir; soruda olmayan bir değer
+        üretmek uydurmadır. Araç doğru olsa bile bu bir kalite sorunu.
+        """
+        soru = self.soru.casefold()
+        return [
+            f"{ad}={deger}"
+            for ad, deger in (self.secilen_parametreler or {}).items()
+            if deger.strip() and deger.strip().casefold() not in soru
+        ]
 
 
 def kayitlari_yukle(yol: Path = SORU_DOSYASI) -> list[Kayit]:
@@ -70,12 +121,17 @@ def kayitlari_yukle(yol: Path = SORU_DOSYASI) -> list[Kayit]:
         if not satir.strip():
             continue
         ham = json.loads(satir)
+        # Tek değer de liste de yazılabilsin.
+        beklenen = {
+            ad: (deger if isinstance(deger, list) else [deger])
+            for ad, deger in ham.get("parametreler", {}).items()
+        }
         kayitlar.append(
             Kayit(
                 soru=ham["soru"],
                 stil=ham.get("stil", "?"),
                 beklenen_arac=ham["arac"],
-                beklenen_parametreler=ham.get("parametreler", {}),
+                beklenen_parametreler=beklenen,
             )
         )
     return kayitlar
@@ -110,22 +166,53 @@ def olc(kayitlar: list[Kayit], *, ayrinti: bool = True) -> list[Kayit]:
     return kayitlar
 
 
-def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, float]:
+def cokus_kontrolu(kayitlar: list[Kayit]) -> tuple[bool, str, float]:
+    """Model tek araca yığılmış mı?
+
+    ⚠️ Eğitim verisi 3808 kat dengesiz (`siparis_onerisi_sorgula` %95,6) ve
+    Kişi A'nın val/test bölmeleri de aynı dengesizlikte. Yani hep aynı cevabı
+    veren bir model **onun test setinde %95 doğruluk** gösterir. Bu çarpıklığı
+    görebilecek tek ölçüm dengeli olan bu set.
+
+    "Doğruluk düştü" ile "model çöktü" farklı sorunlar: birincisi daha çok/iyi
+    veri ister, ikincisi veri dengesini düzeltmeyi.
+    """
+    secilenler = [k.secilen_arac for k in kayitlar if k.secilen_arac]
+    if not secilenler:
+        return False, "", 0.0
+    arac, adet = Counter(secilenler).most_common(1)[0]
+    pay = adet / len(secilenler)
+    return pay >= COKUS_ESIGI, arac, pay
+
+
+def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, Any]:
     toplam = len(kayitlar)
     arac_dogru = sum(k.arac_dogru for k in kayitlar)
     tam_dogru = sum(k.tam_dogru for k in kayitlar)
     hatali = sum(k.hata is not None for k in kayitlar)
+    uydurmali = [k for k in kayitlar if k.uydurma_parametre]
 
     print("\n" + "=" * 68)
-    print("TABAN ÇİZGİ — eğitim ÖNCESİ")
+    print("TABAN ÇİZGİ")
     print("=" * 68)
     print(f"  soru sayısı            : {toplam}")
     print(f"  araç doğru             : {arac_dogru}/{toplam}  (%{arac_dogru / toplam * 100:.1f})")
     print(f"  araç + parametre doğru : {tam_dogru}/{toplam}  (%{tam_dogru / toplam * 100:.1f})")
     print(f"  şema hatası            : {hatali}")
+    print(f"  uydurma parametre      : {len(uydurmali)}")
     print(f"  toplam süre            : {gecen_sn:.1f} sn")
 
-    print("\n  STİLE GÖRE (asıl ilgi çekici kırılım):")
+    cokmus, cokus_araci, cokus_payi = cokus_kontrolu(kayitlar)
+    print("\n  ÇÖKÜŞ KONTROLÜ:")
+    print(f"    en sık seçilen araç: {cokus_araci} (%{cokus_payi * 100:.0f})")
+    if cokmus:
+        print(f"    ⚠️  ÇÖKÜŞ — model cevapların %{cokus_payi * 100:.0f}'ini tek araca veriyor.")
+        print("       Bu 'doğruluk düştü' değil, 'ayrım yapmayı bıraktı' demek.")
+        print("       Muhtemel sebep: eğitim verisi dengesizliği (bkz. modül docstring'i).")
+    else:
+        print(f"    tamam — eşik %{COKUS_ESIGI * 100:.0f}, altında.")
+
+    print("\n  STİLE GÖRE:")
     stil_toplam: dict[str, int] = defaultdict(int)
     stil_dogru: dict[str, int] = defaultdict(int)
     for k in kayitlar:
@@ -145,6 +232,11 @@ def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, float]:
         d, t = arac_dogru_say[arac], arac_toplam[arac]
         print(f"    {arac:<32} {d}/{t}")
 
+    if uydurmali:
+        print("\n  UYDURMA PARAMETRELER (soruda hiç geçmiyor):")
+        for k in uydurmali:
+            print(f"    {k.soru[:50]} -> {k.uydurma_parametre}")
+
     yanlislar = [k for k in kayitlar if not k.arac_dogru]
     if yanlislar:
         print("\n  YANLIŞ YÖNLENDİRİLENLER:")
@@ -154,14 +246,54 @@ def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, float]:
             print(f"        seçilen : {k.secilen_arac or k.hata}")
 
     return {
+        "soru_sayisi": toplam,
         "arac_dogruluk": arac_dogru / toplam,
         "tam_dogruluk": tam_dogru / toplam,
+        "sema_hatasi": hatali,
+        "uydurma_parametre": len(uydurmali),
+        "cokus": {"var": cokmus, "arac": cokus_araci, "pay": cokus_payi},
+        "arac_bazinda": {a: [arac_dogru_say[a], arac_toplam[a]] for a in sorted(arac_toplam)},
+        "stil_bazinda": {s: [stil_dogru[s], stil_toplam[s]] for s in sorted(stil_toplam)},
+        "sure_sn": round(gecen_sn, 1),
     }
+
+
+def sonucu_kaydet(kayitlar: list[Kayit], ozet: dict[str, Any], etiket: str) -> Path:
+    """Ham sonuçları diske yazar.
+
+    B3.5'te puanlama mantığı değişirse (ör. yeni bir kabul biçimi eklenirse)
+    eski ölçümü modeli tekrar çalıştırmadan yeniden puanlayabilmek için.
+    """
+    govde = {
+        "etiket": etiket,
+        "ozet": ozet,
+        "kayitlar": [
+            {
+                "soru": k.soru,
+                "stil": k.stil,
+                "beklenen_arac": k.beklenen_arac,
+                "beklenen_parametreler": k.beklenen_parametreler,
+                "secilen_arac": k.secilen_arac,
+                "secilen_parametreler": k.secilen_parametreler,
+                "hata": k.hata,
+                "uretim_ms": k.uretim_ms,
+                "deneme": k.deneme,
+            }
+            for k in kayitlar
+        ],
+    }
+    SONUC_DOSYASI.write_text(json.dumps(govde, ensure_ascii=False, indent=2), encoding="utf-8")
+    return SONUC_DOSYASI
 
 
 def _cli() -> None:
     ayristirici = argparse.ArgumentParser(description="Router taban çizgisi ölçümü")
     ayristirici.add_argument("--sessiz", action="store_true", help="Satır satır çıktı basma")
+    ayristirici.add_argument(
+        "--etiket",
+        default="taban-cizgi-egitim-oncesi",
+        help="Sonuç dosyasına yazılacak etiket (ör. 'lora-15k-sonrasi')",
+    )
     args = ayristirici.parse_args()
 
     kayitlar = kayitlari_yukle()
@@ -169,11 +301,23 @@ def _cli() -> None:
 
     baslangic = time.perf_counter()
     olc(kayitlar, ayrinti=not args.sessiz)
-    rapor(kayitlar, time.perf_counter() - baslangic)
+    ozet = rapor(kayitlar, time.perf_counter() - baslangic)
+    yol = sonucu_kaydet(kayitlar, ozet, args.etiket)
 
-    print("\n⚠️ Bu sayıyı dokumantasyon/OLCUMLER.md'ye yaz. Faz 3'te (B3.5) aynı")
-    print("   script yeniden koşturulup karşılaştırılacak.")
+    print(f"\nHam sonuçlar: {yol}")
+    print("⚠️ Özeti dokumantasyon/OLCUMLER.md'ye de yaz — B3.5'te karşılaştırılacak.")
 
 
 if __name__ == "__main__":
     _cli()
+
+
+__all__ = [
+    "COKUS_ESIGI",
+    "Kayit",
+    "cokus_kontrolu",
+    "kayitlari_yukle",
+    "olc",
+    "rapor",
+    "sonucu_kaydet",
+]

@@ -219,3 +219,124 @@ def test_taban_soru_seti_dengeli_ve_gecerli():
 
     dolayli = sum(k.stil == "dolayli" for k in kayitlar)
     assert dolayli >= 10, "dolaylı ifadeler yeterince temsil edilmeli"
+
+
+def test_beklenen_parametre_her_zaman_soruda_geciyor():
+    """⭐ Beklenen değer soruda geçmiyorsa model onu üretemez.
+
+    Böyle bir bekleyiş ölçümü haksız yere düşürür — modelin bilemeyeceği bir
+    şeyi istemiş oluruz.
+    """
+    from training.eval.router_taban import kayitlari_yukle
+
+    for k in kayitlari_yukle():
+        for ad, kabul_edilenler in k.beklenen_parametreler.items():
+            gecen = [d for d in kabul_edilenler if d.casefold() in k.soru.casefold()]
+            assert gecen, f"{k.soru!r} · {ad}: hiçbir kabul edilen biçim soruda geçmiyor"
+
+
+def test_sku_parametresi_hem_adi_hem_kodu_kabul_ediyor():
+    """⭐ Eğitim verisinde `sku_adi` ürün ADINI değil KODUNU taşıyor.
+
+    Model eğitimden sonra kod üretmeye başlarsa katı karşılaştırma doğru
+    cevabı yanlış sayar ve LoRA öncesi/sonrası kıyaslaması geçersiz olur.
+    """
+    from training.eval.router_taban import kayitlari_yukle
+
+    sku_kayitlari = [k for k in kayitlari_yukle() if "sku_adi" in k.beklenen_parametreler]
+    assert sku_kayitlari, "sipariş önerisi soruları parametreli olmalı"
+
+    for k in sku_kayitlari:
+        kabul = k.beklenen_parametreler["sku_adi"]
+        assert any(d.upper().startswith("S-") for d in kabul), (
+            f"{k.soru!r}: SKU kodu kabul edilmiyor"
+        )
+        assert any(not d.upper().startswith("S-") for d in kabul), (
+            f"{k.soru!r}: ürün adı kabul edilmiyor"
+        )
+
+
+# --- Çöküş dedektörü ----------------------------------------------------------
+
+
+def test_cokus_tespit_ediliyor():
+    """⭐ Dengesiz eğitim verisiyle model tek araca yığılabilir.
+
+    Kişi A'nın val/test bölmeleri de aynı dengesizlikte (siparis_onerisi
+    %95,6), yani hep aynı cevabı veren bir model ONUN test setinde %95
+    doğruluk gösterir. Bu çarpıklığı görebilecek tek ölçüm dengeli olan bu set.
+    """
+    from training.eval.router_taban import Kayit, cokus_kontrolu
+
+    cokmus_kayitlar = [
+        Kayit(soru=f"s{i}", stil="acik", beklenen_arac="olu_stok_sorgula") for i in range(10)
+    ]
+    for k in cokmus_kayitlar:
+        k.secilen_arac = "siparis_onerisi_sorgula"
+
+    cokmus, arac, pay = cokus_kontrolu(cokmus_kayitlar)
+    assert cokmus is True
+    assert arac == "siparis_onerisi_sorgula"
+    assert pay == 1.0
+
+
+def test_dengeli_dagilim_cokus_saymaz():
+    from training.eval.router_taban import Kayit, cokus_kontrolu
+
+    araclar = [a.value for a in AracAdi]
+    kayitlar = []
+    for i, a in enumerate(araclar * 3):
+        k = Kayit(soru=f"s{i}", stil="acik", beklenen_arac=a)
+        k.secilen_arac = a
+        kayitlar.append(k)
+
+    cokmus, _, pay = cokus_kontrolu(kayitlar)
+    assert cokmus is False
+    assert pay < 0.40
+
+
+# --- Parametre halüsinasyonu --------------------------------------------------
+
+
+def test_soruda_gecmeyen_parametre_uydurma_sayilir():
+    """Model parametreyi ancak sorudan çıkarabilir."""
+    from training.eval.router_taban import Kayit
+
+    k = Kayit(soru="Kritik stok var mı?", stil="acik", beklenen_arac="kritik_stok_sorgula")
+    k.secilen_arac = "kritik_stok_sorgula"
+    k.secilen_parametreler = {"kategori": "seramik"}
+
+    assert k.uydurma_parametre == ["kategori=seramik"]
+
+
+def test_soruda_gecen_parametre_uydurma_sayilmaz():
+    from training.eval.router_taban import Kayit
+
+    k = Kayit(soru="Boya kategorisinde kritik stok var mı?", stil="acik", beklenen_arac="x")
+    k.secilen_parametreler = {"kategori": "Boya"}
+
+    assert k.uydurma_parametre == []
+
+
+# --- Esnek parametre karşılaştırması ------------------------------------------
+
+
+def test_kabul_edilen_biçimlerden_biri_yeterli():
+    from training.eval.router_taban import Kayit
+
+    k = Kayit(
+        soru="Kırmızı Tuğla (S-01432) için sipariş",
+        stil="acik",
+        beklenen_arac="siparis_onerisi_sorgula",
+        beklenen_parametreler={"sku_adi": ["Kırmızı Tuğla", "S-01432"]},
+    )
+    k.secilen_arac = "siparis_onerisi_sorgula"
+
+    k.secilen_parametreler = {"sku_adi": "S-01432"}
+    assert k.tam_dogru, "SKU kodu kabul edilmeli"
+
+    k.secilen_parametreler = {"sku_adi": "kırmızı tuğla"}
+    assert k.tam_dogru, "ürün adı (harf duyarsız) kabul edilmeli"
+
+    k.secilen_parametreler = {"sku_adi": "Beyaz Tuğla"}
+    assert not k.tam_dogru, "yanlış ürün kabul edilmemeli"
