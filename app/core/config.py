@@ -71,6 +71,20 @@ class Ayarlar(BaseSettings):
     # baktığı ilk N karar için üretilir; geri kalanı kuyrukta bekler.
     gecelik_gerekce_ust_n: int = 25
 
+    # --- Olay tetikleyicileri (B2.6) ---
+    # Gecelik taramayı beklemeden anında ele alınması gereken durumlar.
+    # Eşikler burada çünkü iş kararı: sahada "büyük sipariş" neye denir,
+    # şirkete göre değişir ve kod dağıtmadan ayarlanabilmeli.
+    tetik_buyuk_siparis_tutar_tl: float = 25_000.0
+
+    # Kullanılabilir stok kaç günlük tüketimin altına düşerse kritik sayılır.
+    # Tedarik süresinden bağımsız kaba bir alarm — asıl ROP hesabı kural
+    # motorunda; bu yalnızca "hemen bak" sinyali.
+    tetik_kritik_stok_gun: float = 3.0
+
+    # Bir günde açılan siparişlerin toplamı bu tutarı aşarsa uyarı.
+    tetik_gunluk_siparis_limiti_tl: float = 250_000.0
+
     # --- Simülasyon verisi ---
     sim_veri_koku: Path = PROJE_KOKU / "data" / "sim"
 

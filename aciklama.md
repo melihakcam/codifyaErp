@@ -728,9 +728,57 @@ Kişi A'ya iletildi. Önerilen: `siparis_onerisi`'ni ~2.000'e alt örnekle
 Ayrıntılar `dokumantasyon/OLCUMLER.md`'de.
 
 ### Sırada
-- ⬜ B2.4 — gerçek gerekçe üretimi
+### B2.6 · Gecelik iş + tetikleyiciler (kod bitti ✅, ölçüm merge'i bekliyor)
+
+**`app/jobs/nightly.py`** — mimarinin can alıcı noktasını hayata geçiriyor.
+
+Naif tasarım şöyle olurdu: her SKU için karar üret, her karar için gerekçe
+yaz. 2.000 × ~9 sn = **5 saat.** Onun yerine:
+
+1. Tüm SKU'lar için karar üretilir — kural motoru, milisaniyeler
+2. Kararlar **önem sırasına** dizilir (risk skoru)
+3. Gerekçe **yalnızca üst 25** karar için yazılır
+
+Geri kalan kararlar gerekçesiz kaydedilir; denetim kaydına `ATLANDI` yazılır.
+Bu bir eksiklik değil, tasarım — insan zaten ilk 25'e bakıyor.
+
+`KosuOzeti` **karar süresiyle gerekçe süresini ayrı** raporluyor. Mimarinin
+"karar hızlı, gerekçe yavaş" iddiası ancak ayrı ölçülürse doğrulanabilir; tek
+bir toplam süre bu ayrımı gizlerdi.
+
+Bir performans detayı: eşikler karar tipi başına **bir kez** okunuyor. Bu
+önbellek olmadan 2.000 SKU = 2.000 ayrı SELECT olurdu; 4 karar tipi olduğu
+için hepsi 4 sorguya iniyor. 10 dakikalık bütçenin korunmasında en ucuz
+kazanç bu.
+
+**`app/jobs/triggers.py`** — üç tetikleyici: büyük sipariş, kritik stok,
+limit aşımı. Eşikler `config.py`'de, çünkü sahada "büyük sipariş" neye denir
+şirkete göre değişir.
+
+Tetikleyici **karar üretmez**, üretilmiş bir kararı değerlendirir. Ayrım
+önemli: tetikleyici mantığı karar mantığına karışırsa iş kuralı iki yerde
+yaşar ve zamanla ayrışır.
+
+İki incelik:
+
+- **Talep sıfırsa kritik stok tetiklenmiyor.** "Kaç gün yeter" sorusunun
+  cevabı yok; 0 dönmek "hemen bitecek" demek olurdu ve hiç satmayan bir ürün
+  için her gece yanlış alarm üretirdi.
+- **Önem skoru eşiğin kaç katı aşıldığı**, sabit 1.0 değil. Limitin iki katı
+  bir sipariş, sınırda olandan daha acil ve kuyrukta üstte görünmeli.
+
+24 test eklendi, hiçbiri model çalıştırmıyor (gerekçe üreteci enjekte
+edilebilir). **Kabul ölçütü "2.000 SKU < 10 dakika" merge'i bekliyor** —
+gerçek kural motoru gerekiyor. Kod hazır, `karar_ureteci` parametresine
+`stok_karari_uret()` geçirilecek, başka bir şey değişmeyecek.
+
+### Sırada
+
 - ⬜ **B2.5 — `guard.py`** (projenin en kritik parçası, model gerektirmiyor)
-- ⬜ B2.6 — gecelik iş + tetikleyiciler
+- ⬜ B2.4 — gerçek gerekçe üretimi (guard'a dayanıyor)
+
+İkisi de merge'i bekliyor: guard düzeltilmiş `contracts.py` üstüne
+yazılmalı.
 
 ---
 ---
