@@ -897,7 +897,26 @@ metinler alıyor. Böylece eğitim verisi üretiminde de çalışma zamanında d
 **aynı kod** çalışır. `label_rationale.py` kendi kopyasını silip bunu import
 edebilir.
 
-41 test. Hiçbiri model çalıştırmıyor.
+42 test. Hiçbiri model çalıştırmıyor.
+
+#### Kişi A'nın incelemesi ve çıkan tek düzeltme
+
+Kişi A guard'ı bağımsız olarak kendi makinesinde çalıştırdı (ayrı bir `git
+worktree` ile) ve onayladı. Bir gözlem bıraktı: `"14.03.1976"` gibi nokta
+ayraçlı bir tarih **tek bir sayı** olarak okunuyor ve `14031976` diye garip
+bir değer olarak reddediliyor.
+
+Bunu değiştirmedik, çünkü değiştirmek **tehlikeli**. Neden:
+
+Guard bir belirteci çözemezse (`None` döndürürse) o belirteci **yok sayar**.
+Yani "14.03.1976 geçersiz binlik gruplaması, `None` döndüreyim" diye
+"düzeltmek" tarihi guard'dan **geçirir**. Garip görünen sayı, güvenli olan
+davranış. Ayrıca `reddedilen_sayilar` sözleşmede `list[float]` — dondurulmuş,
+zaten metin tutamaz.
+
+Yapılan: davranışı kilitleyen bir test eklendi
+(`test_nokta_ayracli_tarih_reddediliyor`), gerekçesi test docstring'ine
+yazıldı. Böylece ileride biri "iyileştirme" niyetiyle bu kapıyı açamaz.
 
 ### Sırada
 

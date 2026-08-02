@@ -157,6 +157,24 @@ def test_gercek_sayilar_arasina_gizlenmis_uydurma_yakalanir(aday: DecisionCandid
     assert sonuc.reddedilen == [888.0]
 
 
+def test_nokta_ayracli_tarih_reddediliyor(aday: DecisionCandidate):
+    """Nokta ayraçlı tarih tek bir sayı olarak okunur ve reddedilir.
+
+    `'14.03.1976'` binlik gruplaması geçersizdir (2-2-4) ama `sayiyi_coz` yine
+    de 14031976.0 üretir. Denetim kaydında garip görünür — Kişi A'nın guard
+    incelemesindeki gözlem buydu.
+
+    ⚠️ Bu test **kozmetik değil, yön kilididir.** "Geçersiz gruplama, `None`
+    döndüreyim" diye düzeltmek cazip gelir; ama `None` dönen belirteç
+    `sayilari_cikar` tarafından *yok sayılır* — yani tarih guard'dan **geçer**.
+    Garip görünen sayı, güvenli olan davranıştır.
+    """
+    sonuc = adayi_dogrula("14.03.1976 tarihinde stok tükendi.", aday)
+
+    assert not sonuc.gecti
+    assert sonuc.reddedilen == [14031976.0]
+
+
 # --- Geçerli metinler (ölçüt 2) -----------------------------------------------
 
 
