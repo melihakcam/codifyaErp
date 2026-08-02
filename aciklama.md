@@ -1002,15 +1002,64 @@ oturumu açık kalır. Mimarinin ikinci kuralı "ERP asla LLM'i beklemez" tam da
 bunu yasaklıyor. Gerekçe toplu işte (gecelik) üretilip kaydediliyor, API
 kayıtlı olanı okuyor. Bu bir eksiklik değil, kuralın uygulanması.
 
-16 yeni test, hiçbiri model çalıştırmıyor. Toplam **261 test yeşil**.
+18 test, hiçbiri model çalıştırmıyor. Toplam **263 test yeşil**.
 
-⏳ **Bekleyen:** kabul ölçütü "10 gerçek karar için üretilen gerekçelerin
-Türkçesi anlaşılır ve sayıları doğru" — bu insan gözüyle okunacak, kod
-testiyle ölçülemez. Model çalıştırılınca yapılacak.
+#### Ölçüm: ilk deneme çöktü, istem üç kez düzeltildi
+
+Modeli gerçekten çalıştırınca kod doğru ama **istem yanlış** çıktı. Üç tur:
+
+**1. tur — 10/10 çöp, ama guard "7 geçti" dedi.** İstem sayı listesiyle
+bitiyordu, model listeyi devam ettirip **istemi olduğu gibi geri yazdı**:
+
+> "Ürün: Astar Boya - Filli Boya / Kullanabileceğin sayılar: ..."
+
+Guard bunu geçirdi çünkü echo edilen sayılar zaten izinli sayılardı. **Bu,
+projenin en öğretici anı:** guard sayıyı denetliyor, metnin gerekçe olduğunu
+denetlemiyor. Sayıya bakıp "%70 başarı" demek yanıltıcı olurdu.
+
+Çözüm: istemin sonuna `GEREKÇE:` satırı + sistem istemine bir örnek. Tek
+satırlık bir işaret, tüm zincirin çalışıp çalışmamasını belirliyor.
+
+**2. tur — cümle geliyor ama veri dökümü.** Model 10 sayının hepsini
+sıralıyordu ("eldeki stok 10 adetlik ve tedarikçi skoru 91,60 olarak
+belirtilen durumda, emniyet stoğu 6,58 adetlik ve..."). Oranları da `0,90`
+diye yazıyordu.
+
+Çözüm: sayı listesi 10'dan 3-6'ya indirildi, oranlar yüzde olarak veriliyor
+(`0,90` yerine `90`). Sayı azalınca model ilişki kurmak zorunda kalıyor.
+
+**3. tur — ürün adını uyduruyor.** "Astar Boya" → *starboy*, "İzocam" →
+*isyancı yalıtım levhası*. Guard bunu yakalayamaz, uydurulan şey sayı değil.
+
+Çözüm: **ürün ve tedarikçi adı isteme hiç konmuyor.** Ad zaten ERP'de
+kararın yanında duruyor. Şablon adı yazmaya devam ediyor — o deterministik.
+
+**Sonuç: 10/10 guard'dan geçiyor, ortalama 6,5 saniye.**
+
+#### Guard'ın kör noktası artık teorik değil
+
+Ölçüm iki gerçek örnek verdi:
+
+> "Son hareketten bu yana geçen günlerde **216 adet** tasfiye edilmiştir."
+
+`216` gün sayısı, adet değil. Doğru sayı, yanlış cümle.
+
+> "232 adede inerek 656,57 adetlik yeniden sipariş noktasının **üstüne** ulaştı."
+
+232 < 656,57 — altına düştü. Model yönü ters yazdı.
+
+İkisinde de sayılar izinli olduğu için guard sessiz kaldı. Bunu kaydetmek
+önemli: guard sayı uydurmasını **tamamen** engelliyor, ama sayının doğru
+cümlede kullanıldığını garanti etmiyor. O iş dil modelinin kalitesine kalıyor
+ve Faz 3'teki eğitimin hedefi tam olarak bu.
+
+**Karar yolu etkilenmiyor:** gerekçe bozuk olsa bile karar, sayılar ve
+politika sonucu kural motorundan geliyor.
+
+Ayrıntılı ölçüm: `dokumantasyon/OLCUMLER.md` → B2.4.
 
 ### Sırada
 
-- ⏳ B2.4 ölçümü — 10 gerçek gerekçe üretip okumak (~2-3 dk model)
 - ⬜ B2.6 ölçümü — "2.000 SKU < 10 dakika" (gerçek motor artık elimizde)
 
 ---

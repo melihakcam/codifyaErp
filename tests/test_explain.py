@@ -112,11 +112,32 @@ def test_istem_sayilari_turkce_bicimde_veriyor():
     assert "önerilen sipariş miktarı" in istem
 
 
-def test_istem_urun_ve_karar_bilgisini_tasiyor(aday: DecisionCandidate):
+def test_istem_karar_tipini_tasiyor(aday: DecisionCandidate):
+    assert aday.tip.value in istem_kur(aday)
+
+
+def test_istem_urun_ve_tedarikci_adini_TASIMIYOR(aday: DecisionCandidate):
+    """⭐ 1.5B model Türkçe özel adları bozuyor, guard da bunu yakalayamıyor.
+
+    Ölçümde görülenler: "Astar Boya" → *starboy*, "İzocam" → *isyancı yalıtım
+    levhası*. Uydurulan şey sayı olmadığı için guard sessiz kalıyor. Ad zaten
+    ERP'de kararın yanında duruyor; isteme koymamak sorunu kaynağında kesiyor.
+    """
     istem = istem_kur(aday)
 
-    assert aday.ozellikler.sku_adi in istem
-    assert aday.tip.value in istem
+    assert aday.ozellikler.sku_adi not in istem
+    assert aday.ozellikler.tedarikci_adi not in istem
+
+
+def test_istem_gerekce_isaretiyle_bitiyor(aday: DecisionCandidate):
+    """⭐ İstem veri listesiyle biterse model listeyi devam ettiriyor.
+
+    B2.4'ün ilk ölçümünde tam bu oldu: 10 örneğin 6'sında model istemi olduğu
+    gibi geri yazdı ve guard bunu **geçirdi**, çünkü echo edilen sayılar zaten
+    izinli sayılardı. Sondaki `GEREKÇE:` satırı "sıra sende" işareti.
+    """
+    assert istem_kur(aday).rstrip().endswith("GEREKÇE:")
+    assert istem_kur(aday, onceki_red=[9999.0]).rstrip().endswith("GEREKÇE:")
 
 
 def test_onceki_red_isteme_yaziliyor(aday: DecisionCandidate):

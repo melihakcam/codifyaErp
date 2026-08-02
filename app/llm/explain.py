@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.contracts import DecisionCandidate, Gerekce, GuardSonucu, KararTipi
+from app.contracts import ORAN_ALANLARI, DecisionCandidate, Gerekce, GuardSonucu, KararTipi
 from app.llm.client import OllamaIstemcisi
 from app.llm.guard import GerekceUreteci, gerekceyi_guvenceye_al
 from app.llm.schemas import GerekceCiktisi, yapilandirilmis_uret
@@ -86,39 +86,61 @@ def explain_stub(aday: DecisionCandidate) -> Gerekce:
 # B2.4 · Gerçek LLM üretimi
 # ---------------------------------------------------------------------------
 
-SISTEM_ISTEMI = """Sen bir stok yönetimi uzmanısın. Verilen karara \
-tek paragraflık Türkçe gerekçe yazıyorsun.
+SISTEM_ISTEMI = """Sen bir stok yönetimi uzmanısın. Sana bir ürünün verileri \
+verilir, sen o kararın gerekçesini açıklayan tek paragraf yazarsın.
 
 Kurallar:
 1. YALNIZCA sana verilen sayıları kullan. Yeni sayı üretme, toplama \
 çıkarma yapma, tahmin etme.
 2. Sayıları sana verildiği biçimde yaz (1.200, 4,75, %94).
-3. 2-3 cümle. Giriş cümlesi, başlık, madde işareti kullanma.
-4. Kararın NEDEN alındığını açıkla, kararı tekrar etme.
-5. Sade iş Türkçesi kullan."""
+3. 2-3 tam cümle. Başlık, liste, madde işareti kullanma.
+4. Verileri olduğu gibi sıralama; aralarındaki ilişkiyi açıkla.
+5. ÜRÜN ADI VE TEDARİKÇİ ADI YAZMA. Sadece "ürün" veya "bu kalem" de.
+6. Sade iş Türkçesi kullan.
 
-# Karar tipine göre gerekçede işi olan alanlar. Bilinçli olarak dar:
-# modele 25 sayının hepsini vermek metni sayı çöplüğüne çeviriyor ve
-# konuyla ilgisiz olanı kullanmasını davet ediyor.
+ÖRNEK
+
+VERİLER:
+karar: stok.siparis
+günlük ortalama talep (adet): 42
+tedarik süresi (gün): 12
+kullanılabilir stok (adet): 270
+yeniden sipariş noktası (adet): 615
+önerilen sipariş miktarı (adet): 1.200
+
+GEREKÇE:
+Günlük ortalama 42 adet tüketim ve 12 günlük tedarik süresi karşısında \
+kullanılabilir stok 270 adede inerek 615 adetlik yeniden sipariş noktasının \
+altına düştü. Tedarik süresi boyunca stoksuz kalmamak için 1.200 adet sipariş \
+öneriliyor."""
+
+# Karar tipine göre gerekçede işi olan sayılar — özellik, kural değeri ve
+# aksiyon ayrımı yapmadan, tek bir izin listesi.
+#
+# ⚠️ Bilinçli olarak ÇOK dar. İlk sürümde 10+ sayı veriliyordu ve model
+# açıklamak yerine hepsini sıralıyordu ("eldeki stok 10 adetlik ve tedarikçi
+# skoru 91,60 olarak belirtilen durumda, emniyet stoğu 6,58 adetlik ve...").
+# Sayı azaldıkça model ilişki kurmak zorunda kalıyor. Buradaki her ekleme
+# metni veri dökümüne bir adım daha yaklaştırır.
 _TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
     KararTipi.STOK_SIPARIS: (
         "ort_gunluk_talep",
         "tedarik_suresi_gun",
         "kullanilabilir_stok",
-        "eldeki_stok",
-        "tedarikci_skoru",
-        "tedarikci_zamaninda_teslim_orani",
+        "rop",
+        "siparis_miktari",
+        "hedef_servis_seviyesi",
     ),
     KararTipi.STOK_TASFIYE: (
         "son_hareket_gun_once",
         "eldeki_stok",
         "birim_maliyet_tl",
-        "ort_gunluk_talep",
+        "bagli_sermaye_tl",
     ),
     KararTipi.STOK_AKSIYON_YOK: (
         "kullanilabilir_stok",
         "ort_gunluk_talep",
-        "tedarik_suresi_gun",
+        "rop",
     ),
 }
 
@@ -127,13 +149,12 @@ _ETIKETLER: dict[str, str] = {
     "tedarik_suresi_gun": "tedarik süresi (gün)",
     "kullanilabilir_stok": "kullanılabilir stok (adet)",
     "eldeki_stok": "eldeki stok (adet)",
-    "tedarikci_skoru": "tedarikçi skoru",
-    "tedarikci_zamaninda_teslim_orani": "tedarikçinin zamanında teslim oranı",
     "son_hareket_gun_once": "son hareketten bu yana geçen gün",
     "birim_maliyet_tl": "birim maliyet (TL)",
+    "bagli_sermaye_tl": "bağlı sermaye (TL)",
     "siparis_miktari": "önerilen sipariş miktarı (adet)",
     "rop": "yeniden sipariş noktası (adet)",
-    "emniyet_stogu": "emniyet stoğu (adet)",
+    "hedef_servis_seviyesi": "hedef servis seviyesi",
 }
 
 
@@ -145,24 +166,36 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     """Modele verilecek `(etiket, değer)` çiftleri — hepsi izinli kümede.
 
     Kaynaklar `izinli_sayilar()` ile aynı: özellikler, tetiklenen kuralların
-    hesapladığı değerler, aksiyon. Fark, buradakinin **adlandırılmış ve
-    seçilmiş** olması. Model neyin ne olduğunu bilmezse doğru sayıyı yanlış
-    cümlede kullanır — guard bunu yakalayamaz, çünkü sayı meşrudur.
+    hesapladığı değerler, aksiyon. İki fark var:
+
+    1. **Adlandırılmış.** Model neyin ne olduğunu bilmezse doğru sayıyı yanlış
+       cümlede kullanır ("tedarik süresi 270 gün") — guard bunu yakalayamaz,
+       çünkü sayı meşrudur.
+    2. **Seçilmiş.** Yalnızca `_TIPE_GORE_ALANLAR`'daki adlar geçer, kaynağı
+       ne olursa olsun.
+
+    Oran alanları (`ORAN_ALANLARI`) yüzde olarak veriliyor: 0,90 yerine 90.
+    Sözleşmenin `izinli_sayilar()`'ı bu alanlar için ×100 karşılığını zaten
+    üretiyor, dolayısıyla guard'a takılmaz. Modele 0,90 vermek ise metne
+    "hedef servis seviyesi 0,90" gibi iş diline yabancı bir ifade sokuyordu.
     """
-    o = aday.ozellikler
+    izinli_adlar = _TIPE_GORE_ALANLAR.get(aday.tip, ())
     ciftler: list[tuple[str, float]] = []
     gorulen: set[str] = set()
 
     def ekle(ad: str, deger: object) -> None:
+        if ad not in izinli_adlar or ad in gorulen:
+            return
         if isinstance(deger, bool) or not isinstance(deger, (int, float)):
             return
-        if ad in gorulen:
-            return
         gorulen.add(ad)
-        ciftler.append((_etiketle(ad), float(deger)))
+        if ad in ORAN_ALANLARI:
+            ciftler.append((f"{_etiketle(ad)} (%)", float(deger) * 100.0))
+        else:
+            ciftler.append((_etiketle(ad), float(deger)))
 
-    for ad in _TIPE_GORE_ALANLAR.get(aday.tip, ()):
-        ekle(ad, getattr(o, ad, None))
+    for ad in izinli_adlar:
+        ekle(ad, getattr(aday.ozellikler, ad, None))
 
     for kural in aday.tetiklenen_kurallar:
         for ad, deger in kural.degerler.items():
@@ -171,26 +204,40 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     for ad, deger in aday.aksiyon.items():
         ekle(ad, deger)
 
-    return ciftler
+    # İstemdeki sıra izin listesindeki sıra olsun — kaynağa göre değil.
+    # Böylece "talep → tedarik süresi → stok → eşik → aksiyon" akışı korunur
+    # ve model cümleyi bu mantıkla kurar.
+    sira = {_etiketle(a): i for i, a in enumerate(izinli_adlar)}
+    return sorted(ciftler, key=lambda c: sira.get(c[0].removesuffix(" (%)"), 99))
 
 
 def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) -> str:
     """Gerekçe istemini kurar.
 
+    Biçim sistem istemindeki örnekle **birebir aynı**: `VERİLER:` bloğu, sonra
+    `GEREKÇE:` satırı. İkisi ayrışırsa model örneği taklit edemez.
+
+    ⚠️ İstem veri listesiyle **bitmemeli.** B2.4'ün ilk ölçümünde bitiyordu ve
+    1.5B model 10 örneğin 6'sında listeyi devam ettirdi — istemi olduğu gibi
+    geri yazdı. Guard bunu geçirdi, çünkü echo edilen metindeki sayılar zaten
+    izinli sayılardı. Sondaki `GEREKÇE:` satırı modele "sıra sende" diyen
+    işaret; bu tek satır olmadan tüm zincir sessizce çöp üretiyor.
+
     Sayılar Türkçe biçimde veriliyor (`1.200`, `4,75`) — model gördüğü biçimi
     kopyalar, guard da Türkçe biçim bekler. İkisini hizalamak bedava.
+
+    ⚠️ **Ürün ve tedarikçi adı isteme KONMUYOR.** 1.5B model Türkçe özel
+    adları bozuyordu: "Astar Boya" → *"starboy"*, "İzocam" → *"isyancı
+    yalıtım levhası"*. Guard bunu yakalayamaz, çünkü uydurulan şey sayı
+    değil. Ad zaten ERP'de kararın yanında duruyor; gerekçenin içinde
+    tekrarlanması gerekmiyor. Şablon (`sablon_gerekce`) adı yazmaya devam
+    ediyor — o deterministik, bozma riski yok.
     """
-    o = aday.ozellikler
     satirlar = [f"{_etiketle(ad)}: {_tr_sayi(deger)}" for ad, deger in sayi_etiketleri(aday)]
-    kurallar = ", ".join(k.kod for k in aday.tetiklenen_kurallar) or "—"
 
     parcalar = [
-        f"Ürün: {o.sku_adi}",
-        f"Tedarikçi: {o.tedarikci_adi}",
-        f"Karar: {aday.tip.value}",
-        f"Tetiklenen kurallar: {kurallar}",
-        "",
-        "Kullanabileceğin sayılar (BUNLARIN DIŞINA ÇIKMA):",
+        "VERİLER:",
+        f"karar: {aday.tip.value}",
         *satirlar,
     ]
 
@@ -201,6 +248,8 @@ def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) ->
             f"UYARI: Önceki denemende şu sayıları uydurdun: {yasak}. "
             "Bu sayıları kullanma, yukarıdaki listede olmayan hiçbir sayı yazma.",
         ]
+
+    parcalar += ["", "GEREKÇE:"]
 
     return "\n".join(parcalar)
 

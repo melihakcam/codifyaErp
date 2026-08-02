@@ -309,3 +309,87 @@ Kişi B'nin kararı ve sorumluluğu.
 
 ⬜ Henüz ölçülmedi. Aynı 30 soruluk set yeniden koşturulup B2.3 ile
 karşılaştırılacak. Ayrıca token/sn, ilk token gecikmesi, tepe RAM.
+
+## B2.4 · Gerekçe üretim kalitesi (2026-08-02)
+
+| | |
+|---|---|
+| Model | `qwen2.5:1.5b-instruct` (0,92 GB) |
+| Ayar | `sicaklik=0.0`, `tohum=42`, `iplik=4` |
+| Örneklem | 10 gerçek karar (5 sipariş / 3 tasfiye / 2 aksiyon yok) |
+| Kaynak | `stok_karari_uret()` — Kişi A'nın gerçek motoru, simülasyon dünyası |
+
+### Sayısal sonuç
+
+| ölçü | değer |
+|---|---|
+| guard'dan geçen | **10/10** |
+| şablona düşen | 0 |
+| ortalama süre | **6,5 sn** |
+| toplam süre | 64,8 sn |
+
+### İstem üç kez düzeltildi — ölçüm bunu ölçtü
+
+| sürüm | guard | gerçekte ne oldu |
+|---|---|---|
+| 1. istem veri listesiyle bitiyor | 7/10 "geçti" | ⚠️ **0/10 kullanılabilir** — model istemi geri yazdı |
+| 2. `GEREKÇE:` işareti + few-shot | 3/3 | cümle geliyor ama veri dökümü, oranlar `0,90` |
+| 3. sayı listesi daraltıldı, oran %, ad kaldırıldı | 10/10 | kullanılabilir metinler |
+
+**1. sürümdeki tuzak kaydedilmeye değer:** guard 7/10 "geçti" dedi ama
+metinlerin hiçbiri gerekçe değildi — model istemi olduğu gibi geri yazmıştı ve
+echo edilen sayılar zaten izinli sayılardı. **Guard sayıyı denetler, metnin
+gerekçe olduğunu denetlemez.** Bu sayı tek başına okunursa yanıltır.
+
+### Guard'ın iki kör noktası — gerçek örneklerle
+
+Ölçüm bunları teorik değil, gözlemlenmiş olarak veriyor:
+
+**1. Doğru sayı, yanlış cümle.** (#2)
+
+> "Son hareketten bu yana geçen günlerde **216 adet tasfiye edilmiştir**."
+
+`216` = son hareketten bu yana geçen **gün** sayısı. Guard geçirdi, çünkü 216
+izinli. Adet olarak yazılması yanlış.
+
+**2. Sayı doğru, mantık ters.** (#10)
+
+> "...232 adede inerek 656,57 adetlik yeniden sipariş noktasının **üstüne
+> ulaştı**."
+
+232 < 656,57, yani **altına** düştü — karar tipi de `stok.siparis`. Model
+yönü ters yazdı. Her iki sayı da izinli olduğu için guard sessiz kaldı.
+
+**3. Özel adları bozma.** (2. sürümde görüldü, isteme ad koymayarak çözüldü)
+
+"Astar Boya" → *starboy* · "İzocam" → *isyancı yalıtım levhası*
+
+Ad artık isteme konmuyor; şablon adı yazmaya devam ediyor (deterministik,
+bozma riski yok).
+
+### Nitelik değerlendirmesi (insan okuması)
+
+| | sayı | örnek |
+|---|---|---|
+| anlaşılır, mantığı doğru | 4 | #6, #7, #8, #9 |
+| anlaşılır ama kusurlu | 4 | #2 (216 adet), #4, #5, #10 (yön ters) |
+| anlamsız | 2 | #1, #3 — ikisi de tüm değerleri sıfır olan `aksiyon_yok` |
+
+Kalan bozukluklar dil bilgisi düzeyinde: `%90'ye` (→ `%90'a`), "talep ...
+boyunca", "adede inerek ... göstermektedir".
+
+### Sonuç
+
+Bu, **1.5B taban modelin Türkçe tavanı**. İstem mühendisliğiyle 0/10'dan
+buraya gelindi; kalan kusurlar dil bilgisi ve muhakeme kusurları, istemle
+çözülmez. Faz 3'teki LoRA eğitimi (Kişi A'nın 50.050 etiketli gerekçesi)
+tam olarak bunun için var.
+
+**Karar yolu etkilenmiyor:** gerekçe yanlış yazılsa bile karar, sayılar ve
+politika sonucu kural motorundan geliyor. En kötü durumda şablona düşülür.
+
+### B3.5'te bu ölçüm tekrarlanacak
+
+Aynı 10 karar, aynı tohum, eğitilmiş modelle. Bakılacaklar: `%90'ye` gibi ek
+hataları düzeldi mi, yön hatası (#10) kayboldu mu, sıfır değerli kararlarda
+(#1, #3) anlamlı cümle kuruluyor mu.
