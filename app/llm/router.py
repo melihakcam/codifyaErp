@@ -97,7 +97,12 @@ class YonlendirmeSonucu:
 
 
 def soruyu_yonlendir(
-    istemci: OllamaIstemcisi, soru: str, *, max_deneme: int = 2
+    istemci: OllamaIstemcisi,
+    soru: str,
+    *,
+    max_deneme: int = 2,
+    sicaklik: float | None = None,
+    tohum: int | None = None,
 ) -> YonlendirmeSonucu:
     """Türkçe soruyu bir araç çağrısına çevirir.
 
@@ -119,6 +124,8 @@ def soruyu_yonlendir(
         sistem=sistem_istemi(),
         max_token=80,
         max_deneme=max_deneme,
+        sicaklik=sicaklik,
+        tohum=tohum,
     )
     return YonlendirmeSonucu(
         cagri=sonuc.deger,

@@ -13,11 +13,11 @@
 {"soru": "Bizi kim geciktiriyor?", "arac": "tedarikci_performansi_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "T-0031 güvenilir mi?", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": ["T-0031", "t-0031"]}, "stil": "dolayli"}
 {"soru": "t-0007 gecikiyomu", "arac": "tedarikci_performansi_sorgula", "parametreler": {"tedarikci_id": ["T-0007", "t-0007"]}, "stil": "gunluk"}
-{"soru": "Kırmızı Tuğla (S-01432) için sipariş önerisi nedir?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Kırmızı Tuğla", "S-01432"]}, "stil": "acik"}
-{"soru": "Alçıpan (S-00318) için ne kadar sipariş verilmeli?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Alçıpan", "S-00318"]}, "stil": "acik"}
-{"soru": "Portland Çimento (S-01949) ürününden kaç tane almalıyım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Portland Çimento", "S-01949"]}, "stil": "dolayli"}
-{"soru": "Demir profil (S-01971) için ne ısmarlayalım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Demir profil", "S-01971"]}, "stil": "dolayli"}
-{"soru": "kirmizi tugla (S-01432) kac adet siparis verelim", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_adi": ["Kırmızı Tuğla", "kirmizi tugla", "S-01432"]}, "stil": "gunluk"}
+{"soru": "Kırmızı Tuğla (S-01432) için sipariş önerisi nedir?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_id": ["Kırmızı Tuğla", "S-01432"]}, "stil": "acik"}
+{"soru": "Alçıpan (S-00318) için ne kadar sipariş verilmeli?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_id": ["Alçıpan", "S-00318"]}, "stil": "acik"}
+{"soru": "Portland Çimento (S-01949) ürününden kaç tane almalıyım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_id": ["Portland Çimento", "S-01949"]}, "stil": "dolayli"}
+{"soru": "Demir profil (S-01971) için ne ısmarlayalım?", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_id": ["Demir profil", "S-01971"]}, "stil": "dolayli"}
+{"soru": "kirmizi tugla (S-01432) kac adet siparis verelim", "arac": "siparis_onerisi_sorgula", "parametreler": {"sku_id": ["Kırmızı Tuğla", "kirmizi tugla", "S-01432"]}, "stil": "gunluk"}
 {"soru": "Onay bekleyen kararlar var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "acik"}
 {"soru": "Onay kuyruğunu gösterir misin?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "acik"}
 {"soru": "Benim onaylamam gereken bir şey var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}

@@ -155,6 +155,7 @@ class OllamaIstemcisi:
         sicaklik: float | None = None,
         sema: dict[str, Any] | None = None,
         model: str | None = None,
+        tohum: int | None = None,
     ) -> UretimSonucu:
         """Tek bir üretim çağrısı yapar ve ölçümlerle birlikte döndürür.
 
@@ -165,6 +166,11 @@ class OllamaIstemcisi:
         `stream=False`: cevabı parça parça değil tek seferde alıyoruz. Ölçüm
         için gerekli sayaçlar (`eval_count`, `eval_duration`) yalnızca akış
         kapalıyken tek bir cevapta toplu gelir.
+
+        `tohum` + `sicaklik=0` ⇒ **tekrarlanabilir çıktı.** Ölçüm scriptleri
+        için şart: taban çizgi koşudan koşuya ±7 puan oynarsa "eğitim işe
+        yaradı mı" sorusu gürültüden ayırt edilemez hale gelir. Üretimde
+        kullanılmıyor — orada çeşitlilik zararsız.
         """
         govde: dict[str, Any] = {
             "model": model or self.ayar.llm_model_adi,
@@ -178,6 +184,8 @@ class OllamaIstemcisi:
                 "num_predict": max_token or self.ayar.llm_gerekce_max_token,
             },
         }
+        if tohum is not None:
+            govde["options"]["seed"] = tohum
         if sistem is not None:
             govde["system"] = sistem
         if sema is not None:

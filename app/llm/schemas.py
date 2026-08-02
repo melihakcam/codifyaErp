@@ -56,7 +56,10 @@ ARAC_PARAMETRELERI: dict[AracAdi, str | None] = {
     AracAdi.KRITIK_STOK: "kategori",
     AracAdi.OLU_STOK: "kategori",
     AracAdi.TEDARIKCI_PERFORMANSI: "tedarikci_id",
-    AracAdi.SIPARIS_ONERISI: "sku_adi",
+    # `sku_id`, `sku_adi` değil: eğitim verisinde bu parametre ürün adını değil
+    # SKU kodunu (`"S-01971"`) taşıyor. Kişi A ile birlikte adlandırma
+    # düzeltildi (2026-08-02) — alan adı taşıdığı şeyle uyuşsun diye.
+    AracAdi.SIPARIS_ONERISI: "sku_id",
     AracAdi.ONAY_KUYRUGU: None,
     AracAdi.GECELIK_OZET: "tarih_ifadesi",
     AracAdi.GENEL_STOK_DURUMU: None,
@@ -189,6 +192,8 @@ def yapilandirilmis_uret[T: BaseModel](
     sistem: str | None = None,
     max_token: int | None = None,
     max_deneme: int = 2,
+    sicaklik: float | None = None,
+    tohum: int | None = None,
 ) -> YapilandirilmisSonuc[T]:
     """Şemaya uyan çıktı alana kadar dener, alamazsa `SemaUyumsuz` fırlatır.
 
@@ -206,7 +211,14 @@ def yapilandirilmis_uret[T: BaseModel](
     son_hata = ""
 
     for deneme in range(1, max_deneme + 1):
-        uretim = istemci.uret(istem, sistem=sistem, max_token=max_token, sema=sema)
+        uretim = istemci.uret(
+            istem,
+            sistem=sistem,
+            max_token=max_token,
+            sema=sema,
+            sicaklik=sicaklik,
+            tohum=tohum,
+        )
         son_ham = uretim.metin
 
         try:

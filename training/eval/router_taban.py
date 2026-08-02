@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -52,12 +53,25 @@ from app.llm.client import LLMErisilemiyor, OllamaIstemcisi
 from app.llm.router import soruyu_yonlendir
 from app.llm.schemas import SemaUyumsuz
 
+# Windows konsolu varsayilan olarak cp1254 kullaniyor ve Turkce karakterlerde
+# UnicodeEncodeError firlatiyor. Ayni sorunu Kisi A da yasadi (A3.4).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 SORU_DOSYASI = Path(__file__).with_name("router_taban_sorulari.jsonl")
 SONUC_DOSYASI = Path(__file__).with_name("router_taban_sonuc.json")
 
 # Dengeli bir test setinde 7 araç varsa tek aracın payı ~%14 olmalı. Bu eşiğin
 # üstü, modelin ayrım yapmayı bırakıp tek cevaba yığıldığına işaret eder.
 COKUS_ESIGI = 0.40
+
+# ⚠️ Olcum TEKRARLANABILIR olmali. Varsayilan sicaklikla (0.2) ayni set iki
+# kez kosturuldugunda %70 ve %76,7 cikti — 7 puanlik gurultu. Taban cizgi ile
+# LoRA sonrasi farki bu gurultuden ayirt edilemezdi. Sicaklik 0 + sabit tohum
+# ile model acgozlu (greedy) uretim yapiyor ve ayni girdiye ayni cevabi
+# veriyor. Uretimde kullanilmiyor; orada cesitlilik zararsiz.
+OLCUM_SICAKLIGI = 0.0
+OLCUM_TOHUMU = 42
 
 
 @dataclass
@@ -141,7 +155,9 @@ def olc(kayitlar: list[Kayit], *, ayrinti: bool = True) -> list[Kayit]:
     with OllamaIstemcisi() as istemci:
         for i, k in enumerate(kayitlar, 1):
             try:
-                sonuc = soruyu_yonlendir(istemci, k.soru)
+                sonuc = soruyu_yonlendir(
+                    istemci, k.soru, sicaklik=OLCUM_SICAKLIGI, tohum=OLCUM_TOHUMU
+                )
                 k.secilen_arac = sonuc.cagri.arac.value
                 k.secilen_parametreler = dict(sonuc.cagri.parametreler)
                 k.uretim_ms = sonuc.uretim_ms

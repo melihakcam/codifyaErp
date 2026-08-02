@@ -164,37 +164,52 @@ yazıldı** — Kişi A'nın otomatik ürettiği eğitim verisinden bilinçli ol
 ayrı; aynı şablonlardan türeyen bir test seti, modelin şablonu ezberlemesini
 "başarı" diye ölçerdi)
 
-### Sonuç
+### ⚠️ Ölçüm deterministik yapıldı — önceki sayılar geçersiz
 
-Ham sonuçlar: `training/eval/router_taban_sonuc.json` (etiket
-`taban-cizgi-egitim-oncesi`). B3.5'te puanlama mantığı değişirse ölçüm
-modeli tekrar çalıştırmadan yeniden puanlanabilsin diye saklanıyor.
+İlk üç koşu sırasıyla **%73,3 · %76,7 · %70,0** verdi. Aynı soru seti, aynı
+model, aynı kod. Sebep: varsayılan sıcaklık 0,2, yani model her koşuda biraz
+farklı davranıyor.
+
+**7 puanlık gürültü, taban çizginin tüm amacını yok ediyordu.** LoRA sonrası
+"%70 → %78" görsek bunun eğitimden mi rastgelelikten mi geldiğini
+söyleyemezdik.
+
+Düzeltme: ölçüm `sicaklik=0.0` + `tohum=42` ile koşuyor. Model açgözlü
+(greedy) üretim yapıyor, aynı girdiye aynı cevabı veriyor. Doğrulandı — iki
+ardışık koşu **birebir aynı** sonucu verdi.
+
+Bu "daha iyi" bir ayar değil, **tekrarlanabilir** bir ayar. Üretimde
+kullanılmıyor; orada çeşitlilik zararsız.
+
+### Sonuç (deterministik)
+
+Ham sonuçlar: `training/eval/router_taban_sonuc.json`. B3.5'te puanlama
+mantığı değişirse ölçüm modeli tekrar çalıştırmadan yeniden puanlanabilsin
+diye saklanıyor.
 
 | Ölçüt | Değer | Faz 5 hedefi |
 |---|---|---|
-| **Araç doğru** | **23/30 · %76,7** | — |
-| **Araç + parametre tam eşleşme** | **22/30 · %73,3** | **> %95** |
-| Şema hatası (yönlendirilemedi) | 0 | — |
-| Uydurma parametre | 1 | 0 |
-| Çöküş (tek araca yığılma) | yok — en sık araç %20 | < %40 |
-| Toplam süre | 73,5 sn | — |
+| **Araç doğru** | **21/30 · %70,0** | — |
+| **Araç + parametre tam eşleşme** | **20/30 · %66,7** | **> %95** |
+| Şema hatası (yönlendirilemedi) | 2 | 0 |
+| Uydurma parametre | 0 | 0 |
+| Çöküş (tek araca yığılma) | yok — en sık araç %21 | < %40 |
+| Tekrarlanabilirlik | ✅ iki koşu birebir aynı | — |
 
-Hedefle arada **22 puan** var. LoRA'nın kapatması gereken mesafe bu.
+Hedefle arada **28 puan** var. LoRA'nın kapatması gereken mesafe bu.
 
-> **Not:** İlk ölçümde %73,3 / %70,0 çıkmıştı. Aradaki fark soru setinin
-> düzeltilmesinden geliyor: eğitim verisinde `sku_adi` parametresi ürün
-> **adını değil kodunu** taşıdığı için (`"S-01971"`), sorulara SKU kodları
-> eklendi ve beklenen değerler her iki biçimi de kabul edecek şekilde
-> güncellendi. Aksi halde model kod üretmeye başladığında doğru cevabı
-> yanlış sayardık ve LoRA öncesi/sonrası kıyaslaması geçersiz olurdu.
-> **Geçerli taban çizgi bu tablodur.**
+> **Parametre adı `sku_id`** (önceden `sku_adi`). Eğitim verisinde bu alan
+> ürün adını değil SKU kodunu taşıyordu; Kişi A ile birlikte adlandırma
+> düzeltildi (2026-08-02). Soru setindeki beklenen değerler yine de **her iki
+> biçimi de** kabul ediyor — model ad da üretse kod da üretse ölçüm geçerli
+> kalsın diye.
 
 ### Stile göre
 
 | stil | doğru | oran |
 |---|---|---|
-| açık | 11/12 | %92 |
-| dolaylı | 9/13 | %69 |
+| açık | 10/12 | %83 |
+| dolaylı | 8/13 | %62 |
 | günlük dil | 3/5 | %60 |
 
 Beklenen yönde: ifade ne kadar dolaylı/serbestse doğruluk o kadar düşüyor.
@@ -203,13 +218,17 @@ Beklenen yönde: ifade ne kadar dolaylı/serbestse doğruluk o kadar düşüyor.
 
 | araç | doğru | eğitim verisinde kaç örnek |
 |---|---|---|
-| `gecelik_ozet_sorgula` | 3/3 | 66 |
-| `genel_stok_durumu_sorgula` | 2/2 | **11** |
-| `kritik_stok_sorgula` | 4/5 | 256 |
-| **`olu_stok_sorgula`** | **1/5** | **240** |
-| `onay_kuyrugu_sorgula` | 4/5 | **14** |
-| `siparis_onerisi_sorgula` | 5/5 | **41.886** |
-| `tedarikci_performansi_sorgula` | 4/5 | 1.325 |
+| `gecelik_ozet_sorgula` | 3/3 | 44 |
+| `genel_stok_durumu_sorgula` | 2/2 | **10** |
+| `kritik_stok_sorgula` | 3/5 | 171 |
+| **`olu_stok_sorgula`** | **1/5** | **162** |
+| `onay_kuyrugu_sorgula` | 4/5 | **12** |
+| `siparis_onerisi_sorgula` | 4/5 | **2.000** |
+| `tedarikci_performansi_sorgula` | 4/5 | 976 |
+
+Eğitim verisi sütunu Kişi A'nın **dengeleme sonrası** sayıları
+(2026-08-02). `olu_stok_sorgula` üç ardışık deterministik koşuda da 1/5 —
+gürültü değil, sabit bir zayıflık.
 
 **Sekiz hatanın dördü tek bir araçta.** Model "ölü stok"u (satılmayan,
 hareketsiz, fazla mal) "kritik stok"la (azalan, tükenen, eksik mal)
@@ -264,9 +283,16 @@ Kök sebep yapısal, bir hata değil: `siparis_onerisi` 2.000 SKU'dan
 üretiliyor, `kritik_stok` yalnızca ~8 kategoriden. Varlık havuzları farklı
 büyüklükte.
 
-Önerilen düzeltme (Kişi A'ya iletildi): `siparis_onerisi`'ni ~2.000'e alt
-örnekle (dengesizlik 3808x → 150x) **ve** seyrek araçları A3.3'teki parafraz
-makinesiyle çoğalt.
+**ÇÖZÜLDÜ (2026-08-02).** Kişi A `router_verisini_dengele()` ekledi: baskın
+araç 2.000'e alt örnekleniyor. Bağımsız olarak doğrulandı — dengesizlik
+**3400x → 200x**, sızıntı hâlâ yok, golden set artık **7/7 aracı** temsil
+ediyor (önce 2/7'ydi).
+
+**Kalan sınır:** alt örnekleme tavanı indiriyor, tabanı yükseltmiyor.
+`genel_stok_durumu_sorgula` (10 satır) ve `onay_kuyrugu_sorgula` (12 satır)
+hâlâ çok ince. Bu iki aracın doğal cümle çeşitliliği sınırlı; zorlamak tekrar
+riski taşıyor. **Çözüm eğitim tarafında (B3.3): sınıf ağırlıklı örnekleme.**
+Kişi B'nin kararı ve sorumluluğu.
 
 ### B3.5'te bakılacak
 

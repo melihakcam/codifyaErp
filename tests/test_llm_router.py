@@ -243,11 +243,11 @@ def test_sku_parametresi_hem_adi_hem_kodu_kabul_ediyor():
     """
     from training.eval.router_taban import kayitlari_yukle
 
-    sku_kayitlari = [k for k in kayitlari_yukle() if "sku_adi" in k.beklenen_parametreler]
+    sku_kayitlari = [k for k in kayitlari_yukle() if "sku_id" in k.beklenen_parametreler]
     assert sku_kayitlari, "sipariş önerisi soruları parametreli olmalı"
 
     for k in sku_kayitlari:
-        kabul = k.beklenen_parametreler["sku_adi"]
+        kabul = k.beklenen_parametreler["sku_id"]
         assert any(d.upper().startswith("S-") for d in kabul), (
             f"{k.soru!r}: SKU kodu kabul edilmiyor"
         )
@@ -328,15 +328,15 @@ def test_kabul_edilen_biçimlerden_biri_yeterli():
         soru="Kırmızı Tuğla (S-01432) için sipariş",
         stil="acik",
         beklenen_arac="siparis_onerisi_sorgula",
-        beklenen_parametreler={"sku_adi": ["Kırmızı Tuğla", "S-01432"]},
+        beklenen_parametreler={"sku_id": ["Kırmızı Tuğla", "S-01432"]},
     )
     k.secilen_arac = "siparis_onerisi_sorgula"
 
-    k.secilen_parametreler = {"sku_adi": "S-01432"}
+    k.secilen_parametreler = {"sku_id": "S-01432"}
     assert k.tam_dogru, "SKU kodu kabul edilmeli"
 
-    k.secilen_parametreler = {"sku_adi": "kırmızı tuğla"}
+    k.secilen_parametreler = {"sku_id": "kırmızı tuğla"}
     assert k.tam_dogru, "ürün adı (harf duyarsız) kabul edilmeli"
 
-    k.secilen_parametreler = {"sku_adi": "Beyaz Tuğla"}
+    k.secilen_parametreler = {"sku_id": "Beyaz Tuğla"}
     assert not k.tam_dogru, "yanlış ürün kabul edilmemeli"
