@@ -1573,3 +1573,51 @@ neyi kazandırdığını bilmeden ikincisini koşturmak körlemesine olur.
 - ⬜ 1. tur ölçümü — 30 soruluk router seti + görülmemiş örnekte ürün adı
 - ⬜ Ölçüme göre karar: 2. tur (35k) mı, yoksa veri kalitesi mi
 
+## 1. tur ölçümü: doğruluk DÜŞTÜ — sebebi benim veri seçimim
+
+```
+arac dogrulugu    %70,0  ->  %40,0     dustu
+arac + parametre  %66,7  ->  %26,7     dustu
+sema hatasi        2/30  ->   8/30     artti
+olu_stok_sorgula    1/5  ->   4/5      IYILESTI
+```
+
+### Ne oldu
+
+Veriyi hazırlarken router dosyasının **ilk 7.500 satırını** aldım, rastgele
+seçmedim. Dosya araca göre sıralıymış:
+
+```
+                                  EGITIME GIREN    TUM DOSYA
+  siparis_onerisi_sorgula              6.742         41.886   %90
+  gecelik_ozet_sorgula                     0             66   SIFIR
+  onay_kuyrugu_sorgula                     0             14   SIFIR
+  genel_stok_durumu_sorgula                0             11   SIFIR
+```
+
+**Üç araç eğitime hiç girmedi.** Model hiç görmediği aracı seçemez — ölçümde de
+o üçünü hiç seçmedi. Taban çizgide bu üçlü 9/10 doğru cevap veriyordu; düşüşün
+büyük kısmı burada.
+
+Eğitimin çalıştığının kanıtı da aynı tabloda: `olu_stok_sorgula` 99 örnek gördü
+ve **1/5'ten 4/5'e** çıktı. Sorun eğitimde değil, neyi eğittiğimizde.
+
+### Ölçüm de tam adil değildi
+
+Taban çizgi Ollama'nın **JSON şema zorlamasıyla** ölçülmüştü — model geçersiz
+JSON üretemiyordu. Bu ölçümde zorlama yok, ham üretim var. 8 şema hatasının bir
+kısmı modelin değil, kurulumun farkı. Geçerli JSON çıkan 22 sorunun 12'si doğru
+= %54,5.
+
+**Ders: iki ölçümü karşılaştırırken yalnızca modeli değil, çevre koşullarını da
+eşitle.** Yoksa hangi farkın neyden geldiği bilinmez.
+
+### 2. tur için
+
+1. **Sınıf ağırlıklı örnekleme** — her araca taban kota, seyrek olanlar
+   tekrarlanarak. Görev dosyası B3.3'te bunu zaten istiyordu; atlamışım.
+2. **Rastgele örnekleme** — sıralı alma bir daha yapılmayacak.
+3. **Şema zorlaması** — ölçüm taban çizgideki gibi JSON kısıtıyla yapılmalı.
+4. Melih'e sorulacak: dengelenmiş router dışa aktarımı var mı? Elimizdeki dosya
+   hâlâ **3.808 kat** dengesiz (41.886 vs 11).
+

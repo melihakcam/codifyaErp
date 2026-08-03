@@ -745,3 +745,69 @@ neyi kazandigini bilmeden ikincisini kosturmak korlemesine.
 Ilk kayit (25. adim) 0,2988. Bu, hedeflerin **cok kalipli** oldugunu dusundurur --
 Kisi A'nin uretici sablonlari duzenli oldugu icin model dili hizla yakaliyor.
 Kalipli hedef, kaybin erken yataylasmasini da acikliyor.
+
+## B3.5 (1. tur) · Router olcumu — DUSTU, sebebi veri secimi (2026-08-03)
+
+B2.3'un birebir ayni 30 soruluk seti, egitilmis modelle.
+
+| olcu | taban (B2.3) | 1. tur | |
+|---|---|---|---|
+| arac dogrulugu | %70,0 | **%40,0** | dustu |
+| arac + parametre | %66,7 | **%26,7** | dustu |
+| sema hatasi | 2/30 | **8/30** | artti |
+| `olu_stok_sorgula` | 1/5 | **4/5** | ⬆ iyilesti |
+
+Secilen araclar: `kritik_stok` 9, **cozulemeyen 8**, `tedarikci` 5, `olu_stok` 4,
+`siparis` 3, `sorgula` (bozuk) 1.
+
+### Kok sebep: egitim verisi sirali alindi, rastgele degil
+
+`veri_hazirla.py` ve defter, router dosyasinin **ilk 7.500 satirini** aliyordu.
+Dosya araca gore sirali oldugu icin:
+
+```
+                                  EGITIME GIREN    TUM DOSYA
+  siparis_onerisi_sorgula              6.742         41.886   %90
+  tedarikci_performansi_sorgula          543          1.325
+  kritik_stok_sorgula                    116            256
+  olu_stok_sorgula                        99            240
+  gecelik_ozet_sorgula                     0             66   SIFIR
+  onay_kuyrugu_sorgula                     0             14   SIFIR
+  genel_stok_durumu_sorgula                0             11   SIFIR
+```
+
+**Uc arac egitime hic girmedi.** Model hic gormedigi araci secemez; olcumde de
+o uc araci hic secmedi. Taban cizgide bu uclu 9/10 dogru cevap veriyordu —
+dususun buyuk kismi burada.
+
+Dogrulayan detay: `olu_stok_sorgula` 99 ornek gordu ve **1/5 → 4/5** cikti.
+Egitim calisiyor; sorun neyin ogretildigi.
+
+### Ikinci sorun: olcum tam adil degil
+
+B2.3 taban cizgisi Ollama'nin **JSON sema zorlamasiyla** olculmustu — model
+gecersiz JSON uretemiyordu. Bu olcum ham uretim, zorlama yok. 8 sema hatasinin
+bir kismi modelin degil, kurulumun farki.
+
+Gecerli JSON uretilen 22 sorunun 12'si dogru = **%54,5**. Yine %70'in altinda
+ama %40 kadar kotu degil.
+
+Ders: **iki olcumu karsilastirirken yalnizca modeli degil, cevre kosullarini da
+esitle.** Aksi halde hangi farkin neyden geldigi bilinmez.
+
+### Kok sebebin kok sebebi
+
+Dosyanin kendisi **3.808 kat dengesiz** (41.886 vs 11). Bu, oturumun basinda
+tespit edilip Kisi A'ya bildirilmisti; `router_verisini_dengele()` eklemisti.
+Ama elimizdeki `router_train.jsonl` dengelenmemis surum.
+
+### 2. tur icin yapilacaklar
+
+1. **Sinif agirlikli ornekleme** — her arac icin taban kota, seyrek olanlar
+   tekrarlanarak. Gorev dosyasi B3.3'te bunu zaten istiyordu.
+2. **Rastgele ornekleme** — sirali alma bir daha yapilmayacak.
+3. **Sema zorlamasi** — olcum, taban cizgideki gibi JSON kisitiyla yapilmali.
+4. Kisi A'ya sorulacak: dengelenmis router disa aktarimi var mi?
+
+⚠️ 11 ornekli bir araci tekrarlayarak ogretmek ezberletme riski tasiyor. Gercek
+cozum seyrek araclar icin **daha cesitli soru** uretmek — o Kisi A'nin tarafi.
