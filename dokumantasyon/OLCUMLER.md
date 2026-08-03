@@ -872,3 +872,50 @@ gecelik_ozet_sorgula            66 ozgun /    66 satir
 Kisi A bu ucu icin `--sablon-ihrac-araclar` bayragi ve parafraz defterinde
 `VARYANT_SAYISI` ayari hazirladi; 28 sablondan 12-15 varyant uretilerek gercek
 cesitlilik saglanabilir. Tekrarlamaya gore cok daha iyi bir cozum.
+
+
+## Guncel veri dogrulandi (2026-08-03)
+
+Kisi A'nin parafraz turu sonrasi indirilen dosyalar `yeni_veri_kontrol.py` ile
+sinandi.
+
+```
+DENGELENMIS       en cok gorulen arac 1.633  (ust sinir 2.000)
+eksik arac        yok
+train vs val      TEMIZ
+train vs test     TEMIZ
+val vs test       TEMIZ
+ozgun soru        3.674/3.674  (%100)
+sirali mi         EVET -- ilk-N almak TEHLIKELI
+```
+
+Router havuzu **43.798 -> 3.674** satira indi (dengeleme uygulandi).
+Seyrek araclar (egitim bolumu):
+
+```
+                           once   sonra
+genel_stok_durumu_sorgula    11      26
+onay_kuyrugu_sorgula         14      39
+gecelik_ozet_sorgula         66     155
+```
+
+Bolumler toplami Kisi A'nin verdigi sayilarla tutuyor (34 / 43 / 184).
+
+⚠️ **Dosya hala araca gore sirali.** 1. turdaki hata bu veriyle de tekrar
+ederdi; dengeli ornekleme zorunlulugunu koruyor.
+
+### 2. tur ornekleme ayari yeniden olculdu
+
+Havuz kuculunce 7.500 router hedefi anlamsizlasti (her seyi 2 kat tekrarlamak
+olurdu):
+
+| router hedefi | ozgun | en cok tekrar | dengesizlik |
+|---|---|---|---|
+| 7.500 | %38,3 | 40,0x | 1,0x |
+| 3.500 | %49,0 | 19,2x | 1,0x |
+| **2.000** | **%64,5** | **11,0x** | **1,0x** |
+| 1.400 | %72,9 | 7,7x | 1,0x |
+
+Denge her ayarda tam; fark ozgunlukte. **Secilen: router 2.000 (tavan 20),
+gerekce 8.000.** Toplam 10.000 -- Tur 1'den (15.000) kucuk ama uc aracin hic
+gorulmedigi bir 15.000'den kesinlikle iyi.

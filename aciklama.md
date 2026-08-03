@@ -1827,3 +1827,38 @@ gidişat için bilgi verir ama **karşılaştırma sayısı** buradan çıkacak.
 
 Toplam **282 test yeşil**.
 
+## Güncel veri geldi ve doğrulandı
+
+Melih'in parafraz turu sonrası dosyalar indirildi ve kontrol edildi:
+
+```
+DENGELENMIS       siparis_onerisi 1.633  (once 41.886)
+eksik arac        yok
+sizinti           train/val/test uclusu de TEMIZ
+ozgun soru        3.674/3.674  (%100)
+```
+
+Seyrek araçlar arttı (eğitim bölümü): `genel_stok_durumu` 11→26,
+`onay_kuyrugu` 14→39, `gecelik_ozet` 66→155. Bölümler toplamı Melih'in verdiği
+sayılarla tutuyor.
+
+⚠️ **Dosya hâlâ araca göre sıralı.** Yani 1. turdaki hata bu veriyle de tekrar
+ederdi — dengeli örnekleme zorunluluğunu koruyor. Kontrol betiği bu sefer
+uyarıyı bastı (eski dosyada basamamıştı, sebebi bloklu yapıydı).
+
+### Örnekleme ayarı yeniden ölçüldü
+
+Havuz 43.798'den 3.674'e indiği için 7.500 router hedefi anlamsızlaştı:
+
+| router hedefi | özgün | en çok tekrar |
+|---|---|---|
+| 7.500 | %38,3 | 40,0x |
+| **2.000** | **%64,5** | **11,0x** |
+| 1.400 | %72,9 | 7,7x |
+
+Denge her ayarda tam (1,0x); fark özgünlükte. Tekrarlanan örnek ilk birkaç
+geçişten sonra neredeyse hiçbir şey öğretmiyor, yani düşük özgünlük boşa hesap.
+
+**Seçilen: router 2.000, gerekçe 8.000.** Toplam 10.000 — Tur 1'den küçük ama
+üç aracın hiç görülmediği bir 15.000'den kesinlikle iyi.
+
