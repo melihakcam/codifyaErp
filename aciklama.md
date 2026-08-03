@@ -1376,7 +1376,7 @@ geldik, gerisi eğitimle düzelir. Melih'in ürettiği **40.293 gerekçe** ve
 
 Eğitim **Colab'ın GPU'sunda** yapılacak, bilgisayara yük binmeyecek.
 
-## B3.1 · Colab ortamı (bitti ✅)
+## B3.1 · Colab ortamı (bitti ✅, Colab'da doğrulandı)
 
 `training/train_lora.ipynb` — Colab'da açılacak defter. Eğitim yapmıyor,
 eğitimin **koşabileceği ortamı kurup kanıtlıyor**.
@@ -1460,3 +1460,28 @@ Sonuç: **5.000 eğitim hedefinin 5.000'i geçiyor** (önce 4.949).
 3 yeni test. Toplam **274 test yeşil**.
 
 ⚠️ Guard'ı Melih incelemiş ve onaylamıştı; bu değişiklik ona bildirilecek.
+
+### Colab'da koşturuldu — dört ölçüt de geçti
+
+```
+GECTI  GPU baglandi: Tesla T4          (14,6 GB VRAM)
+GECTI  Drive bagli: MyDrive/codifya
+GECTI  unsloth import edildi           (kurulum 37 sn)
+GECTI  veri/ okunabiliyor ve bicim dogru
+B3.1 TAMAM
+```
+
+Veri Drive'a yüklendi ve satır sayıları birebir doğrulandı: `gerekce_train`
+40.293, `router_train` 43.798. İstem/cevap biçimi de defterde gösterildi.
+
+Yol boyunca çıkan tek engel: Colab "çok fazla oturum var" dedi. Sabah açılan
+eski defter GPU'yu tutuyordu; oturumu sonlandırınca çözüldü. Ücretsiz Colab
+aynı anda tek GPU oturumuna izin veriyor — B3.3'te uzun eğitim koşarken bunu
+akılda tutmak gerek, ikinci bir defter açmak eğitimi düşürür.
+
+### Sırada
+
+- ⬜ B3.2 — 100 örnekle boru hattı provası (eğit → kaydet → merge → GGUF →
+  Ollama). Görev dosyası "bu adımı atlama" diyor: tam eğitim 4-7 saat sürüyor
+  ve 3. saatte çıkacak bir biçim hatası hem eğitimi hem Colab oturumunu yakar.
+
