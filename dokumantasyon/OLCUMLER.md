@@ -623,3 +623,53 @@ gerekce sonradan uretilebiliyor.
 
 Egitilmis model daha uzun/kisa cumle uretirse `gerekce basina` degisir.
 Karsilastirma tabani: **76,1 ms / 6,7 sn / 5,31 dakika**.
+
+## B3.2 · Boru hatti provasi — 100 ornek (2026-08-03)
+
+Gorev dosyasinin olcutu: hattin **ucdan uca calistigini** kanitlamak.
+Kalite BEKLENMIYOR.
+
+| | |
+|---|---|
+| Ortam | Colab, Tesla T4, 14,6 GB VRAM |
+| Taban model | `unsloth/Qwen2.5-1.5B-Instruct`, 4-bit |
+| LoRA | `r=16`, `alpha=32`, tum dikkat + MLP (7 modul) |
+| Egitim | 100 ornek, 30 adim, lr 2e-4, seed 42 |
+
+### Sonuc
+
+| olcu | deger |
+|---|---|
+| egitilen parametre | 18.464.768 / 1.562.179.072 = **%1,18** |
+| kayip (30 adimda) | 0,77 -> 0,54 -> 0,43 -> **0,39** |
+| egitim suresi | 63 sn |
+| LoRA boyutu | **81,4 MB** (tam model 3 GB olurdu) |
+| B3.2 olcutleri | 4/4 GECTI |
+
+Kayip duzenli dusuyor — egitim gercekten oluyor, boru hatti saglam.
+
+### Urun adi sinavi: sonuc HENUZ GECERSIZ
+
+Uc ornekte de ad birebir dogru kopyalandi (`Porselen Karo - Vitra`,
+`Insaat Demiri 12mm - Icdas`, `Ic Cephe Boyasi - Marshall`). "starboy" yok.
+
+⚠️ **Ama uretilen metinler hedeflerle harfi harfine ayni cikti.** Model bu uc
+ornegi ezberlemis; 100 ornek + 30 adim + kayip 0,39 ile beklenen sonuc bu.
+
+Yani cevaplanan soru *"adi kopyalayabiliyor mu"* degil,
+*"ezberleyebiliyor mu"* idi. Ikisi ayni sey degil.
+
+Dogru sinav **gorulmemis** ornekle yapilir; `gerekce_val.jsonl` bunun icin
+ayrilmis. Deftere `8. Gorulmemis ornekle sinav` bolumu eklendi, B3.3'un
+yaninda kosturulacak.
+
+Bu, olcum yaparken en kolay dusulen tuzagin bir ornegi: **egitim verisinden
+olcmek.** B2.4'te de benzeri olmustu (guard "7/10 gecti" demisti ama metinler
+istem echo'suydu). Sayi dogru, soru yanlis.
+
+### B3.3 icin cikan sayilar
+
+- 100 ornek / 30 adim = 63 sn
+- 40.293 ornek icin kaba tahmin: **~4-6 saat** (gorev dosyasinin 4-7 saat
+  tahminiyle uyumlu)
+- LoRA 81,4 MB -> checkpoint'ler Drive'da rahat siger

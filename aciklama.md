@@ -1485,3 +1485,46 @@ akılda tutmak gerek, ikinci bir defter açmak eğitimi düşürür.
   Ollama). Görev dosyası "bu adımı atlama" diyor: tam eğitim 4-7 saat sürüyor
   ve 3. saatte çıkacak bir biçim hatası hem eğitimi hem Colab oturumunu yakar.
 
+## B3.2 · 100 örnekle boru hattı provası (bitti ✅)
+
+Görev dosyasının "atlanmaz" dediği adım. Amaç kalite değil, **hattın uçtan uca
+çalıştığını kanıtlamak**: yükle → eğit → kaydet → üret.
+
+```
+egitilen parametre   18,4 milyon / 1,56 milyar  =  %1,18
+kayip                0,77 -> 0,54 -> 0,43 -> 0,39   (duzenli dusuyor)
+egitim suresi        63 saniye
+LoRA boyutu          81,4 MB    (tam model 3 GB olurdu)
+olcutler             4/4 GECTI
+```
+
+Kayıp düzenli düşüyor — eğitim gerçekten oluyor. Boru hattı sağlam.
+
+### Ürün adı sınavı: cevap aldık sandık, almadık
+
+Üç örnekte de ürün adı **birebir doğru** kopyalandı. "starboy" yok. İlk bakışta
+B3.1'deki kararımız doğrulanmış görünüyor.
+
+**Ama üretilen metinler hedeflerle harfi harfine aynı çıktı.** Model o üç
+örneği ezberlemiş — 100 örnek, 30 adım ve 0,39 kayıpla beklenen şey bu.
+
+Yani cevapladığımız soru *"adı kopyalayabiliyor mu"* değil, *"ezberleyebiliyor
+mu"* idi. İkisi aynı şey değil.
+
+Doğru sınav modelin **hiç görmediği** örnekle yapılır. `gerekce_val.jsonl` tam
+bunun için ayrılmış; deftere o bölümü ekledim, B3.3'ün yanında koşacak.
+
+Bunu kaydetmeye değer çünkü **ölçüm yaparken en kolay düşülen tuzak bu:
+eğitim verisinden ölçmek.** B2.4'te de benzeri olmuştu — guard "7/10 geçti"
+demişti ama metinler istemin kopyasıydı. Sayı doğru, soru yanlış.
+
+### B3.3 için çıkan tahmin
+
+100 örnek 63 saniye sürdü. 40.293 örnek için kabaca **4-6 saat** — görev
+dosyasının 4-7 saat tahminiyle uyumlu. LoRA 81 MB olduğu için ara kayıtlar
+Drive'da rahat sığar.
+
+### Sırada
+
+- ⬜ B3.3 — tam LoRA eğitimi (40.293 örnek, 4-6 saat, kesintiye dayanıklı)
+
