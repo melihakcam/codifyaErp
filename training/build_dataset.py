@@ -424,14 +424,24 @@ içinde tutması istenir (Colab notebook'undaki prompt'ta) — böylece
 başkalaştırılmış metne geri dönüp gerçek varlıkları yerleştirebiliriz."""
 
 
-def sablonlari_ihrac_et() -> pd.DataFrame:
+def sablonlari_ihrac_et(yalnizca_araclar: set[str] | None = None) -> pd.DataFrame:
     """LLM'e gönderilecek ~100 benzersiz şablonu (placeholder token'lı) çıkarır.
+
+    `yalnizca_araclar` verilirse yalnızca o araçların şablonları çıkarılır —
+    B'nin bulduğu sorunu (seyrek araçların ~10-14 satırı, sınıf ağırlıklı
+    örneklemede aynı 10-14 örneğin yüzlerce kez tekrarlanıp ezberletmesi
+    riski) çözmek için: bu araçların şablonlarını **daha yüksek `n`** ile
+    yeniden başkalaştırıp gerçek çeşitlilik üretmek üzere hedeflenmiş, ucuz
+    bir Colab turu yapılabilsin diye. Tüm ~84 şablonu tekrar göndermeye
+    gerek yok.
 
     Dönen DataFrame Colab'a yüklenip başkalaştırılacak, sonra
     `parafraz_sablonlarindan_veri_uret` ile yerelde yeniden çoğaltılacak.
     """
     kayitlar = []
     for arac in ARAC_TANIMLARI:
+        if yalnizca_araclar is not None and arac.isim not in yalnizca_araclar:
+            continue
         token = PLACEHOLDER_TOKENLARI[arac.varlik_turu]
         varlik_ifadesi = _varlik_ifadesi(arac.varlik_turu, token) if token else ""
         for sablon in arac.sablonlar:
@@ -506,10 +516,20 @@ def _cli() -> None:
         default=None,
         help="Verilirse yalnızca (Colab'a yüklenecek) benzersiz şablon listesini bu yola yazar",
     )
+    ayristirici.add_argument(
+        "--sablon-ihrac-araclar",
+        nargs="+",
+        default=None,
+        help=(
+            "--sablon-ihrac-et ile birlikte: yalnızca bu araçların şablonlarını çıkar "
+            "(ör. seyrek araçları hedefli, yüksek-n paraphrase turuna sokmak için)"
+        ),
+    )
     args = ayristirici.parse_args()
 
     if args.sablon_ihrac_et:
-        sablon_df = sablonlari_ihrac_et()
+        arac_filtresi = set(args.sablon_ihrac_araclar) if args.sablon_ihrac_araclar else None
+        sablon_df = sablonlari_ihrac_et(yalnizca_araclar=arac_filtresi)
         jsonl_yaz(sablon_df, Path(args.sablon_ihrac_et))
         print(f"[A3.3] Toplam benzersiz şablon: {len(sablon_df)}")
         print(f"[A3.3] Yazıldı: {args.sablon_ihrac_et}")
