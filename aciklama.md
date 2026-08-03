@@ -1621,3 +1621,50 @@ eşitle.** Yoksa hangi farkın neyden geldiği bilinmez.
 4. Melih'e sorulacak: dengelenmiş router dışa aktarımı var mı? Elimizdeki dosya
    hâlâ **3.808 kat** dengesiz (41.886 vs 11).
 
+## 2. tur hazırlığı: sınıf ağırlıklı örnekleme
+
+1. turun hatası düzeltildi. Yeni örnekleyici her araca **taban kota** veriyor ve
+seyrek olanları tekrarlıyor — ama tekrarı sınırlayarak.
+
+```
+dengesizlik   68x (+ uc arac SIFIR)  ->  3,0x
+disarida kalan arac                  ->  0
+ozgun soru                           ->  %42,5
+```
+
+### `TAVAN_KAT` neden var
+
+11 örnekli bir aracı sınırsız tekrarlamak modele o **11 cümleyi ezberletir**,
+aracı öğretmez. Tavan tekrar katsayısını bağlıyor. Yerelde ölçülen denge:
+
+| tavan | özgün soru | en seyrek kota | dengesizlik |
+|---|---|---|---|
+| 10 | %47,5 | 110 | 15,0x |
+| 20 | %44,4 | 220 | 6,5x |
+| **40** | **%42,5** | **440** | **3,0x** |
+| 80 | %37,2 | 880 | 1,3x |
+
+İlginç olan: tavanı 10'dan 80'e çıkarmak dengesizliği **15x'ten 1,3x'e**
+indiriyor ama özgünlüğü sadece %47'den %37'ye düşürüyor. Denge ucuz. **40**
+seçildi.
+
+### Ama bu bir yama
+
+**Hiçbir örnekleme 11 özgün soruyu çoğaltamaz.** Ölçüm iyileşebilir — model o 11
+kalıbı öğrenir — ama aynı aracın *yeni* bir soruluşunu tanıması beklenmez.
+Gerçek çözüm seyrek araçlar için daha çeşitli soru üretmek, o da Melih'in tarafı.
+
+### Gerekçe verisi etkilenmemişti
+
+Aynı hatayı gerekçe tarafında da yapmıştım ama zararsız kalmış:
+
+```
+                     ILK 7.500   gercek dagilim
+  aksiyon_yok          %72,3        %67,6
+  tasfiye              %20,5        %24,8
+  siparis               %7,2         %7,5
+  hic girmeyen tip: yok
+```
+
+Yine de 2. turda gerekçe tarafı da rastgele ve dengeli örnekleniyor.
+
