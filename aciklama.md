@@ -1796,3 +1796,34 @@ istemi değiştirmeden çıktıyı değiştirir. Model üretime alınırken yap�
 
 7 yeni test. Toplam **282 test yeşil**.
 
+## Ölçüm adaleti: ayrı betik değil, aynı betik
+
+1. tur ölçümünü Colab'da ham `generate()` ile yapmıştım; taban çizgi ise
+Ollama'nın **JSON şema zorlamasıyla** ölçülmüştü. 30 sorunun 8'i "şema hatası"
+sayıldı ama bir kısmı modelin değil, **kurulumun** farkıydı.
+
+İlk düşüncem Colab'da şema zorlamasını taklit etmekti. Daha iyi bir yol var:
+`training/eval/router_taban.py` zaten `soruyu_yonlendir()` kullanıyor — yani
+taban çizgiyle **birebir aynı kod yolu**. Tek eksik, modeli seçebilmekti.
+
+İki bayrak eklendi:
+
+```bash
+uv run python -m training.eval.router_taban   --model codifya-router:tur2 --istem-bicimi egitilmis --etiket lora-tur2
+```
+
+Artık B3.5 ölçümü şu olacak: **aynı betik, aynı 30 soru, aynı puanlama, aynı
+şema kısıtı, aynı sıcaklık ve tohum. Tek değişen model.**
+
+`--istem-bicimi egitilmis` bir önceki bölümde eklenen ayarı kullanıyor — model
+eğitimde gördüğü kısa `GOREV:` istemini alıyor, taban modelin uzun istemini
+değil.
+
+### Ön şart
+
+Bu ölçüm ancak eğitilmiş model **Ollama'da** olunca çalışır. Yani B3.4 (merge →
+GGUF → `ollama create`) tamamlanmadan koşturulamaz. Colab'daki ara ölçümler
+gidişat için bilgi verir ama **karşılaştırma sayısı** buradan çıkacak.
+
+Toplam **282 test yeşil**.
+

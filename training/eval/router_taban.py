@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.core.config import Ayarlar, ayarlar
 from app.llm.client import LLMErisilemiyor, OllamaIstemcisi
 from app.llm.router import soruyu_yonlendir
 from app.llm.schemas import SemaUyumsuz
@@ -151,8 +152,20 @@ def kayitlari_yukle(yol: Path = SORU_DOSYASI) -> list[Kayit]:
     return kayitlar
 
 
-def olc(kayitlar: list[Kayit], *, ayrinti: bool = True) -> list[Kayit]:
-    with OllamaIstemcisi() as istemci:
+def olc(kayitlar: list[Kayit], *, ayrinti: bool = True, ayar: Ayarlar | None = None) -> list[Kayit]:
+    """Soruları modele sorar. `ayar` verilmezse `.env`'deki model kullanılır.
+
+    ⚠️ **Eğitim sonrası ölçüm bu fonksiyonla yapılmalı, ayrı bir betikle
+    değil.** B3.5'te ilk denemede ölçüm Colab'da ham `generate()` ile
+    yapılmıştı; taban çizgi ise Ollama'nın JSON şema zorlamasıyla ölçülmüştü.
+    Sonuç karşılaştırılamaz çıktı — 30 sorunun 8'i "şema hatası" sayıldı ama
+    bunların bir kısmı modelin değil, kurulumun farkıydı.
+
+    Aynı betiği farklı bir modele yöneltmek, karşılaştırmayı gerçekten adil
+    yapan tek yol: aynı sorular, aynı puanlama, aynı şema kısıtı, aynı
+    sıcaklık ve tohum. Tek değişen model.
+    """
+    with OllamaIstemcisi(ayar) as istemci:
         for i, k in enumerate(kayitlar, 1):
             try:
                 sonuc = soruyu_yonlendir(
@@ -310,13 +323,45 @@ def _cli() -> None:
         default="taban-cizgi-egitim-oncesi",
         help="Sonuç dosyasına yazılacak etiket (ör. 'lora-15k-sonrasi')",
     )
+    ayristirici.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "Ollama model adı. Verilmezse .env'deki kullanılır. "
+            "Eğitim sonrası ölçüm için: --model codifya-router:tur1"
+        ),
+    )
+    ayristirici.add_argument(
+        "--istem-bicimi",
+        choices=("taban", "egitilmis"),
+        default=None,
+        help=(
+            "Eğitilmiş modelde 'egitilmis' verilmeli — istem biçimi eğitimdekiyle "
+            "aynı olmazsa model tanımadığı bir girdi görür"
+        ),
+    )
     args = ayristirici.parse_args()
+
+    ayar = None
+    if args.model or args.istem_bicimi:
+        temel = ayarlar()
+        ayar = temel.model_copy(
+            update={
+                k: v
+                for k, v in (
+                    ("llm_model_adi", args.model),
+                    ("llm_istem_bicimi", args.istem_bicimi),
+                )
+                if v is not None
+            }
+        )
+        print(f"model: {ayar.llm_model_adi} | istem biçimi: {ayar.llm_istem_bicimi}")
 
     kayitlar = kayitlari_yukle()
     print(f"{len(kayitlar)} soru, model çağrılıyor...\n")
 
     baslangic = time.perf_counter()
-    olc(kayitlar, ayrinti=not args.sessiz)
+    olc(kayitlar, ayrinti=not args.sessiz, ayar=ayar)
     ozet = rapor(kayitlar, time.perf_counter() - baslangic)
     yol = sonucu_kaydet(kayitlar, ozet, args.etiket)
 
