@@ -811,3 +811,64 @@ Ama elimizdeki `router_train.jsonl` dengelenmemis surum.
 
 ⚠️ 11 ornekli bir araci tekrarlayarak ogretmek ezberletme riski tasiyor. Gercek
 cozum seyrek araclar icin **daha cesitli soru** uretmek — o Kisi A'nin tarafi.
+
+## Duzeltme · 1. tur teshisi ve veri surumu (2026-08-03)
+
+Iki duzeltme, ikisi de onceki bolumu tamamen gecersiz kilmiyor ama sebebi
+degistiriyor.
+
+### 1. Elimizdeki veri ESKI KOPYA
+
+Kisi A kanitladi: `41.886 = 52.000 x (1611/2000)` — yani dosya yalnizca
+SKU-train filtresinden gecmis ham veri, **dengeleme hic uygulanmamis**.
+Guncel dosyasinda `siparis_onerisi_sorgula` train'de **1.633**.
+
+Dengeleme `router_verisini_dengele()` ile `veri_bolme.py` icinde, split'ten
+ONCE calisiyor. Yani dengelenmis bir disa aktarim var; bizdeki indirme
+zamanlama yuzunden eski surum.
+
+**Sonuc: 1. turun tum dagilim sayilari eski veriye ait.** Yeni veriyle
+tekrarlanmali.
+
+### 2. "Dosya araca gore sirali" teshisi yanlisti
+
+Dogru teshis: dosya **bloklu**. Seyrek araclarin ilk gorunum satirlari:
+
+```
+arac                          adet    ilk satir   ortanca
+genel_stok_durumu_sorgula       11       20.131    20.136
+onay_kuyrugu_sorgula            14       20.090    20.097
+gecelik_ozet_sorgula            66       20.098    43.761
+olu_stok_sorgula               240          116    20.299
+kritik_stok_sorgula            256            0    20.150
+tedarikci_performansi          1325          215    20.538
+siparis_onerisi_sorgula       41886          758    22.812
+```
+
+Uc seyrek aracin **hicbiri 20.090. satirdan once yok**. Ilk ~20.000 satir bir
+uretim partisi (yalnizca 4 arac), sonrasi ikinci parti.
+
+Ilk 7.500 satiri almak o ucunu **hicbir kosulda** yakalayamazdi. Etki ayni,
+sebep farkli.
+
+**Genel ders: bir dosyanin "karisik" oldugunu varsayma, bak.** Basit bir
+"her deger tek blok mu" kontrolu bunu yakalayamadi (`sirali mi: hayir` dedi);
+gercegi gosteren sey konum dagilimiydi.
+
+### Yeni veri gelince kosulacak kontrol
+
+`scratchpad/yeni_veri_kontrol.py` yazildi. Bakiyor:
+dengeleme uygulanmis mi (2000 ust siniri), egitimde eksik arac var mi,
+train/val/test sizintisi, konum dagilimi, arac basina **ozgun** soru sayisi.
+
+Eski kopyadaki ozgunluk (cesitlilik gostergesi):
+
+```
+genel_stok_durumu_sorgula       11 ozgun /    11 satir
+onay_kuyrugu_sorgula            14 ozgun /    14 satir
+gecelik_ozet_sorgula            66 ozgun /    66 satir
+```
+
+Kisi A bu ucu icin `--sablon-ihrac-araclar` bayragi ve parafraz defterinde
+`VARYANT_SAYISI` ayari hazirladi; 28 sablondan 12-15 varyant uretilerek gercek
+cesitlilik saglanabilir. Tekrarlamaya gore cok daha iyi bir cozum.

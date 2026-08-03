@@ -1668,3 +1668,41 @@ Aynı hatayı gerekçe tarafında da yapmıştım ama zararsız kalmış:
 
 Yine de 2. turda gerekçe tarafı da rastgele ve dengeli örnekleniyor.
 
+## İki düzeltme
+
+### Elimizdeki veri eski kopyaymış
+
+Melih kanıtladı: `41.886 = 52.000 × (1611/2000)` — dosyamız dengeleme
+uygulanmamış ham sürüm. Onun güncel dosyasında `siparis_onerisi_sorgula`
+train'de **1.633**.
+
+Yani **1. turun bütün dağılım sayıları eski veriye ait.** Yeni veriyle
+tekrarlanmalı.
+
+### "Dosya araca göre sıralı" teşhisim yanlıştı
+
+Doğrusu: dosya **bloklu**. Üç seyrek aracın hiçbiri 20.090. satırdan önce yok:
+
+```
+genel_stok_durumu     ilk gorunum  20.131. satir
+onay_kuyrugu          ilk gorunum  20.090. satir
+gecelik_ozet          ilk gorunum  20.098. satir
+```
+
+İlk ~20.000 satır bir üretim partisi (yalnızca 4 araç), sonrası ikinci parti.
+İlk 7.500 satırı almak o üçünü **hiçbir koşulda** yakalayamazdı. Etki aynı,
+sebep farklı.
+
+**Ders: bir dosyanın "karışık" olduğunu varsayma, bak.** Yazdığım basit "her
+değer tek blok mu" kontrolü bunu yakalayamadı — *"sıralı değil"* dedi. Gerçeği
+gösteren şey konum dağılımı oldu.
+
+### Seyrek araçlar için Melih çözüm hazırlamış
+
+`--sablon-ihrac-araclar` bayrağı 3 seyrek aracın 28 şablonunu ayrı dosyaya
+çıkarıyor; parafraz defterindeki `VARYANT_SAYISI` 2'den 12-15'e çıkarılınca
+gerçek çeşitlilikte yeni sorular üretiliyor.
+
+Bu, benim tekrarlama yamamdan **çok daha iyi**. Tekrarlamak 11 cümleyi
+ezberletiyordu; bu yöntem 11'i 150-200 farklı soruya çıkarıyor.
+
