@@ -673,3 +673,75 @@ istem echo'suydu). Sayi dogru, soru yanlis.
 - 40.293 ornek icin kaba tahmin: **~4-6 saat** (gorev dosyasinin 4-7 saat
   tahminiyle uyumlu)
 - LoRA 81,4 MB -> checkpoint'ler Drive'da rahat siger
+
+## B3.3 · 1. tur LoRA egitimi (2026-08-03)
+
+| | |
+|---|---|
+| Ortam | Colab, Tesla T4 |
+| Veri | 15.000 ornek (7.500 gerekce + 7.500 router), tek modelde |
+| Ayirac | `GOREV: gerekce` / `GOREV: router` etiketi |
+| LoRA | r=16, alpha=32, tum dikkat + MLP, %1,18 parametre |
+| Egitim | 1 epoch, 1.875 adim, batch 8 (2x4), lr 2e-4, seed 42 |
+| Sure | ~56 dakika |
+| Cikti | `cikti/b33_tur1_lora/` (adapter_model.safetensors) |
+
+### Dogrulama kaybi
+
+| adim | dogrulama |
+|---|---|
+| 200 | 0,2250 |
+| 400 | 0,2058 |
+| 600 | 0,2065 |
+| 800 | 0,1992 |
+| 1000 | 0,1944 |
+| 1200 | 0,1967 |
+| 1400 | 0,1903 |
+| 1600 | 0,1914 |
+| 1800 | **0,1878** (en iyi) |
+| 1875 | 0,1888 |
+
+**"Bitti sayilir" olcutu KARSILANDI**: dogrulama kaybi dusup yatay seyre gecti.
+Son deger en iyinin %0,6 ustunde -- gurultu araligi, yukselis degil.
+
+### Ezberleme yok
+
+```
+egitim kaybi  (1875. adim) : 0,1877
+dogrulama     (1875. adim) : 0,1888
+```
+
+Ikisi neredeyse ayni. Egitim kaybi dogrulamanin belirgin altina inseydi ezberleme
+olurdu; burada aralik yok. Model veriyi ezberlemiyor.
+
+### ⚠️ Iyilesme belirgin sekilde yavasliyor
+
+```
+ilk yari  (200 -> 1000)  : 0,2250 -> 0,1944   fark 0,0306
+ikinci yari (1000 -> 1875): 0,1944 -> 0,1888   fark 0,0056
+```
+
+**Ikinci yari, benzer miktarda veriyle ilkinin besde birini kazandirdi.** Egri
+sertce yataylasiyor.
+
+Bu, 2. tur (35k) icin dogrudan bir uyari: kayip tarafinda buyuk kazanc
+beklenmemeli. Gorev dosyasinin kurali burada devreye giriyor -- *"iyilesme yoksa
+darbogaz veri miktari degil, veri kalitesi."*
+
+### Ama kayip yanlis soru olabilir
+
+Kayip 0,188 bize **router dogrulugunun** ne oldugunu soylemiyor. B2.3 taban
+cizgisi arac dogrulugu %70,0 / arac+parametre %66,7 idi; bu egitimin ise yarayip
+yaramadigi ancak ayni 30 soruluk setle olculunce anlasilir.
+
+Gorev dosyasi da 1. turun amacini boyle tanimliyor: *"Tek oturumda biter.
+**Router dogrulugunu olc.**"*
+
+**Karar: 2. tura gecmeden once olcum yapilacak.** Egitim ucuz degil (56 dakika);
+neyi kazandigini bilmeden ikincisini kosturmak korlemesine.
+
+### Not: baslangic kaybi zaten dusuktu
+
+Ilk kayit (25. adim) 0,2988. Bu, hedeflerin **cok kalipli** oldugunu dusundurur --
+Kisi A'nin uretici sablonlari duzenli oldugu icin model dili hizla yakaliyor.
+Kalipli hedef, kaybin erken yataylasmasini da acikliyor.

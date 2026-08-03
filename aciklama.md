@@ -1528,3 +1528,48 @@ Drive'da rahat sığar.
 
 - ⬜ B3.3 — tam LoRA eğitimi (40.293 örnek, 4-6 saat, kesintiye dayanıklı)
 
+## B3.3 · 1. tur eğitimi (bitti ✅)
+
+15.000 örnekle (7.500 gerekçe + 7.500 router) tek model eğitildi, **~56 dakika**.
+Ayrım `GOREV:` etiketiyle yapılıyor. Eğitilmiş adaptör Drive'da:
+`cikti/b33_tur1_lora/`.
+
+### Sonuç: ölçüt karşılandı
+
+```
+dogrulama kaybi   0,2250  ->  0,1878     dusup yataylasti
+egitim kaybi      0,2988  ->  0,1877
+```
+
+**Ezberleme yok.** Eğitim kaybı 0,1877, doğrulama 0,1888 — ikisi neredeyse aynı.
+Eğitim kaybı doğrulamanın belirgin altına inseydi ezberleme olurdu; burada aralık
+yok.
+
+### Ama iyileşme sertçe yavaşlıyor
+
+```
+ilk yari    (200 -> 1000)   0,2250 -> 0,1944    fark 0,0306
+ikinci yari (1000 -> 1875)  0,1944 -> 0,1888    fark 0,0056
+```
+
+İkinci yarı, benzer miktarda veriyle ilkinin **beşte birini** kazandırdı. Bu, 2.
+tur (35 bin örnek) için doğrudan bir uyarı: kayıp tarafında büyük kazanç
+beklenmemeli.
+
+### Kayıp yanlış soru olabilir
+
+`0,188` bize **router doğruluğunun** ne olduğunu söylemiyor. B2.3'te ölçtüğümüz
+taban çizgi araç doğruluğu **%70,0**, araç+parametre **%66,7** idi. Eğitimin işe
+yarayıp yaramadığı ancak aynı 30 soruluk set yeniden koşturulunca anlaşılır.
+
+Görev dosyası da 1. turun amacını böyle tanımlıyor: *"Tek oturumda biter. **Router
+doğruluğunu ölç.**"*
+
+**Karar: 2. tura geçmeden önce ölçüm yapılacak.** Eğitim ucuz değil (56 dakika);
+neyi kazandırdığını bilmeden ikincisini koşturmak körlemesine olur.
+
+### Sırada
+
+- ⬜ 1. tur ölçümü — 30 soruluk router seti + görülmemiş örnekte ürün adı
+- ⬜ Ölçüme göre karar: 2. tur (35k) mı, yoksa veri kalitesi mi
+
