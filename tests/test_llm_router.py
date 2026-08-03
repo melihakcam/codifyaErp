@@ -22,6 +22,7 @@ from app.llm.client import LLMErisilemiyor, OllamaIstemcisi
 from app.llm.router import (
     ARAC_ACIKLAMALARI,
     ORNEKLER,
+    egitilmis_istem,
     sistem_istemi,
     soruyu_yonlendir,
 )
@@ -48,6 +49,66 @@ def _istemci(cevaplar: list[str]) -> OllamaIstemcisi:
         )
 
     return OllamaIstemcisi(_ayar(), transport=httpx.MockTransport(isleyici))
+
+
+# --- Eğitilmiş model kipi (Faz 3) ---------------------------------------------
+
+
+def test_egitilmis_istem_egitim_bicimiyle_ayni():
+    """⭐ `training/train_lora.ipynb`'deki `router_metni()` ile birebir aynı.
+
+    Model eğitimde tam olarak bu satırları gördü. Bir satır bile kayarsa
+    tanımadığı bir girdiyle karşılaşır ve eğitimin kazandırdığı kaybolur.
+    """
+    istem = egitilmis_istem("kritik stok var mi")
+
+    assert istem == "GOREV: router\nSORU: kritik stok var mi\n\nARAC:"
+
+
+def test_egitilmis_istem_arac_listesi_TASIMIYOR():
+    """Araç listesi ve few-shot ağırlıklara işlendi; istemde olması gereksiz.
+
+    Yan faydası hız: taban sistem promptu ~600 token, bu ~15.
+    """
+    istem = egitilmis_istem("kritik stok var mi")
+
+    for arac in AracAdi:
+        assert arac.value not in istem
+    assert len(istem) < len(sistem_istemi()) / 10
+
+
+def test_istem_bicimi_ayara_gore_seciliyor():
+    """`llm_istem_bicimi` hangi istemin ve sistem promptunun gideceğini belirler."""
+    gonderilen: list[dict] = []
+
+    def isleyici(istek: httpx.Request) -> httpx.Response:
+        gonderilen.append(json.loads(istek.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "sahte",
+                "response": json.dumps(
+                    {"arac": "kritik_stok_sorgula", "parametreler": {}}, ensure_ascii=False
+                ),
+                "eval_count": 12,
+                "eval_duration": 500_000_000,
+            },
+        )
+
+    for bicim, egitilmis_mi in (("taban", True), ("egitilmis", False)):
+        ayar = Ayarlar(
+            ollama_base_url="http://sahte:11434",
+            llm_yeniden_deneme=0,
+            llm_istem_bicimi=bicim,
+        )
+        istemci = OllamaIstemcisi(ayar, transport=httpx.MockTransport(isleyici))
+        gonderilen.clear()
+        soruyu_yonlendir(istemci, "kritik stok var mi")
+
+        istek = gonderilen[0]
+        # Taban kipte sistem promptu VAR, eğitilmiş kipte YOK
+        assert bool(istek.get("system")) is egitilmis_mi, bicim
+        assert istek["prompt"].startswith("GOREV: router") is not egitilmis_mi, bicim
 
 
 # --- Sistem promptu -----------------------------------------------------------

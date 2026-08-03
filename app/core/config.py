@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -47,6 +48,21 @@ class Ayarlar(BaseSettings):
     llm_model_adi: str = "qwen2.5:1.5b-instruct"
     llm_timeout_sn: float = 60.0
     llm_gerekce_max_token: int = 220
+
+    # İstem biçimi: hangi modele konuşuyoruz?
+    #
+    # `taban`      — ham Qwen2.5-1.5B. İstemde kurallar bloğu ve few-shot
+    #                örnek var, çünkü model bu işi hiç görmedi. B2.3/B2.4'te
+    #                ölçülen ve ayarlanan biçim budur.
+    # `egitilmis`  — Faz 3'te LoRA ile eğitilmiş model. İstem KISA: davranış
+    #                ağırlıklara işlendi, kural ve örnek gereksiz. Başlıkta
+    #                `GOREV:` etiketi var — router ile gerekçe tek modelde
+    #                eğitildiği için ayrım oradan yapılıyor.
+    #
+    # ⚠️ Eğitilmiş kipin istemi, eğitimde kullanılanla **birebir aynı**
+    # olmak zorunda. Bir satır bile kayarsa model tanımadığı bir girdi görür
+    # ve eğitimin kazandırdığı ne varsa kaybolur.
+    llm_istem_bicimi: Literal["taban", "egitilmis"] = "taban"
 
     # Modelin kullanacağı CPU iş parçacığı sayısı.
     # ⚠️ Varsayılan bilinçli olarak DÜŞÜK. Ollama hiçbir sınır verilmezse tüm

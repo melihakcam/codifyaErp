@@ -295,6 +295,67 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     return sorted(ciftler, key=lambda c: sira.get(c[0].removesuffix(" (%)"), 99))
 
 
+# ---------------------------------------------------------------------------
+# Eğitilmiş model kipi (Faz 3)
+# ---------------------------------------------------------------------------
+
+GOREV_ETIKETI_GEREKCE = "GOREV: gerekce"
+
+# ⚠️ Eğitimde kullanılan etiketler — `scratchpad/veri_hazirla.py` ile **birebir
+# aynı** olmak zorunda. Türkçe karakter YOK ("gunluk", "suresi"), çünkü eğitim
+# verisi böyle üretildi. Düzeltmek cazip ama model bunu gördü.
+_EGITILMIS_ETIKETLER: tuple[tuple[str, str], ...] = (
+    ("ort_gunluk_talep", "gunluk ortalama talep (adet)"),
+    ("tedarik_suresi_gun", "tedarik suresi (gun)"),
+    ("eldeki_stok", "eldeki stok (adet)"),
+    ("son_hareket_gun_once", "son hareketten bu yana gecen gun"),
+    ("birim_maliyet_tl", "birim maliyet (TL)"),
+)
+
+
+def egitilmis_istem_kur(aday: DecisionCandidate) -> str:
+    """Eğitilmiş modelin beklediği gerekçe istemi.
+
+    Taban kipten **üç farkı** var, üçü de bilinçli:
+
+    1. **Ürün adı VAR.** B2.4'te adı çıkarmıştım çünkü taban model bozuyordu
+       (`Astar Boya` → *starboy*). Ama eğitim verisindeki gerekçelerin
+       %100'ünde ad geçiyor; isteme koymazsak model *yoktan ad uydurmayı*
+       öğrenmiş olur. B3.1'de bu karara varıldı.
+    2. **Kurallar ve few-shot örnek YOK.** Davranış ağırlıklara işlendi.
+    3. **Etiketler eğitimdeki gibi.** Türkçe karakter yok, alan listesi sabit
+       (karar tipine göre daralmıyor) — eğitim böyle yapıldı.
+
+    Bu fonksiyon "daha iyi bir istem" yazmaya çalışmaz; **eğitimdekini
+    tekrarlar.** İyileştirme yapılacaksa eğitim verisiyle birlikte yapılmalı.
+
+    ⚠️ **`onceki_red` alınmıyor ve bu bilinçli.** Taban kipte guard reddedince
+    isteme "şu sayıları kullanma" uyarısı ekleniyor; eğitilmiş modelde böyle
+    bir satır eğitimde hiç geçmedi, eklemek modeli tanımadığı bir girdiye
+    sokar.
+
+    Bunun bilinen sonucu: eğitilmiş kipte **ikinci deneme birincinin aynısı**
+    olur (açgözlü üretimde birebir). Yani guard reddettiğinde yeniden deneme
+    boşa gider ve doğrudan şablona düşülür.
+
+    Çözümü hazır ama eğitilmiş model üretime alınırken yapılmalı: yeniden
+    denemede sıcaklığı yükseltmek. İstemi değiştirmeden çıktıyı değiştirir.
+    Şu an `llm_istem_bicimi="taban"` olduğu için bu yol hiç çalışmıyor.
+    """
+    o = aday.ozellikler
+    satirlar = [
+        "VERILER:",
+        f"urun: {o.sku_adi}",
+        f"karar: {aday.tip.value}",
+    ]
+    for alan, etiket in _EGITILMIS_ETIKETLER:
+        deger = getattr(o, alan, None)
+        if isinstance(deger, (int, float)) and not isinstance(deger, bool):
+            satirlar.append(f"{etiket}: {_tr_sayi(float(deger))}")
+
+    return f"{GOREV_ETIKETI_GEREKCE}\n" + "\n".join(satirlar) + "\n\nGEREKCE:"
+
+
 def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) -> str:
     """Gerekçe istemini kurar.
 
@@ -385,12 +446,16 @@ def llm_ureteci(
     sahte üreteçle çalışıyor). İstemciyi kapamada taşımak ikisini ayrı tutar.
     """
 
+    egitilmis = istemci.ayar.llm_istem_bicimi == "egitilmis"
+
     def uret(aday: DecisionCandidate, *, onceki_red: list[float] | None = None) -> str:
         sonuc = yapilandirilmis_uret(
             istemci,
             GerekceCiktisi,
-            istem_kur(aday, onceki_red),
-            sistem=sistem_istemi(aday.tip),
+            egitilmis_istem_kur(aday) if egitilmis else istem_kur(aday, onceki_red),
+            # Eğitilmiş kipte sistem promptu YOK: kurallar ve örnek ağırlıklara
+            # işlendi, eğitimde de sistem promptu kullanılmadı.
+            sistem=None if egitilmis else sistem_istemi(aday.tip),
             max_token=GEREKCE_MAX_TOKEN,
             sicaklik=sicaklik,
             tohum=tohum,

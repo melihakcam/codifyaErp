@@ -11,6 +11,8 @@ patlarsa ne oluyor.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -20,6 +22,7 @@ from app.domain.stock.decide import decide_stub, stok_karari_uret
 from app.llm.client import OllamaIstemcisi
 from app.llm.explain import (
     anlatilacak_sayi_var_mi,
+    egitilmis_istem_kur,
     gerekce_uret,
     ilk_cumleleri_al,
     istem_kur,
@@ -245,6 +248,87 @@ def test_uretici_protokole_uyuyor(aday: DecisionCandidate):
 
     assert uret(aday) == "Stok yeterli."
     assert uret(aday, onceki_red=[9999.0]) == "Stok yeterli."
+
+
+# --- Eğitilmiş model kipi (Faz 3) ---------------------------------------------
+
+
+def test_egitilmis_istem_gorev_etiketiyle_basliyor(aday: DecisionCandidate):
+    """⭐ Router ile gerekçe tek modelde eğitildi; ayrım bu satırdan yapılıyor."""
+    istem = egitilmis_istem_kur(aday)
+
+    assert istem.startswith("GOREV: gerekce\n")
+    assert istem.rstrip().endswith("GEREKCE:")
+
+
+def test_egitilmis_istem_URUN_ADINI_TASIYOR(aday: DecisionCandidate):
+    """⭐ Taban kipin TAM TERSİ — ve bu bilinçli.
+
+    B2.4'te adı çıkarmıştım çünkü taban model bozuyordu ("Astar Boya" →
+    *starboy*). Ama eğitim verisindeki gerekçelerin **%100'ünde** ad geçiyor;
+    isteme koymazsak model *yoktan ad uydurmayı* öğrenmiş olur (B3.1 kararı).
+
+    Bu test iki kipin farkını kilitliyor: biri adı koyar, diğeri koymaz, ve
+    ikisi de doğrudur — çünkü farklı modellere konuşuyorlar.
+    """
+    assert aday.ozellikler.sku_adi in egitilmis_istem_kur(aday)
+    assert aday.ozellikler.sku_adi not in istem_kur(aday)
+
+
+def test_egitilmis_istem_etiketleri_egitimdekiyle_ayni(aday: DecisionCandidate):
+    """⚠️ Etiketlerde Türkçe karakter YOK — eğitim verisi böyle üretildi.
+
+    "gunluk", "suresi" yazımını düzeltmek cazip ama model bunu gördü.
+    Değiştirmek eğitimin kazandırdığını çöpe atar.
+    """
+    istem = egitilmis_istem_kur(aday)
+
+    assert "gunluk ortalama talep (adet):" in istem
+    assert "tedarik suresi (gun):" in istem
+    assert "günlük" not in istem  # Türkçe yazım eğitimde yoktu
+
+
+def test_egitilmis_istem_kural_ve_ornek_TASIMIYOR(aday: DecisionCandidate):
+    """Davranış ağırlıklara işlendi; kural listesi ve few-shot gereksiz.
+
+    Yan faydası hız: taban istem ~600 token, bu ~60.
+    """
+    istem = egitilmis_istem_kur(aday)
+
+    assert "Kurallar:" not in istem
+    assert "ÖRNEK" not in istem
+    assert len(istem) < len(istem_kur(aday))
+
+
+def test_istem_bicimi_ayara_gore_seciliyor(aday: DecisionCandidate):
+    """`llm_istem_bicimi` hangi istemin gideceğini belirliyor."""
+    gonderilen: list[str] = []
+
+    def isleyici(istek: httpx.Request) -> httpx.Response:
+        gonderilen.append(json.loads(istek.content)["prompt"])
+        return httpx.Response(
+            200,
+            json={
+                "model": "sahte",
+                "response": _cevap("Stok yeterli."),
+                "eval_count": 5,
+                "eval_duration": 1_000_000_000,
+                "load_duration": 0,
+            },
+        )
+
+    for bicim, beklenen in (("taban", False), ("egitilmis", True)):
+        ayar = Ayarlar(
+            ollama_base_url="http://sahte:11434",
+            llm_yeniden_deneme=0,
+            llm_istem_bicimi=bicim,
+        )
+        istemci = OllamaIstemcisi(ayar, transport=httpx.MockTransport(isleyici))
+        gonderilen.clear()
+        llm_ureteci(istemci)(aday)
+
+        assert gonderilen, f"{bicim}: istek gitmedi"
+        assert gonderilen[0].startswith("GOREV: gerekce") is beklenen
 
 
 # --- Cümle kırpma -------------------------------------------------------------

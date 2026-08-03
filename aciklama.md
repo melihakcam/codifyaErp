@@ -1739,3 +1739,60 @@ gerçek çeşitlilikte yeni sorular üretiliyor.
 Bu, benim tekrarlama yamamdan **çok daha iyi**. Tekrarlamak 11 cümleyi
 ezberletiyordu; bu yöntem 11'i 150-200 farklı soruya çıkarıyor.
 
+## `GOREV:` biçimi çalışma zamanına taşındı
+
+Eğitilmiş modeli sisteme takmadan önce yapılması gereken iş. Eğitimde modele şu
+biçim öğretildi:
+
+```
+GOREV: router              GOREV: gerekce
+SORU: ...                  VERILER: ...
+                           GEREKCE:
+ARAC:
+```
+
+Ama `router.py` ve `explain.py` hâlâ B2.3/B2.4'ün taban model istemlerini
+kullanıyordu — kurallar bloğu, few-shot örnek, uzun sistem promptu. Eğitilmiş
+modeli o istemle çalıştırmak, modelin **hiç görmediği** bir girdi göndermek
+demek; eğitim ne kadar iyi olursa olsun sonuç bozulur.
+
+### Yapılan
+
+Yeni ayar: `llm_istem_bicimi = "taban" | "egitilmis"`. Varsayılan `taban` —
+eğitilmiş model henüz üretime hazır değil.
+
+| | taban kip | eğitilmiş kip |
+|---|---|---|
+| sistem promptu | var (~600 token) | **yok** |
+| kurallar + örnek | var | **yok** |
+| ürün adı (gerekçe) | **yok** | **var** |
+| istem uzunluğu | ~600 token | ~60 token |
+
+### Ürün adı: iki kip zıt, ikisi de doğru
+
+B2.4'te adı istemden **çıkarmıştım** çünkü taban model bozuyordu (`Astar Boya`
+→ *starboy*). Eğitim verisindeki gerekçelerin ise **%100'ünde** ad geçiyor;
+eğitilmiş kipte adı koymazsak model *yoktan ad uydurmayı* öğrenmiş olur.
+
+Yani aynı sorunun iki modelde iki farklı doğru cevabı var. Test bunu kilitliyor:
+`test_egitilmis_istem_URUN_ADINI_TASIYOR` biri koyuyor, diğeri koymuyor diye
+ikisini birden doğruluyor.
+
+### Etiketlerde Türkçe karakter yok
+
+Eğitim verisi `gunluk ortalama talep`, `tedarik suresi` diye üretilmişti.
+Düzeltmek cazip ama **model bunu gördü**; değiştirmek eğitimin kazandırdığını
+çöpe atar. Test bunu da kilitliyor.
+
+### Bilinen sınır: eğitilmiş kipte yeniden deneme çalışmıyor
+
+Taban kipte guard reddedince isteme *"şu sayıları kullanma"* uyarısı ekleniyor.
+Eğitilmiş modelde böyle bir satır eğitimde hiç geçmedi; eklemek modeli dağılım
+dışına çıkarır.
+
+Sonucu: eğitilmiş kipte ikinci deneme birincinin aynısı olur (açgözlü üretimde
+birebir) ve boşa gider. Çözümü hazır — yeniden denemede sıcaklığı yükseltmek,
+istemi değiştirmeden çıktıyı değiştirir. Model üretime alınırken yapılacak.
+
+7 yeni test. Toplam **282 test yeşil**.
+

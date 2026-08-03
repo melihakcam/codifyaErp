@@ -87,6 +87,38 @@ def sistem_istemi() -> str:
     return "\n".join(satirlar)
 
 
+# ---------------------------------------------------------------------------
+# Eğitilmiş model kipi (Faz 3)
+# ---------------------------------------------------------------------------
+
+# ⚠️ Bu biçim `training/train_lora.ipynb`'deki `router_metni()` ile **birebir
+# aynı** olmak zorunda. Model eğitimde tam olarak bunu gördü; bir satır bile
+# kayarsa tanımadığı bir girdiyle karşılaşır.
+#
+# Eğitim metni:
+#     GOREV: router
+#     SORU: <soru>
+#
+#     ARAC:
+#     {"arac": "...", "parametreler": {...}}
+#
+# İstem, cevabın başladığı yere kadar olan kısım.
+GOREV_ETIKETI_ROUTER = "GOREV: router"
+
+
+def egitilmis_istem(soru: str) -> str:
+    """Eğitilmiş modelin beklediği istem — kısa, kuralsız, örneksiz.
+
+    Kural listesi ve few-shot örnekleri **yok**: davranış ağırlıklara işlendi.
+    Bu aynı zamanda üretimi hızlandırıyor — B2.3'ün istemi ~600 token,
+    bu ~20.
+
+    `GOREV:` başlığı router ile gerekçeyi ayırıyor; ikisi tek modelde
+    eğitildi ve modelin ilk gördüğü satır bu.
+    """
+    return f"{GOREV_ETIKETI_ROUTER}\nSORU: {soru}\n\nARAC:"
+
+
 @dataclass(frozen=True)
 class YonlendirmeSonucu:
     """Router çıktısı + ölçümler."""
@@ -117,11 +149,16 @@ def soruyu_yonlendir(
                         sorusunun deterministik cevabı yok. Bu yüzden hata
                         yukarı taşınıyor.
     """
+    egitilmis = istemci.ayar.llm_istem_bicimi == "egitilmis"
+
     sonuc: YapilandirilmisSonuc[AracCagrisi] = yapilandirilmis_uret(
         istemci,
         AracCagrisi,
-        f"Soru: {soru}",
-        sistem=sistem_istemi(),
+        egitilmis_istem(soru) if egitilmis else f"Soru: {soru}",
+        # Eğitilmiş kipte sistem promptu YOK — kurallar ağırlıklara işlendi.
+        # Eğitimde sistem promptu kullanılmadı; burada kullanmak modelin
+        # görmediği bir bağlam eklemek olurdu.
+        sistem=None if egitilmis else sistem_istemi(),
         max_token=80,
         max_deneme=max_deneme,
         sicaklik=sicaklik,
