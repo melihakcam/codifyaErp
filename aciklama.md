@@ -1361,3 +1361,102 @@ Sonra <http://localhost:8000> → Swagger arayüzü açılır.
 | 2026-07-30 | **A:** Faz 2 (kural motoru + ML), Faz 3 A3.1–A3.4 (eğitim verisi), Faz 4-5 (genellenebilirlik + para metriği) tamamlandı. |
 | 2026-07-30 | **Ortak:** iki ayrı `aciklama.md` tek dosyada birleştirildi. |
 | 2026-07-30 | **B:** B2.1 bitti — model indirildi, `client.py` yazıldı (18 test, modelsiz), hız ölçüldü (22,4 token/sn @ 4 iplik), ısı koruması kondu. Ölçümler `dokumantasyon/OLCUMLER.md`'de. |
+
+---
+---
+
+# FAZ 3 — LoRA EĞİTİMİ (Kişi B)
+
+Faz 2'de dil modelini **kullandık**. Faz 3'te onu **eğiteceğiz**.
+
+Neden gerek var: B2.4 ölçümünde gördük ki 1.5B taban model Türkçeyi kabaca
+yazıyor — devrik cümleler, zayıf fiiller. İstem düzelterek buraya kadar
+geldik, gerisi eğitimle düzelir. Melih'in ürettiği **40.293 gerekçe** ve
+**43.798 router sorusu** tam bunun için var.
+
+Eğitim **Colab'ın GPU'sunda** yapılacak, bilgisayara yük binmeyecek.
+
+## B3.1 · Colab ortamı (bitti ✅)
+
+`training/train_lora.ipynb` — Colab'da açılacak defter. Eğitim yapmıyor,
+eğitimin **koşabileceği ortamı kurup kanıtlıyor**.
+
+Ücretsiz Colab'ın üç kısıtı tasarımı belirliyor:
+
+| kısıt | sonucu |
+|---|---|
+| Tek T4 GPU | 55 bin örnek için 4-7 saat |
+| Oturum ~90 dk boşta, ~12 saatte kesin kopar | **Tek koşu büyük olasılıkla yarıda kesilir** |
+| `/content` uçucu | Oturum kapanınca dosyalar gider |
+
+Bu yüzden eğitim kaldığı yerden devam edebilen bir süreç olacak ve her şey
+Drive'da duracak.
+
+### Eğitime girmeden bulunan iki sorun
+
+Defteri yazarken veriye baktım ve ikisi de eğitimi çöpe atacak cinsten.
+
+**1. Ürün adı çelişkisi.** Melih'in eğitim verisindeki gerekçelerin
+**%100'ünde** ürün adı geçiyor. Ama B2.4'te istemden ürün adını **bilerek
+çıkarmıştım** — taban model adları bozuyordu ("Astar Boya" → *starboy*).
+
+Bu ikisi uyuşmak zorunda. İsteme ad koymayıp hedefte ad varsa, model *yoktan
+ad uydurmayı* öğrenir — "starboy" sorununu ağırlıklara işlemiş oluruz.
+
+**Karar: ad isteme konacak.** Böylece model adı *kopyalamayı* öğrenir. Taban
+model beceremiyordu çünkü hiç öğretilmemişti. B3.2'de 100 örnekle sınanacak —
+tam eğitimden önce, ucuz.
+
+**2. Guard eğitim verisinin %17'sini boşuna reddediyordu.**
+
+Bu bir hata ve düzeltildi. Ayrıntısı aşağıda.
+
+## Guard düzeltmesi — küçük sayılara haksızlık
+
+B2.5'te guard'a şu kuralı koymuştum: *"yazılan sayı gerçeğinden en fazla %2
+sapabilir."* Amaç `0,94 → "1"` gibi kaba yuvarlamaları kesmekti.
+
+Ama kural küçük sayılara haksızlık ediyor:
+
+```
+gercek   0,14444...
+yazilan  "0,14"        <- 2 ondalikta DOGRU yazim, kimse 0,14444 demez
+fark     %3,08         <- %2 sinirini asiyor
+sonuc    RED
+```
+
+Sayı küçüldükçe aynı yuvarlama yüzde olarak büyüyor. 1.000 TL'lik üründe %2
+tolerans 20 TL demek — makul. 0,14'lük değerde 0,003 demek — imkânsız.
+
+Etkisi ölçüldü:
+
+```
+stok.tasfiye        0/1059   %0,0
+stok.aksiyon_yok    0/3639   %0,0
+stok.siparis       51/ 302  %16,9   <- her alti siparis gerekcesinden biri
+```
+
+Sadece eğitim verisini değil **çalışma zamanını da** etkiliyordu: günlük talebi
+1'in altında olan her SKU'da gerekçe sessizce şablona düşüyordu. B2.4
+ölçümünde fark etmemiştim çünkü oradaki 10 ürünün değerleri şans eseri sınırın
+içinde kalmış.
+
+### Düzeltme
+
+Kurala bir istisna eklendi: **virgülden sonra 2 basamak yazılmışsa bağıl sınır
+aranmaz.** Kaç ondalık yazdığın, ne kadar hassas davrandığını ilan eder.
+`"0,14"` yazan iki basamak hassasiyet iddia ediyor; `"1"` yazan hiç.
+
+```
+"0,14"  ondalik 2  ->  KABUL   (duzeltme)
+"1"     ondalik 0  ->  RED     (eskisi gibi)
+"5"     ondalik 0  ->  RED     (eskisi gibi)
+```
+
+Asıl amaç korundu — `0,94 → "1"` ve `4,75 → "5"` hâlâ reddediliyor.
+
+Sonuç: **5.000 eğitim hedefinin 5.000'i geçiyor** (önce 4.949).
+
+3 yeni test. Toplam **274 test yeşil**.
+
+⚠️ Guard'ı Melih incelemiş ve onaylamıştı; bu değişiklik ona bildirilecek.

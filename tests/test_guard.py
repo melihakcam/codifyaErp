@@ -223,6 +223,42 @@ def test_kaba_yuvarlama_reddediliyor():
     assert not sayi_izinli_mi(5.0, [4.75]), "4,75 -> 5 kabul edilmemeli"
 
 
+def test_iki_ondalikli_yazim_bagil_sinira_takilmiyor():
+    """⭐ Bağıl sınır tek başına küçük sayılara haksızlık ediyordu.
+
+    Ölçülmüş vaka (Kişi A'nın eğitim verisi, `gerekce_train.jsonl`):
+
+        gerçek 0,14444…  →  metinde "0,14"  →  bağıl fark %3,08
+
+    "0,14" iki ondalıkla doğru bir yazım; kimse "0,14444 adet" demez. Ama sayı
+    küçüldükçe aynı yuvarlama yüzde olarak büyüyor ve %2 sınırını aşıyordu.
+    Bu, sipariş gerekçelerinin **%16,9'unu** boşuna reddediyordu.
+    """
+    assert sayi_izinli_mi(0.14, [0.14444444444444443])
+    assert sayi_izinli_mi(0.03, [0.0325])
+    assert sayi_izinli_mi(0.31, [0.3149])
+
+
+def test_iki_ondalik_istisnasi_yanlis_yuvarlamayi_kurtarmiyor():
+    """İstisna yalnızca DOĞRU yuvarlamayı serbest bırakır, uydurmayı değil."""
+    assert not sayi_izinli_mi(0.15, [0.14444444444444443])  # 0,14 olmalıydı
+    assert not sayi_izinli_mi(0.99, [0.14444444444444443])
+
+
+def test_kaba_yuvarlama_hala_reddediliyor_istisnaya_ragmen():
+    """⭐ İstisna eklendikten sonra da B2.5'in asıl amacı korunuyor.
+
+    `0,94 → "1"` ve `4,75 → "5"` ondalık içermiyor, dolayısıyla istisnadan
+    yararlanamıyor ve bağıl sınıra takılmaya devam ediyor.
+
+    Not: `6,9 → "7"` bağıl fark %1,45 ile sınırın **altında** ve kabul ediliyor —
+    bu istisnadan değil, en baştaki %2 kuralından geliyor. `27,38 → "%27"`
+    (%1,39) ile aynı sınıfta; ikisini ayırmanın tutarlı bir yolu yok.
+    """
+    assert not sayi_izinli_mi(1.0, [0.94])
+    assert not sayi_izinli_mi(5.0, [4.75])
+
+
 def test_birebir_eslesme_her_zaman_geciyor():
     assert sayi_izinli_mi(0.94, [0.94])
     assert sayi_izinli_mi(1200.0, [1200.0])

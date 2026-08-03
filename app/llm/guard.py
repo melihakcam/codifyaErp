@@ -79,6 +79,10 @@ SAYI_DESENI = re.compile(r"\d[\d.,]*\d|\d")
 # geçiyor, `4,75 → "5"` (%5,3 sapma) geçmiyor.
 YUVARLAMA_BAGIL_SINIRI = 0.02
 
+# Bu kadar ondalık basamakla yazılmış sayı için bağıl sınır aranmaz —
+# yazan zaten hassas davrandığını ilan etmiştir. Bkz. `sayi_izinli_mi`.
+HASSAS_ONDALIK = 2
+
 # Kayan nokta gürültüsü için birebir eşleşme payı.
 _EPSILON = 1e-9
 
@@ -176,13 +180,26 @@ def sayi_izinli_mi(yazilan: float, izinli: Iterable[float]) -> bool:
     İki koşuldan biri yeterli:
 
     1. **Birebir eşleşme** (kayan nokta payıyla).
-    2. **Doğru yuvarlama + bağıl sınır**: yazılan sayı, izinli bir değerin
-       kendi hassasiyetinde doğru yuvarlanmışı VE aradaki bağıl fark
-       `YUVARLAMA_BAGIL_SINIRI`'ni aşmıyor.
+    2. **Doğru yuvarlama**, artı şu ikisinden biri:
+       · bağıl fark `YUVARLAMA_BAGIL_SINIRI`'ni aşmıyor, **ya da**
+       · yazılan sayının en az `HASSAS_ONDALIK` ondalık basamağı var.
 
-    İkinci koşulun bağıl sınırı olmasa `0,94 → "1"` ve `4,75 → "5"` gibi kaba
-    yuvarlamalar geçerdi; bunlar gerekçede adet olarak okunur ve uydurma bir
-    sayı kullanıcıya gider.
+    Bağıl sınırın amacı `0,94 → "1"` ve `4,75 → "5"` gibi **kaba** yuvarlamaları
+    kesmek: bunlar gerekçede adet olarak okunur ve uydurma bir sayı kullanıcıya
+    gider.
+
+    ⚠️ Ondalık istisnası sonradan eklendi, çünkü bağıl sınır tek başına küçük
+    sayılara haksızlık ediyordu. Ölçülmüş vaka:
+
+        gerçek 0,14444…  →  metinde "0,14"  →  bağıl fark %3,08  →  REDDEDİLİYORDU
+
+    "0,14" iki ondalıkla **doğru** bir yazım; kimse "0,14444 adet" demez. Ama
+    sayı küçüldükçe aynı yuvarlama yüzde olarak büyür ve sınırı aşar. Kişi A'nın
+    eğitim verisinde bu, **sipariş gerekçelerinin %16,9'unu** boşuna reddediyordu
+    (tasfiye ve aksiyon_yok'ta %0 — orada değerler büyük).
+
+    Ayrım şu: kaç ondalık yazdığın, ne kadar hassas davrandığını ilan eder.
+    `"0,14"` yazan iki basamak hassasiyet iddia ediyor. `"1"` yazan hiç.
     """
     basamak = _ondalik_sayisi(yazilan)
 
@@ -191,6 +208,8 @@ def sayi_izinli_mi(yazilan: float, izinli: Iterable[float]) -> bool:
             return True
         if abs(yazilan - round(deger, basamak)) >= _EPSILON:
             continue
+        if basamak >= HASSAS_ONDALIK:
+            return True
         if abs(deger) < _EPSILON:
             continue  # sıfırın yuvarlaması yalnızca sıfırdır, o da yukarıda yakalandı
         if abs(yazilan - deger) / abs(deger) <= YUVARLAMA_BAGIL_SINIRI:
