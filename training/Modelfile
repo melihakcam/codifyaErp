@@ -1,0 +1,47 @@
+# Codifya router + gerekçe modeli — Faz 3 LoRA sonrası
+#
+#     ollama create codifya-router:tur2 -f training/Modelfile
+#
+# GGUF dosyası Colab'da üretilir (bkz. train_lora.ipynb, B3.4) ve bu dosyanın
+# yanına konur.
+
+FROM ./codifya-tur2-q8_0.gguf
+
+# ⚠️ EN KRİTİK AYAR.
+#
+# Ollama varsayılan olarak modelin sohbet şablonunu uygular
+# (<|im_start|>system ... <|im_start|>user ...). Bu model ise HAM METİNLE
+# eğitildi:
+#
+#     GOREV: router
+#     SORU: kritik stok var mi
+#
+#     ARAC:
+#
+# Sohbet şablonu araya girerse model eğitimde hiç görmediği bir sarmalayıcı
+# görür ve LoRA'nın kazandırdığı ne varsa kaybolur. Aşağıdaki satır istemi
+# olduğu gibi geçiriyor.
+#
+# `app/llm/router.py::egitilmis_istem` ve
+# `app/llm/explain.py::egitilmis_istem_kur` tam bu biçimi üretiyor.
+TEMPLATE """{{ .Prompt }}"""
+
+# Eğitim metinleri EOS ile bitiyordu; model cümleyi burada bitirmeyi öğrendi.
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+
+# Ölçüm tekrarlanabilir olmalı. B2.3'te varsayılan sıcaklıkla (0,2) aynı set
+# iki kez koşturulunca %70,0 ve %76,7 çıkmıştı — 7 puanlık gürültü. Taban çizgi
+# ile eğitim sonrası farkı bu gürültüden ayırt edilemezdi.
+#
+# Çalışma zamanı bu değeri `options` ile ezebiliyor; buradaki yalnızca
+# varsayılan.
+PARAMETER temperature 0
+PARAMETER seed 42
+
+# Router cevabı kısa bir JSON; gerekçe iki cümle. 256 ikisine de yeter ve
+# kaçak üretimi sınırlar.
+PARAMETER num_predict 256
+
+# Isı koruması: dizüstünde 4 iş parçacığı. B2.1'de ölçüldü, fan sesi çıkmadı.
+PARAMETER num_thread 4

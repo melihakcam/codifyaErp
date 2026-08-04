@@ -1943,3 +1943,58 @@ bedel bu değildi.
 varsayım tek yerde yazılı olmalı.** Burada yazılı değildi; biri alan çıkardı,
 diğeri o alanı aradı.
 
+## B3.4 hazır: merge → GGUF → Ollama
+
+Eğitilmiş LoRA'yı taban modelle birleştirip Ollama'nın anlayacağı biçime
+çeviren bölüm deftere eklendi. Bundan sonra model **yerelde**, ERP'nin yanında
+çalışacak.
+
+**GPU gerekmiyor** — birleştirme ve dönüştürme işlemci işi. Kota doluysa
+"GPU olmadan bağlan" ile de koşar.
+
+### Neden `q8_0`
+
+```
+f16      ~3,1 GB   kayipsiz
+q8_0     ~1,6 GB   pratikte kayipsiz    <- secilen
+q4_k_m   ~1,0 GB   hafif kayip + llama-quantize derlemesi ister
+```
+
+`convert_hf_to_gguf.py` `q8_0`'ı doğrudan üretiyor, derleme gerekmiyor. 1,5B
+modelde kalite farkı ölçülemeyecek kadar küçük.
+
+### ⚠️ En kritik ayar: `TEMPLATE`
+
+Ollama varsayılan olarak modelin **sohbet şablonunu** uygular
+(`<|im_start|>user ...`). Ama bu model **ham metinle** eğitildi:
+
+```
+GOREV: router
+SORU: kritik stok var mi
+
+ARAC:
+```
+
+Sohbet şablonu araya girerse model eğitimde hiç görmediği bir sarmalayıcı görür
+ve LoRA'nın kazandırdığı **tamamen kaybolur**. `training/Modelfile`'daki
+`TEMPLATE {{ .Prompt }}` bunu engelliyor — istem olduğu gibi geçiyor.
+
+Bu, kolayca gözden kaçıp "eğitim işe yaramadı" sonucuna götürecek türden bir
+ayrıntı. Modelfile'a gerekçesiyle yazıldı.
+
+### Modelfile'daki diğer ayarlar
+
+```
+stop <|im_end|>, <|endoftext|>   egitim metinleri EOS ile bitiyordu
+temperature 0, seed 42           olcum tekrarlanabilir olmali
+num_predict 256                  router JSON'u kisa, gerekce iki cumle
+num_thread 4                     isi korumasi (B2.1'de olculdu)
+```
+
+### Adaptör seçimi
+
+Defterin 2. hücresi `cikti/` altındaki klasörleri **tarih ve boyutuyla**
+listeliyor. Melih'in raporundaki yol `b33_tur1_lora` görünüyordu; 2. tur oraya
+mı kaydedildi yoksa yazım hatası mı, listeden görülecek. Yanlış adaptörle
+ölçüm yapmak, yanlış modeli ölçmek demek.
+
