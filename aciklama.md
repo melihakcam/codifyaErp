@@ -1862,3 +1862,38 @@ geçişten sonra neredeyse hiçbir şey öğretmiyor, yani düşük özgünlük 
 **Seçilen: router 2.000, gerekçe 8.000.** Toplam 10.000 — Tur 1'den küçük ama
 üç aracın hiç görülmediği bir 15.000'den kesinlikle iyi.
 
+## `veri_hazirla.py` repoya taşındı
+
+2. tur eğitimi Melih'e devredilirken bir eksik ortaya çıktı: defterin okuduğu
+gerekçe dosyaları **benim yerelde dönüştürdüğüm biçimde** (`istem` / `cevap`),
+ama dönüştüren betik scratchpad'de duruyordu — yani repoda yoktu.
+
+Melih ham dosyaları doğrudan Drive'a koysa defter `KeyError: 'istem'` verirdi.
+
+Betik `training/veri_hazirla.py` olarak taşındı ve komut satırından
+çalışacak hâle getirildi:
+
+```bash
+uv run python -m training.veri_hazirla --kaynak <ham_klasor> --hedef <cikti_klasor>
+```
+
+Ne yapıyor:
+
+```
+gerekce_*.jsonl   ->  {istem, cevap} bicimine cevrilir     103 MB -> 27 MB
+router_*.jsonl    ->  oldugu gibi kopyalanir  (defter kendi bicimlendiriyor)
+golden_set        ->  oldugu gibi kopyalanir
+```
+
+`izinli_sayilar` yalnızca val/test dosyalarında korunuyor — B3.5 ölçümünde
+guard'ı koşturmak için gerekli, eğitimde gereksiz.
+
+⚠️ Betikteki etiketler `app/llm/explain.py::_EGITILMIS_ETIKETLER` ile birebir
+aynı olmak zorunda. İkisi ayrışırsa eğitilmiş model çalışma zamanında
+tanımadığı bir istem görür. Dosya başına bu uyarı yazıldı.
+
+### Devir sebebi
+
+GPU kotası tekrar doldu (bugün ~1,5 saat T4 kullanıldı). 2. tur eğitimi
+Kişi A'ya devredildi; defter, veri ve hazırlık betiği repoda hazır.
+
