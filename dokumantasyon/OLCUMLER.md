@@ -919,3 +919,57 @@ olurdu):
 Denge her ayarda tam; fark ozgunlukte. **Secilen: router 2.000 (tavan 20),
 gerekce 8.000.** Toplam 10.000 -- Tur 1'den (15.000) kucuk ama uc aracin hic
 gorulmedigi bir 15.000'den kesinlikle iyi.
+
+
+## B3.3 · 2. tur LoRA egitimi (2026-08-03, Kisi A kosturdu)
+
+GPU kotasi doldugu icin egitim Kisi A'ya devredildi. Defter, veri ve hazirlik
+betigi repodan alindi.
+
+| | 1. tur | 2. tur |
+|---|---|---|
+| ornek | 15.000 | 9.993 |
+| router | 7.500 (3 arac SIFIR) | 1.995 = **285 x 7 arac** |
+| gerekce | 7.500 | 7.998 = 2.666 x 3 tip |
+| denge | 68x + uc arac yok | **tam dengeli** |
+| adim | 1.875 | 1.250 |
+| sure | 56 dk | 44 dk 11 sn |
+
+### Kayip egrisi
+
+| adim | egitim | dogrulama |
+|---|---|---|
+| 200 | 0,2421 | 0,2920 |
+| 600 | 0,1982 | 0,2439 |
+| 1000 | 0,1822 | 0,2192 |
+| 1250 | 0,1797 | 0,2134 |
+
+Dogrulama kaybi bastan sona dustu, hic yukselmedi -- **ezberleme isareti yok**.
+
+⚠️ **1. turun kaybiyla karsilastirilamaz.** 1. turda dogrulama 0,1888'di, bu
+turda 0,2134. Daha yuksek gorunuyor ama veri degisti: 2. turda seyrek araclarin
+ornekleri cok daha agirlikli ve onlar daha zor. Farkli veri kumesinde olculen
+kayiplar yan yana konmaz. Karsilastirilabilir olan tek sey **router
+dogrulugu**.
+
+### Cikan hata: veri_hazirla.py ile defter arasinda varsayim uyusmazligi
+
+`veri_hazirla.py` `karar_tipi` alanini yalnizca val/test dosyalarina koyuyordu
+("boyut kucultme"), ama defterin 2. tur dengeleme kodu
+`dengeli_ornekle(..., 'karar_tipi', ...)` derken egitim dosyasinda ariyordu ->
+`KeyError`.
+
+Kisi A gecici olarak istem metnindeki `karar: ...` satirindan cikardi, veri
+kaybi olmadi. **Kalici duzeltme yapildi:** `karar_tipi` artik her dosyada.
+Alan basina ~20 bayt, 40 bin satirda 800 KB -- dengeli orneklemenin calismasi
+icin odenecek bedel bu degildi.
+
+Ders: **ayni veriyi ureten ve tuketen iki kod parcasi varsa, aralarindaki
+varsayim tek yerde yazili olmali.** Burada yazili degildi; biri alan cikardi,
+digeri o alani aradi.
+
+### Sirada
+
+`router_taban.py --model ... --istem-bicimi egitilmis` ile taban cizgiyle
+(%70,0 arac / %66,7 tam) ayni kosulda olcum. On sart: model Ollama'da olmali
+(B3.4).

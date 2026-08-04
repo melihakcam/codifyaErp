@@ -1897,3 +1897,49 @@ tanımadığı bir istem görür. Dosya başına bu uyarı yazıldı.
 GPU kotası tekrar doldu (bugün ~1,5 saat T4 kullanıldı). 2. tur eğitimi
 Kişi A'ya devredildi; defter, veri ve hazırlık betiği repoda hazır.
 
+## 2. tur eğitimi bitti (Melih koşturdu)
+
+GPU kotam dolduğu için eğitimi Melih devraldı. Defter, veri ve hazırlık betiği
+repodan aldı.
+
+```
+                  1. tur              2. tur
+ornek             15.000              9.993
+router            7.500 (3 arac YOK)  1.995 = 285 x 7 arac
+gerekce           7.500               7.998 = 2.666 x 3 tip
+denge             68x + uc arac yok   TAM DENGELI
+sure              56 dk               44 dk
+```
+
+### Kayıp eğrisi
+
+```
+adim    egitim   dogrulama
+ 200    0,2421    0,2920
+ 600    0,1982    0,2439
+1000    0,1822    0,2192
+1250    0,1797    0,2134
+```
+
+Doğrulama kaybı baştan sona düştü, hiç yükselmedi — **ezberleme yok**.
+
+⚠️ **1. turun kaybıyla karşılaştırılamaz.** 1. turda 0,1888'di, şimdi 0,2134.
+Daha yüksek görünüyor ama **veri değişti**: bu turda seyrek araçların örnekleri
+çok daha ağırlıklı ve onlar daha zor. Farklı veri kümesinde ölçülen kayıplar
+yan yana konmaz. Karşılaştırılabilir tek şey **router doğruluğu**.
+
+### Benim hatam çıktı ve düzeltildi
+
+`veri_hazirla.py`, `karar_tipi` alanını yalnızca val/test dosyalarına
+koyuyordu — "boyut küçültme" diye. Ama defterin dengeleme kodu o alanı eğitim
+dosyasında arıyordu, `KeyError` verdi. Melih geçici olarak istem metninden
+çıkarmış, veri kaybı olmamış.
+
+Kalıcı düzeltme yapıldı: `karar_tipi` artık **her dosyada**. Alan başına ~20
+bayt, 40 bin satırda 800 KB — dengeli örneklemenin çalışması için ödenecek
+bedel bu değildi.
+
+**Ders: aynı veriyi üreten ve tüketen iki kod parçası varsa, aralarındaki
+varsayım tek yerde yazılı olmalı.** Burada yazılı değildi; biri alan çıkardı,
+diğeri o alanı aradı.
+

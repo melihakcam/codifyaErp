@@ -80,12 +80,27 @@ def istem_kur(kayit: dict) -> str:
 
 
 def gerekce_donustur(kaynak: Path, hedef: Path, *, olcum_icin: bool) -> int:
+    """Ham gerekçe kaydını `{istem, cevap, karar_tipi}` biçimine çevirir.
+
+    ⚠️ `karar_tipi` **her dosyada** var, eğitim dosyasında da. İlk sürümde
+    yalnızca val/test'e konuyordu ("boyut küçültme") ve defterin 2. tur
+    dengeleme kodu `dengeli_ornekle(..., 'karar_tipi', ...)` derken `KeyError`
+    aldı. Kişi A geçici olarak istem metnindeki `karar: ...` satırından
+    çıkarmak zorunda kaldı.
+
+    Alan başına ~20 bayt; 40 bin satırda 800 KB. Dengeli örneklemenin
+    çalışması için ödenecek bedel bu değil.
+    """
     n = 0
     with kaynak.open(encoding="utf-8") as gir, hedef.open("w", encoding="utf-8") as cik:
         for satir in gir:
             k = json.loads(satir)
             o = k["ozellikler"]
-            yeni = {"istem": istem_kur(k), "cevap": k["gerekce_metni"]}
+            yeni = {
+                "istem": istem_kur(k),
+                "cevap": k["gerekce_metni"],
+                "karar_tipi": k["karar_tipi"],
+            }
             if olcum_icin:
                 yeni["izinli_sayilar"] = k.get("izinli_sayilar", [])
                 yeni["maske"] = [
@@ -94,7 +109,6 @@ def gerekce_donustur(kaynak: Path, hedef: Path, *, olcum_icin: bool) -> int:
                     o.get("tedarikci_adi", ""),
                     o.get("tedarikci_id", ""),
                 ]
-                yeni["karar_tipi"] = k["karar_tipi"]
             cik.write(json.dumps(yeni, ensure_ascii=False) + "\n")
             n += 1
     return n
