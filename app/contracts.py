@@ -204,6 +204,19 @@ ORAN_ALANLARI: frozenset[str] = frozenset(
         "hedef_servis_seviyesi",
         "tedarikci_zamaninda_teslim_orani",
         "talep_varyasyon_katsayisi",
+        # ⚠️ SÖZLEŞME DEĞİŞİKLİĞİ (2026-08-06) — Kişi A'nın teyidi bekleniyor.
+        #
+        # `onerilen_iskonto_orani` bu listeye hiç eklenmemişti; docstring'in
+        # "unutulursa" senaryosu tam olarak gerçekleşti. Sonuç: tasfiye
+        # kararlarında model, kararın ÖZÜ olan iskonto oranını doğal Türkçeyle
+        # ("%15") yazamıyordu — yalnızca "0,15" izinliydi.
+        #
+        # Kanıt: `data/egitim/gerekce_train.jsonl`'deki hedef metinler 886 kez
+        # "%15" kullanıyor ve üretildikleri sırada guard'dan GEÇMİŞLER
+        # (`guard_sonucu: gecti`) — yani veri, bu alanın ×100 karşılığının
+        # izinli OLDUĞU bir sürümle doğrulanmış. Sonradan ayrışmış.
+        # (Ayrıntı: dokumantasyon/OLCUMLER.md, 2. turun kök nedeni.)
+        "onerilen_iskonto_orani",
     }
 )
 """Yüzde olarak da yazılabilen oran alanları. Adı burada olmayan bir alan için
@@ -214,7 +227,11 @@ kurmak (0-1 aralığı) adet/gün alanlarını da yakalıyordu —
 Yeni bir oran alanı eklenirse (`FiredRule.degerler` içinde veya
 `StockFeatures`'a) buraya da eklenmeli. Unutulursa sonuç GÜVENLİ tarafa
 düşer: yüzdesi izinli olmaz, guard reddeder, gerekçe şablona düşer — karar
-hiçbir koşulda bloke olmaz, yalnızca o cümle yazılamaz."""
+hiçbir koşulda bloke olmaz, yalnızca o cümle yazılamaz.
+
+⚠️ Buraya alan eklemek guard'ı **genişletir**. Genişleme dar kapsamlı:
+yalnızca o alanın kendi değerinin ×100'ü izinli olur. İskonto gerçekte
+%20 iken modelin "%15" demesi hâlâ reddedilir."""
 
 
 class DecisionCandidate(BaseModel):

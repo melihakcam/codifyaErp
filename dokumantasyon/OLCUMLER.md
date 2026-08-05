@@ -1224,3 +1224,89 @@ ikincisinde daha çok eğitim zararı büyütür. Ayırt etmenin yolu veriye
 bakmak — 2. turda kayıp eğrisi kusursuz görünüyordu (düzgün düşüş,
 ezberleme yok) çünkü model kendisine öğretilen şeyi *başarıyla*
 öğrenmişti. Öğretilen şey yanlıştı.
+
+## Kök nedenin DÜZELTMESİ (2026-08-06)
+
+Üç ayrı kusur bulundu ve düzeltildi. Veri yeniden üretildi:
+**%79,4 → %0,0** (`veri_tutarlilik_kontrolu` kapıyı açtı).
+
+### 1. İstem, hedefin kullandığı sayıları içermiyordu
+
+`veri_hazirla.py` karar tipinden bağımsız **5 sabit alan** veriyordu.
+Hedefler ise `label_rationale.py::SLOTLAR`'dan üretilmişti — karar tipine
+göre değişen, daha geniş bir küme. Eksikler:
+
+| karar tipi | istemde olmayan ama hedefte kullanılan |
+|---|---|
+| `stok.siparis` | kullanılabilir stok, ROP, sipariş miktarı, tedarikçi skoru, **tedarikçi adı** |
+| `stok.tasfiye` | bağlı sermaye, **iskonto oranı** |
+| `stok.aksiyon_yok` | kullanılabilir stok, ROP |
+
+Yeni liste: `explain.py::_EGITILMIS_TIPE_GORE_ALANLAR` — karar tipine göre,
+`label_rationale.py::SLOTLAR` ile hizalı.
+
+⚠️ Taban kipin listesi (`_TIPE_GORE_ALANLAR`) **bilinçli olarak
+genişletilmedi.** B2.4'te dar tutulmuştu: sayı arttıkça model ilişki
+kurmayı bırakıp veri döküyor. Oradaki daraltma bir kalite kararı,
+buradaki genişlik bir zorunluluk — birleştirmek, birini bozmadan diğerini
+düzeltmeyi imkânsız kılardı.
+
+### 2. Tedarikçi adı da eksikti — guard'ın göremediği açık
+
+Sipariş gerekçelerinde tedarikçi adı geçiyor ama istemde yoktu. Sayı
+uydurmasını guard yakalar; **metin uydurmasını yakalayamaz.** Ürün adı
+B3.1'de tam bu gerekçeyle eklenmişti, tedarikçi adı atlanmış.
+
+### 3. ⚠️ SÖZLEŞME DEĞİŞİKLİĞİ — `ORAN_ALANLARI` ayrışmıştı
+
+`onerilen_iskonto_orani`, `contracts.py::ORAN_ALANLARI`'nda **yoktu**.
+Sonucu: tasfiye kararlarında model, kararın özü olan iskonto oranını
+doğal Türkçeyle ("%15") yazamıyordu — yalnızca "0,15" izinliydi.
+
+Kanıt: eğitim hedefleri 886 kez "%15" kullanıyor ve üretildikleri sırada
+**guard'dan geçmişler** (`guard_sonucu: gecti`). Yani veri, bu alanın
+×100 karşılığının izinli olduğu bir sürümle doğrulanmış; sonradan
+ayrışmış. Docstring'in "unutulursa" senaryosu aynen gerçekleşmiş.
+
+`ORAN_ALANLARI`'na eklendi. **Bu bir sözleşme değişikliği** (`contracts.py`
+donmuş dosya) — Kişi A'nın teyidi gerekiyor. Genişleme dar kapsamlı:
+yalnızca o alanın kendi değerinin ×100'ü izinli olur, iskonto gerçekte
+%20 iken modelin "%15" demesi hâlâ reddedilir.
+
+### Yapısal koruma: tek kaynak
+
+`veri_hazirla.py::istem_kur` artık kendi listesini taşımıyor; doğrudan
+`app/llm/explain.py::egitilmis_istem_govdesi`'ni çağırıyor — çalışma
+zamanının kullandığı **birebir aynı** fonksiyon. Eğitim ile çalışma
+zamanının bir daha ayrışması yapısal olarak imkânsız.
+
+Bunu koruyan test: `tests/test_egitilmis_istem.py::
+test_egitim_ve_calisma_zamani_istemi_birebir_ayni`.
+
+### Düzeltilmiş istem (tasfiye örneği)
+
+```
+VERILER:
+urun: Porselen Karo - Vitra
+karar: stok.tasfiye
+son hareketten bu yana gecen gun: 97
+eldeki stok (adet): 1
+birim maliyet (TL): 312,94
+bagli sermaye (TL): 312,94
+onerilen iskonto orani (%): 15      <- eskiden YOKTU, model uyduruyordu
+
+GEREKCE:
+```
+
+Hedef metin: *"...97 gün hareket göstermedikten sonra 1 adet stokta
+bulunmaktadır ve bu stok maliyeti 312,94 TL'dir. ...%15 iskonto
+sunulacaktır."* — artık her sayı istemde.
+
+### Sırada
+
+Veri (`data/colab_yukle/`) yeniden üretildi ve kapıdan geçiyor. 3. tur
+eğitim bu veriyle koşulabilir. **Eğitimden önce zorunlu:**
+
+```bash
+uv run python -m training.eval.veri_tutarlilik_kontrolu
+```

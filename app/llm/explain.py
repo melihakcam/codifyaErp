@@ -263,7 +263,25 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     üretiyor, dolayısıyla guard'a takılmaz. Modele 0,90 vermek ise metne
     "hedef servis seviyesi 0,90" gibi iş diline yabancı bir ifade sokuyordu.
     """
-    izinli_adlar = _TIPE_GORE_ALANLAR.get(aday.tip, ())
+    return _sayi_etiketleri_kur(aday, _TIPE_GORE_ALANLAR.get(aday.tip, ()), _ETIKETLER)
+
+
+def _sayi_etiketleri_kur(
+    aday: DecisionCandidate,
+    izinli_adlar: tuple[str, ...],
+    etiket_sozlugu: dict[str, str],
+) -> list[tuple[str, float]]:
+    """`sayi_etiketleri` ile `egitilmis_sayi_etiketleri`'nin ortak gövdesi.
+
+    İki kip **aynı mantığı** kullanır (kaynaklar, oran×100, sıralama); yalnızca
+    hangi alanların geçeceği ve etiket metinleri farklıdır. Mantığı tek yerde
+    tutmak bilinçli: kopyalanırsa biri düzeltilip diğeri unutulur — bu dosyanın
+    zaten bir kez yaşadığı hata.
+    """
+
+    def etiketle(ad: str) -> str:
+        return etiket_sozlugu.get(ad, ad.replace("_", " "))
+
     ciftler: list[tuple[str, float]] = []
     gorulen: set[str] = set()
 
@@ -274,9 +292,9 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
             return
         gorulen.add(ad)
         if ad in ORAN_ALANLARI:
-            ciftler.append((f"{_etiketle(ad)} (%)", float(deger) * 100.0))
+            ciftler.append((f"{etiketle(ad)} (%)", float(deger) * 100.0))
         else:
-            ciftler.append((_etiketle(ad), float(deger)))
+            ciftler.append((etiketle(ad), float(deger)))
 
     for ad in izinli_adlar:
         ekle(ad, getattr(aday.ozellikler, ad, None))
@@ -291,7 +309,7 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     # İstemdeki sıra izin listesindeki sıra olsun — kaynağa göre değil.
     # Böylece "talep → tedarik süresi → stok → eşik → aksiyon" akışı korunur
     # ve model cümleyi bu mantıkla kurar.
-    sira = {_etiketle(a): i for i, a in enumerate(izinli_adlar)}
+    sira = {etiketle(a): i for i, a in enumerate(izinli_adlar)}
     return sorted(ciftler, key=lambda c: sira.get(c[0].removesuffix(" (%)"), 99))
 
 
@@ -301,16 +319,113 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
 
 GOREV_ETIKETI_GEREKCE = "GOREV: gerekce"
 
-# ⚠️ Eğitimde kullanılan etiketler — `scratchpad/veri_hazirla.py` ile **birebir
-# aynı** olmak zorunda. Türkçe karakter YOK ("gunluk", "suresi"), çünkü eğitim
-# verisi böyle üretildi. Düzeltmek cazip ama model bunu gördü.
-_EGITILMIS_ETIKETLER: tuple[tuple[str, str], ...] = (
-    ("ort_gunluk_talep", "gunluk ortalama talep (adet)"),
-    ("tedarik_suresi_gun", "tedarik suresi (gun)"),
-    ("eldeki_stok", "eldeki stok (adet)"),
-    ("son_hareket_gun_once", "son hareketten bu yana gecen gun"),
-    ("birim_maliyet_tl", "birim maliyet (TL)"),
-)
+# ⭐ Eğitilmiş kipin alan listesi — 2. turun kök nedeninin düzeltmesi (2026-08-06).
+#
+# ÖNCEKİ SÜRÜM karar tipinden bağımsız **5 sabit alan** veriyordu. Hedef
+# metinler ise `training/label_rationale.py::SLOTLAR`'daki alanlardan
+# üretilmişti — iskonto oranı, sipariş miktarı, tedarikçi skoru, ROP...
+# İstemde olmayan bu sayıları model ancak **uydurarak** yazabilirdi ve
+# eğitim örneklerinin %79,4'ü tam olarak bunu öğretiyordu. Ölçülen sonuç:
+# eğitilmiş modelin guard kabulü %25,7, taban modelin %100.
+# (Tam analiz: dokumantasyon/OLCUMLER.md, "2. turun KÖK NEDENİ".)
+#
+# ⚠️ Bu liste `_TIPE_GORE_ALANLAR`'dan (taban kip) BİLİNÇLİ OLARAK AYRI.
+# Taban kipin listesi B2.4'te dar tutulacak şekilde ayarlandı: sayı arttıkça
+# model ilişki kurmayı bırakıp veri döküyor. Oradaki daraltma bir kalite
+# kararı; buradaki genişlik ise bir **zorunluluk** — hedef metnin kullandığı
+# her sayı istemde olmak zorunda. İkisini birleştirmek, birini bozmadan
+# diğerini düzeltmeyi imkânsız kılardı.
+#
+# ⚠️ `training/veri_hazirla.py` bu listeyi **doğrudan bu dosyadan** alıyor
+# (import ediyor). Eskiden iki yerde elle kopyalanmıştı ve ayrışma riski
+# taşıyordu; artık tek kaynak burası.
+_EGITILMIS_TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
+    KararTipi.STOK_SIPARIS: (
+        "ort_gunluk_talep",
+        "tedarik_suresi_gun",
+        "kullanilabilir_stok",
+        "rop",
+        "siparis_miktari",
+        "tedarikci_skoru",
+    ),
+    KararTipi.STOK_TASFIYE: (
+        "son_hareket_gun_once",
+        "eldeki_stok",
+        "birim_maliyet_tl",
+        "bagli_sermaye_tl",
+        "onerilen_iskonto_orani",
+    ),
+    KararTipi.STOK_AKSIYON_YOK: (
+        "kullanilabilir_stok",
+        "ort_gunluk_talep",
+        "rop",
+    ),
+}
+
+# Türkçe karakter YOK ("gunluk", "suresi") — eğitim verisi böyle üretiliyor,
+# tokenizer'a gereksiz yük bindirmemek için. Etiket metinleri değişirse eğitim
+# verisi yeniden üretilmeli, yoksa model tanımadığı bir istem görür.
+_EGITILMIS_ETIKETLER: dict[str, str] = {
+    "ort_gunluk_talep": "gunluk ortalama talep (adet)",
+    "tedarik_suresi_gun": "tedarik suresi (gun)",
+    "kullanilabilir_stok": "kullanilabilir stok (adet)",
+    "eldeki_stok": "eldeki stok (adet)",
+    "son_hareket_gun_once": "son hareketten bu yana gecen gun",
+    "birim_maliyet_tl": "birim maliyet (TL)",
+    "bagli_sermaye_tl": "bagli sermaye (TL)",
+    "siparis_miktari": "onerilen siparis miktari (adet)",
+    "rop": "yeniden siparis noktasi (adet)",
+    "tedarikci_skoru": "tedarikci skoru",
+    "onerilen_iskonto_orani": "onerilen iskonto orani",
+}
+
+# Sipariş gerekçelerinde tedarikçi ADI da geçiyor (bkz. label_rationale
+# SLOTLAR: TEDARIKCI_ADI). Sayı değil ama aynı kural geçerli: istemde yoksa
+# model uydurur — üstelik guard metin uydurmasını **yakalayamaz**, çünkü
+# uydurulan şey sayı değil. Ürün adı B3.1'de aynı gerekçeyle eklenmişti.
+_EGITILMIS_METIN_ALANLARI: dict[KararTipi, tuple[tuple[str, str], ...]] = {
+    KararTipi.STOK_SIPARIS: (("tedarikci_adi", "tedarikci"),),
+}
+
+
+def egitilmis_sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
+    """Eğitilmiş kipin isteme koyacağı `(etiket, değer)` çiftleri.
+
+    `sayi_etiketleri` ile aynı mantık, farklı liste — gerekçesi
+    `_EGITILMIS_TIPE_GORE_ALANLAR`'ın açıklamasında.
+    """
+    return _sayi_etiketleri_kur(
+        aday, _EGITILMIS_TIPE_GORE_ALANLAR.get(aday.tip, ()), _EGITILMIS_ETIKETLER
+    )
+
+
+def egitilmis_istem_govdesi(aday: DecisionCandidate) -> str:
+    """İstemin `GOREV:` başlığı **olmadan** gövdesi.
+
+    ⭐ Eğitim verisini üreten `training/veri_hazirla.py` de bu fonksiyonu
+    çağırır. Başlığın ayrı olmasının sebebi tarihsel: eğitim defteri
+    (`train_lora.ipynb::gerekce_metni`) `GOREV: gerekce` satırını kendisi
+    ekliyor, `veri_hazirla` ise yalnızca gövdeyi yazıyor. Çalışma zamanı
+    ikisini birleştiriyor. Tek kaynak burası olduğu sürece üçü de tutar.
+    """
+    o = aday.ozellikler
+    satirlar = [
+        "VERILER:",
+        f"urun: {o.sku_adi}",
+        f"karar: {aday.tip.value}",
+    ]
+
+    # Metin alanları (tedarikçi adı gibi) sayılardan ÖNCE — hedef metinlerde
+    # de bu sırada geçiyorlar ve model cümleyi bu akışla kuruyor.
+    for alan, etiket in _EGITILMIS_METIN_ALANLARI.get(aday.tip, ()):
+        deger = getattr(o, alan, None)
+        if isinstance(deger, str) and deger:
+            satirlar.append(f"{etiket}: {deger}")
+
+    for etiket, deger in egitilmis_sayi_etiketleri(aday):
+        satirlar.append(f"{etiket}: {_tr_sayi(deger)}")
+
+    return "\n".join(satirlar) + "\n\nGEREKCE:"
 
 
 def egitilmis_istem_kur(aday: DecisionCandidate) -> str:
@@ -323,11 +438,14 @@ def egitilmis_istem_kur(aday: DecisionCandidate) -> str:
        %100'ünde ad geçiyor; isteme koymazsak model *yoktan ad uydurmayı*
        öğrenmiş olur. B3.1'de bu karara varıldı.
     2. **Kurallar ve few-shot örnek YOK.** Davranış ağırlıklara işlendi.
-    3. **Etiketler eğitimdeki gibi.** Türkçe karakter yok, alan listesi sabit
-       (karar tipine göre daralmıyor) — eğitim böyle yapıldı.
+    3. **Alan listesi karar tipine göre değişir** — hedef metnin kullandığı
+       her sayı istemde olsun diye. (Önceki sürüm tipten bağımsız 5 sabit
+       alan veriyordu; 2. turun kök nedeni buydu.)
 
     Bu fonksiyon "daha iyi bir istem" yazmaya çalışmaz; **eğitimdekini
-    tekrarlar.** İyileştirme yapılacaksa eğitim verisiyle birlikte yapılmalı.
+    tekrarlar.** İyileştirme yapılacaksa eğitim verisiyle birlikte yapılmalı —
+    artık ikisi de `egitilmis_istem_govdesi`'nden beslendiği için bu
+    otomatik.
 
     ⚠️ **`onceki_red` alınmıyor ve bu bilinçli.** Taban kipte guard reddedince
     isteme "şu sayıları kullanma" uyarısı ekleniyor; eğitilmiş modelde böyle
@@ -342,18 +460,7 @@ def egitilmis_istem_kur(aday: DecisionCandidate) -> str:
     denemede sıcaklığı yükseltmek. İstemi değiştirmeden çıktıyı değiştirir.
     Şu an `llm_istem_bicimi="taban"` olduğu için bu yol hiç çalışmıyor.
     """
-    o = aday.ozellikler
-    satirlar = [
-        "VERILER:",
-        f"urun: {o.sku_adi}",
-        f"karar: {aday.tip.value}",
-    ]
-    for alan, etiket in _EGITILMIS_ETIKETLER:
-        deger = getattr(o, alan, None)
-        if isinstance(deger, (int, float)) and not isinstance(deger, bool):
-            satirlar.append(f"{etiket}: {_tr_sayi(float(deger))}")
-
-    return f"{GOREV_ETIKETI_GEREKCE}\n" + "\n".join(satirlar) + "\n\nGEREKCE:"
+    return f"{GOREV_ETIKETI_GEREKCE}\n{egitilmis_istem_govdesi(aday)}"
 
 
 def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) -> str:

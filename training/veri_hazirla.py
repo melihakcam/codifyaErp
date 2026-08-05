@@ -26,17 +26,25 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from uuid import uuid4
+
+from app.contracts import Alan, DecisionCandidate
+from app.llm.explain import egitilmis_istem_govdesi
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# ⚠️ Bu etiketler `app/llm/explain.py::_EGITILMIS_ETIKETLER` ile birebir aynı
-# olmak zorunda. Model eğitimde bunları gördü; çalışma zamanında farklı bir
-# yazım göndermek eğitimin kazandırdığını çöpe atar.
+# ⚠️ ARTIK KULLANILMIYOR — 2026-08-06'da kaldırıldı, tarihsel kayıt için burada.
 #
-# Türkçe karakter yok ("gunluk", "suresi") — ilk üretim böyle yapıldı ve
-# değiştirmek eğitilmiş modeli bozar.
-ETIKETLER: tuple[tuple[str, str], ...] = (
+# Bu 5 alanlık sabit liste 2. turun kök nedeniydi: karar tipinden bağımsızdı ve
+# hedef metnin kullandığı sayıların (iskonto oranı, sipariş miktarı, tedarikçi
+# skoru, ROP...) çoğunu içermiyordu. Eğitim örneklerinin %79,4'ü modele
+# "istemde olmayan bir sayı üret" diye öğretiyordu.
+#
+# Yerine `app/llm/explain.py::egitilmis_istem_govdesi` çağrılıyor — çalışma
+# zamanının kullandığı **birebir aynı** fonksiyon. İki yerde elle senkron
+# tutulan liste bir daha ayrışamaz.
+_ESKI_ETIKETLER: tuple[tuple[str, str], ...] = (
     ("ort_gunluk_talep", "gunluk ortalama talep (adet)"),
     ("tedarik_suresi_gun", "tedarik suresi (gun)"),
     ("eldeki_stok", "eldeki stok (adet)"),
@@ -62,6 +70,9 @@ def tr_sayi(deger: float) -> str:
     """1200.0 → '1.200' · 4.75 → '4,75' (Türkçe biçim).
 
     Model gördüğü biçimi kopyalar, guard da Türkçe biçim bekler.
+
+    ⚠️ `app/llm/explain.py::_tr_sayi` ile aynı davranışı vermeli. İstem artık
+    oradan üretildiği için bu fonksiyon yalnızca yardımcı/ölçüm amaçlı kaldı.
     """
     d = float(deger)
     if d.is_integer():
@@ -69,14 +80,41 @@ def tr_sayi(deger: float) -> str:
     return f"{d:,.2f}".replace(",", "~").replace(".", ",").replace("~", ".")
 
 
+def adaya_cevir(kayit: dict) -> DecisionCandidate:
+    """Ham eğitim kaydını `DecisionCandidate`'e çevirir.
+
+    Sözleşmenin gerektirdiği ama ham kayıtta bulunmayan alanlar (kimlik,
+    zaman damgası) sentetik üretiliyor — istem kurulumunda kullanılmıyorlar.
+    Kullanılan alanlar (`ozellikler`, `tetiklenen_kurallar`, `aksiyon`, `tip`)
+    kayıtta zaten tam.
+
+    Bu dönüşüm sayesinde eğitim verisi, çalışma zamanının **birebir aynı**
+    istem kurucusundan (`egitilmis_istem_govdesi`) geçiyor.
+    """
+    return DecisionCandidate.model_validate(
+        {
+            "karar_id": uuid4(),
+            "alan": Alan.STOK,
+            "tip": kayit["karar_tipi"],
+            "aksiyon": kayit.get("aksiyon", {}),
+            "tahmini_tutar_tl": kayit.get("tahmini_tutar_tl", 0.0),
+            "guven": kayit.get("guven", 0.0),
+            "tetiklenen_kurallar": kayit.get("tetiklenen_kurallar", []),
+            "ozellikler": kayit["ozellikler"],
+            "model_surumleri": {},
+        }
+    )
+
+
 def istem_kur(kayit: dict) -> str:
-    o = kayit["ozellikler"]
-    satirlar = [f"urun: {o['sku_adi']}", f"karar: {kayit['karar_tipi']}"]
-    for alan, etiket in ETIKETLER:
-        deger = o.get(alan)
-        if isinstance(deger, (int, float)) and not isinstance(deger, bool):
-            satirlar.append(f"{etiket}: {tr_sayi(deger)}")
-    return "VERILER:\n" + "\n".join(satirlar) + "\n\nGEREKCE:"
+    """Eğitim istemi — çalışma zamanıyla tek kaynaktan.
+
+    ⭐ 2. turun kök nedeninin düzeltmesi. Önceki sürüm kendi 5 alanlık listesini
+    taşıyordu ve `explain.py`'dekiyle elle senkron tutuluyordu; ayrıştılar ve
+    model, istemde olmayan sayıları uydurmayı öğrendi. Artık gövde doğrudan
+    `egitilmis_istem_govdesi`'nden geliyor — ayrışma yapısal olarak imkânsız.
+    """
+    return egitilmis_istem_govdesi(adaya_cevir(kayit))
 
 
 def gerekce_donustur(kaynak: Path, hedef: Path, *, olcum_icin: bool) -> int:
