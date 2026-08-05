@@ -14,6 +14,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.core.config import Ayarlar, ayarlar
+from app.main import app
+
 
 def test_kok_docse_yonlendirir(istemci: TestClient):
     """`localhost:8000` açan biri 404 değil Swagger görmeli."""
@@ -65,3 +68,25 @@ def test_shadow_modda_karar_uygulanmaz(istemci: TestClient):
     govde = istemci.post("/v1/decisions/stock/reorder-review").json()
     assert govde["politika"]["otonomi_seviyesi"] == "shadow"
     assert govde["politika"]["uygulandi"] is False
+
+
+def test_llm_erisilemezken_karar_endpointi_500_vermez(istemci: TestClient):
+    """Faz 4.1 — LLM çökerse karar yolu bozulmamalı, gerekçe şablona düşmeli.
+
+    `ollama_base_url` kasıtlı olarak kimsenin dinlemediği bir adrese
+    ayarlanıyor. Beklenen: 500 değil 200, `gerekce.guard_sonucu ==
+    'sablona_dustu'` (bkz. `app/llm/guard.py::gerekceyi_guvenceye_al` —
+    "hiçbir koşulda hata fırlatmaz").
+    """
+    bozuk_ayar = Ayarlar(ollama_base_url="http://127.0.0.1:1", llm_timeout_sn=3.0)
+    app.dependency_overrides[ayarlar] = lambda: bozuk_ayar
+    try:
+        cevap = istemci.post("/v1/decisions/stock/reorder-review?gerekce=true")
+    finally:
+        del app.dependency_overrides[ayarlar]
+
+    assert cevap.status_code == 200
+    gerekce = cevap.json()["gerekce"]
+    assert gerekce is not None
+    assert gerekce["guard_sonucu"] == "sablona_dustu"
+    assert gerekce["model_adi"] is None
