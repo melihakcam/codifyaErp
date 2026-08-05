@@ -55,12 +55,23 @@ def test_karar_endpointi_gerekce_istenince_metin_doner(istemci: TestClient):
     gerekce = govde["gerekce"]
 
     assert gerekce is not None
-    # ⚠️ Gerçek LLM çağrısı (sıcaklık > 0, sabit tohum yok) — metin çalıştırmadan
-    # çalıştırmaya değişebilir. Sabit olan şey: guard her zaman geçerli bir sonuç
-    # döndürür (asla hata fırlatmaz) ve SKU adı -- LLM başarılı olsun ya da
-    # şablona düşsün -- metinde geçer.
+    # ⚠️ Gerçek LLM çağrısı — metin çalıştırmadan çalıştırmaya, hatta hangi
+    # modelin yapılandırıldığına göre değişir. Metnin **içeriğine** dair
+    # varsayım yapılmıyor; bir önceki sürüm "SKU adı metinde geçer" diyordu ve
+    # taban model devreye girince kırıldı: B2.4 istemi ürün adını bilinçli
+    # olarak vermiyor (yalnızca `sablon_gerekce` adı yazar).
+    #
+    # Doğrulanan değişmezler:
+    #   1. guard her zaman geçerli bir sonuç döndürür (asla hata fırlatmaz),
+    #   2. metin boş değil,
+    #   3. `model_adi` ile guard sonucu tutarlı — şablona düşüldüyse metin
+    #      modelden gelmedi, `model_adi` None olmalı (bkz. guard.py).
     assert gerekce["guard_sonucu"] in {"gecti", "yeniden_uretildi", "sablona_dustu"}
-    assert govde["aday"]["ozellikler"]["sku_adi"] in gerekce["metin"]
+    assert gerekce["metin"].strip()
+    if gerekce["guard_sonucu"] == "sablona_dustu":
+        assert gerekce["model_adi"] is None
+    else:
+        assert gerekce["model_adi"]
 
 
 def test_shadow_modda_karar_uygulanmaz(istemci: TestClient):

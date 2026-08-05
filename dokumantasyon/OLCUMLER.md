@@ -1121,3 +1121,106 @@ modelden geriye gitti. `shadow` modda kalmaya devam — bu teknik değil,
 süreç kararı (`KISI-B-GOREV.md`, Faz 5 uyarısı).
 
 Ham sonuçlar: `training/eval/benchmark_sonuc.json`.
+
+## ⭐ 2. turun KÖK NEDENİ — eğitim verisi modele sayı uydurmayı öğretmiş
+
+**Bulgu: sorun eğitimin miktarında değil, eğitim verisinin kendisinde.**
+Bu yüzden "daha çok epoch" ya da "3. tur" işleri **kötüleştirirdi**.
+
+### Nasıl bulundu — üç adım, ikisi hipotezi çürüttü
+
+**1. Kontrollü karşılaştırma (2×2).** Önceki ölçüm iki değişkeni birden
+değiştiriyordu: model *ve* istem. Ayrıldığında:
+
+| | UZUN istem (kurallar + few-shot) | KISA istem |
+|---|---|---|
+| taban model | **12/12** | **12/12** |
+| tur2 (LoRA) | 7/12 | 3/12 |
+
+Okuma: taban model istem biçiminden **hiç** etkilenmiyor — "kısa istem
+kötü" açıklaması çürüdü. Fark modelde. Ama uzun istem tur2'yi 3→7
+düzeltiyor: model, eğitimle kazanması gereken davranışı hâlâ istemdeki
+açık kurallardan almaya muhtaç.
+
+**2. Çürütülen hipotez — JSON şema zorlaması.** Kod okumasından çıkan
+makul bir teori: gerekçe eğitimde **düz metin** öğretilmişti, çalışma
+zamanında ise `yapilandirilmis_uret()` JSON şeması zorluyor
+(router ise JSON ile eğitilmişti — asimetriyi açıklıyor gibiydi).
+Sınandı:
+
+```
+A) JSON sema zorlamali (mevcut kod)     3/12
+B) HAM METIN (egitimdeki bicim)         2/12
+```
+
+**Hipotez yanlış.** Zorlamayı kaldırmak iyileştirmedi. Ama B'nin
+çıktıları asıl ipucunu verdi: metinler akıcı ve mantıklı, sadece
+**sayılar uydurma** — ör. *"19 adet kullanılabilir olduğuna göre, 6,82
+değerinin üstündeyken..."* (6,82 hiçbir yerde yok).
+
+**3. Veri ölçümü — kök neden.** `gerekce_train.jsonl`'de hedef metindeki
+sayıların istemde bulunup bulunmadığı ölçüldü:
+
+```
+incelenen egitim ornegi              : 5.000
+cevapta ISTEMDE OLMAYAN sayi iceren  : 3.968   (%79,4)
+
+en sik uydurtulan degerler:
+    15,00  x886     <- rules.py::onerilen_iskonto_orani = 0.15
+    30,00  x148
+    92,13  x28      <- tedarikci skorlari
+```
+
+### Mekanizma
+
+`training/veri_hazirla.py::ETIKETLER` isteme **yalnızca 5 özellik alanı**
+koyuyor. Hedef metin ise `izinli_sayilar()`'ın tamamını kullanabiliyor —
+tetiklenen kural değerleri (ROP, emniyet stoğu, iskonto oranı) ve aksiyon
+(sipariş miktarı) dahil. Bu sayılar guard'a göre **meşru**, ama modele
+hiç gösterilmiyor. Model onları ancak **uydurarak** üretebilir; 5 örnekten
+4'ünde bunu yapması öğretilmiş.
+
+Taban modelin istemi (`app/llm/explain.py::sayi_etiketleri`) tam tersini
+yapıyor: kaynakları `izinli_sayilar()` ile **aynı** — kullanılabilecek her
+sayı isteme konuyor. Guard kabulü %100 olmasının sebebi bu.
+
+| | modele verilen sayılar | guard kabulü |
+|---|---|---|
+| taban istem | özellikler + kural değerleri + aksiyon | **%100** |
+| eğitilmiş istem | yalnızca 5 sabit özellik alanı | **%25,7** |
+
+### Bu hata daha önce YARIM tespit edilmişti
+
+B3.1'de aynı mekanizma **ürün adları** için doğru teşhis edilip
+düzeltilmişti:
+
+> "İsteme ad koymaz, hedefte ad varsa → model *yoktan ad uydurmayı*
+>  öğrenir. **En kötü seçenek.**"
+
+Adlar isteme konuldu. Ama **sayılar için aynı muhakeme yapılmadı** —
+oysa guard'ın bütün varlık sebebi tam olarak sayı uydurmayı engellemek.
+
+### Düzeltme ve kalıcı koruma
+
+Düzeltme veri hazırlama tarafında: `veri_hazirla.py::istem_kur`, hedefin
+kullanabildiği tüm sayıları isteme koymalı (referans uygulama:
+`explain.py::sayi_etiketleri`). Sonra veri yeniden üretilip eğitim
+tekrarlanmalı. `explain.py::_EGITILMIS_ETIKETLER` de aynı anda
+güncellenmeli — ikisi birebir aynı kalmak zorunda.
+
+Kalıcı koruma: **`training/eval/veri_tutarlilik_kontrolu.py`** yazıldı,
+her eğitim turundan önce koşturulmalı. Hedefte olup istemde olmayan sayı
+oranı %5'i aşarsa hata koduyla çıkıyor:
+
+```bash
+uv run python -m training.eval.veri_tutarlilik_kontrolu
+```
+
+### Genel ders
+
+**"Model öğrenemedi" ile "modele yanlış şey öğretildi" farklı
+teşhislerdir ve tedavileri zıttır.** Birincisi daha çok eğitim ister;
+ikincisinde daha çok eğitim zararı büyütür. Ayırt etmenin yolu veriye
+bakmak — 2. turda kayıp eğrisi kusursuz görünüyordu (düzgün düşüş,
+ezberleme yok) çünkü model kendisine öğretilen şeyi *başarıyla*
+öğrenmişti. Öğretilen şey yanlıştı.

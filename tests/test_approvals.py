@@ -91,7 +91,20 @@ def test_gerekce_istenince_denetime_guard_sonucu_yazilir(istemci: TestClient, ap
     _karar_uret(istemci, gerekce=True)
 
     kayit = api_oturumu.scalars(select(DecisionAudit)).one()
-    assert kayit.guard_sonucu is GuardSonucu.SABLONA_DUSTU
+    # ⚠️ Belirli bir guard sonucuna bağlanmıyor. Bu test stub döneminde
+    # `SABLONA_DUSTU` bekliyordu (`explain_stub` her zaman şablon dönerdi);
+    # gerçek model bağlandıktan sonra sonuç **hangi modelin yapılandırıldığına**
+    # bağlı hale geldi (taban model guard'ı geçiyor, eğitilmiş model çoğunlukla
+    # şablona düşüyor — bkz. OLCUMLER.md "2. turun KÖK NEDENİ").
+    #
+    # Burada doğrulanan asıl davranış: gerekçe istendiğinde denetim satırına
+    # **gerçek bir guard sonucu** yazılıyor, `ATLANDI` kalmıyor.
+    assert kayit.guard_sonucu is not GuardSonucu.ATLANDI
+    assert kayit.guard_sonucu in {
+        GuardSonucu.GECTI,
+        GuardSonucu.YENIDEN_URETILDI,
+        GuardSonucu.SABLONA_DUSTU,
+    }
 
     satir = api_oturumu.scalars(select(Decision)).one()
     assert satir.gerekce_metni is not None
