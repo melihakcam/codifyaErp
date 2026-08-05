@@ -1039,3 +1039,28 @@ gerekçe yok** — marjinal kazanım belirsiz, tam doğrulukta hiç ilerleme yok
 Sıradaki adım tartışılacak: 3. tura girmeden mevcut modeli (`codifya-router:tur2`)
 `decisions.py`'ye bağlamak mı, yoksa veri kalitesi tarafına mı (özellikle
 `tedarikci_performansi_sorgula` ve parametre çıkarma) eğilmek mi.
+
+## SP3 · Buluşma noktası — guard reddedilme oranı (2026-08-05)
+
+`.env` güncellendi: `LLM_MODEL_ADI=codifya-router:tur2`,
+`LLM_ISTEM_BICIMI=egitilmis`. Sunucu ayağa kaldırılıp `/v1/ask` gerçek modelle
+sınandı — soru doğru araca yönlendirildi (~1 sn).
+
+Asıl doğrulanacak şey: **guard reddedilme oranı düştü mü?** Demo dünyasından
+40 SKU'luk gerçek karar seti (`stok_karari_uret`) üretildi, anlatılacak
+sayısı olan 35'i taban model ve eğitilmiş modelle ayrı ayrı `gerekce_uret()`
+üzerinden geçirildi, `guard_sonucu` karşılaştırıldı:
+
+| | taban model | eğitilmiş model (`tur2`) |
+|---|---|---|
+| guard kabul oranı | **%0** (0/35) | **%25,7** (9/35) |
+
+%0 rakamı elle 4 örnekle doğrulandı (guard'a giren metin gerçekten
+`sablon_gerekce()` şablonunun birebir aynısı — betik hatası değil, taban
+model bu görevde tutarlı biçimde reddediliyor).
+
+**Sonuç: eğitim, router tarafından bağımsız olarak, gerekçe/guard tarafında
+da ölçülebilir bir kazanım sağladı** (%0 → %25,7). B3.5'teki router
+sonucuyla (tam doğruluk sabit) birlikte okununca tablo şu: **router zayıf,
+guard/gerekçe tarafı belirgin iyileşti.** %25,7 hâlâ düşük — ölçek olarak
+üretime hazır değil ama yönün doğru olduğunu gösteriyor.
