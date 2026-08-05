@@ -973,3 +973,69 @@ digeri o alani aradi.
 `router_taban.py --model ... --istem-bicimi egitilmis` ile taban cizgiyle
 (%70,0 arac / %66,7 tam) ayni kosulda olcum. On sart: model Ollama'da olmali
 (B3.4).
+
+## B3.4 · Merge → GGUF → Ollama (2026-08-05)
+
+B'nin GPU kotası dolduğu için ayrı, unsloth/cuda bağımlılığı olmayan bir
+defter hazırlandı: `training/b34_gguf_colab.ipynb` (commit a5f1ac0). GPU'suz
+Colab çalışma zamanında koşturuldu (Kişi B'nin yönlendirmesiyle Melih
+çalıştırdı).
+
+⚠️ **Klasör adı yanıltıcı:** `cikti/b33_tur1_lora` adının içinde aslında
+**2. turun** adaptörü var — 2. tur kaydedilirken defterdeki değişken adı
+güncellenmemiş, dosya üzerine yazılmış. Kişi B ile teyit edildi, defter buna
+göre not düşüldü.
+
+Karşılaşılan ve çözülen üç bağımsız Colab paket çakışması (GPU'suz taze
+oturumda hepsi tekrar eder, sırayla):
+
+1. **numpy ikili uyumsuzluğu** — kurulumdan hemen sonra `import torch` taze
+   bir oturumda patlıyor (`numpy.dtype size changed`). Çözüm: oturumu yeniden
+   başlat, tekrar çalıştır. Dosyaya dokunmuyor, yalnızca Python sürecini
+   sıfırlıyor.
+2. **protobuf ↔ tensorflow çakışması** — `transformers`, kullanılmayan
+   TensorFlow'u içe aktarmaya çalışıp `ImportError: cannot import name
+   'runtime_version'` veriyordu. Çözüm: `tensorflow`/`tensorboard` paketleri
+   kaldırıldı (hiç kullanılmıyor, yalnızca PyTorch tarafı işletiliyor).
+3. **torchao eski sürüm** — Colab'ın hazır gelen `torchao 0.10.0`'ı peft'in
+   istediği `>0.16.0`'ın altında kalıyordu. Çözüm: `torchao` da kaldırıldı.
+
+Üçü de kurulum hücresine kalıcı olarak eklendi
+(`!pip uninstall -y tensorflow tensorflow-cpu tensorboard tensorflow-metadata torchao`),
+sonraki koşularda tekrar aranmaz.
+
+Çıktı: `codifya-tur2-q8_0.gguf` (1,53 GB, q8_0). Yerelde
+`ollama create codifya-router:tur2 -f training/Modelfile` ile içe aktarıldı.
+
+## B3.5 (2. tur) · Router ölçümü (2026-08-05)
+
+Aynı 30 soruluk set, aynı puanlama (B2.3/1. tur ile birebir).
+
+| | taban çizgi (B2.3) | 1. tur | **2. tur** |
+|---|---|---|---|
+| araç doğruluğu | %70,0 | %40 | **%73,3** |
+| araç + parametre | %66,7 | — | **%66,7** |
+| şema hatası | 2 | — | 4 |
+| çöküş | yok | — | yok (%27, eşik %40) |
+
+Araç seçiminde taban çizgiye göre hafif iyileşme var (%70,0 → %73,3). **Tam
+doğrulukta hiç kazanım yok** (%66,7 → %66,7) — parametre çıkarma tarafı
+gelişmedi. Şema hatası 2'den 4'e çıktı; bu ölçüm B2.3'teki gibi JSON şema
+zorlaması olmadan (ham üretim) yapıldığından bir kısmı modelin değil, ortam
+farkının sonucu olabilir (daha önce de not edilen adaletsizlik).
+
+En zayıf araç hâlâ `tedarikci_performansi_sorgula` — dolaylı sorularda
+(`Bizi kim geciktiriyor?`, `Yılmaz Yapı'nın teslimat skoru kaç?`)
+`genel_stok_durumu_sorgula`ya kayıyor. `T-0031 güvenilir mi?` ve
+`t-0007 gecikiyomu` şema hatası verdi.
+
+Ham sonuçlar: `training/eval/router_lora_tur2_sonuc.json` (taban çizgi
+dosyasının üzerine yazılmaması için ayrı dosyada tutuldu).
+
+### Karar noktası
+
+3. tur (35-55k örnek, 5-7 saat GPU + günlerce kota bekleme) için **net bir
+gerekçe yok** — marjinal kazanım belirsiz, tam doğrulukta hiç ilerleme yok.
+Sıradaki adım tartışılacak: 3. tura girmeden mevcut modeli (`codifya-router:tur2`)
+`decisions.py`'ye bağlamak mı, yoksa veri kalitesi tarafına mı (özellikle
+`tedarikci_performansi_sorgula` ve parametre çıkarma) eğilmek mi.
