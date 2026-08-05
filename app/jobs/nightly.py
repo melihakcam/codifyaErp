@@ -22,9 +22,11 @@ insan zaten ilk 25'e bakıyor.
 `KosuOzeti` karar süresiyle gerekçe süresini **ayrı** raporlar — mimarinin
 "karar hızlı, gerekçe yavaş" iddiası ancak ölçülürse doğrulanabilir.
 
-⚠️ Şu an `decide_stub()` kullanılıyor. Kişi A'nın `stok_karari_uret()`'i merge
-edilince `karar_ureteci` parametresine gerçek üreteç geçirilecek — bu dosyada
-başka bir şey değişmeyecek.
+CLI (`_cli()`) gerçek üreteçleri kullanır (`_gercek_karar_ureteci` +
+`llm_gerekce_ureteci`); `gecelik_tarama()`'nın kendi varsayılanları
+(`_stub_ureteci`, `explain_stub`) bilinçli olarak stub kalır — testler ve
+Ollama'sız ortamlar bu sayede çalışır kalıyor (bkz. `gecelik_tarama`
+docstring'i).
 """
 
 from __future__ import annotations
@@ -50,8 +52,15 @@ from app.core.audit import denetim_yaz, karari_kaydet
 from app.core.config import Ayarlar, ayarlar
 from app.core.db import motor, oturum_fabrikasi
 from app.core.policy import PolitikaEsikleri, esikleri_yukle, politika_uygula
-from app.domain.stock.decide import decide_stub
-from app.llm.explain import explain_stub
+from app.domain.stock.decide import (
+    _demo_dunyasini_yukle,
+    _siniflandirmayi_hesapla,
+    decide_stub,
+    ozellikten_karar_uret,
+)
+from app.domain.stock.features import katalog_ozelliklerini_hesapla
+from app.llm.client import OllamaIstemcisi
+from app.llm.explain import explain_stub, llm_gerekce_ureteci
 from app.models import Approval, Decision, Insight
 
 KararUreteci = Callable[[], Iterable[DecisionCandidate]]
@@ -96,8 +105,28 @@ class KosuOzeti:
 
 
 def _stub_ureteci() -> Iterable[DecisionCandidate]:
-    """Kişi A'nın gerçek üreteci merge edilene kadarki yer tutucu."""
+    """`gecelik_tarama()`'nın varsayılanı — testler ve Ollama'sız ortamlar için."""
     return [decide_stub()]
+
+
+def _gercek_karar_ureteci() -> Iterable[DecisionCandidate]:
+    """Tüm katalog için gerçek karar üretir — `_cli()`'nin kullandığı üreteç.
+
+    `katalog_ozelliklerini_hesapla` vektörize (`training/build_dataset.py`
+    ile aynı desen): 2.000 SKU için tek toplu çağrı, SKU başına ayrı sorgu
+    değil. 10 dakikalık bütçe bu sayede korunuyor.
+    """
+    dunya = _demo_dunyasini_yukle()
+    siniflandirma = _siniflandirmayi_hesapla(dunya)
+    ozellikler = katalog_ozelliklerini_hesapla(
+        olcum_tarihi=dunya["olcum_tarihi"],
+        talep=dunya["talep"],
+        envanter_gunluk=dunya["envanter_gunluk"],
+        sku_df=dunya["sku"],
+        tedarikci_df=dunya["tedarikci"],
+        siniflandirma=siniflandirma,
+    )
+    return [ozellikten_karar_uret(o) for o in ozellikler]
 
 
 class _EsikOnbellegi:
@@ -248,8 +277,14 @@ def _cli() -> None:
     args = ayristirici.parse_args()
 
     ayar = ayarlar()
-    with oturum_fabrikasi()() as oturum:
-        ozet = gecelik_tarama(oturum, ayar, gerekce_ust_n=args.ust_n)
+    with oturum_fabrikasi()() as oturum, OllamaIstemcisi(ayar=ayar) as istemci:
+        ozet = gecelik_tarama(
+            oturum,
+            ayar,
+            karar_ureteci=_gercek_karar_ureteci,
+            gerekce_ureteci=llm_gerekce_ureteci(istemci),
+            gerekce_ust_n=args.ust_n,
+        )
 
     print(ozet.ozet())
     if ozet.toplam_sn > 600:
