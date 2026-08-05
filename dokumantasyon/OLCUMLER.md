@@ -1094,3 +1094,30 @@ davranış (mimarinin ikinci kuralı) ama aynı zamanda bir ölçüm hatasını 
 sessizce gizleyebiliyor. Ölçüm scriptleri bundan sonra modelin gerçekten
 yanıt verdiğini (`ollama list` / basit bir "merhaba" isteği) **önce**
 doğrulamalı.
+
+## Faz 5 · Uçtan uca benchmark (2026-08-05)
+
+`training/eval/benchmark.py` ile beş hedef tek raporda ölçüldü
+(`codifya-router:tur2`, taban model artık gerçekten kurulu):
+
+| Metrik | Sonuç | Hedef | Durum |
+|---|---|---|---|
+| router: araç+parametre tam eşleşme | %63,3 (19/30) | > %95 | ❌ KALDI |
+| gerekçe: uydurma sayı (final metin) | 0/20 | 0 | ✅ GEÇTİ |
+| gerekçe: Türkçe akıcılık (LLM-jüri) | 4,5/5 (4 örnek) | ≥ 4,0 | ✅ (gösterge) |
+| gecelik tarama süresi (2.000 SKU) | 234,7 sn | < 600 sn | ✅ GEÇTİ |
+| tepe RAM | 426 MB | < 4.096 MB | ✅ GEÇTİ |
+
+**4 sert kapıdan 1'i (router) KALDI.** Diğer üçü rahatça geçti — performans
+ve sayısal güvenlik tarafında sistem sağlam. "Uydurma sayı = 0" sonucu,
+guard'ın tasarım iddiasının (hiçbir zaman hallüsinasyon sızdırmaz) ilk kez
+gerçek üretim kodu (`adayi_dogrula`) ile empirik doğrulanışı.
+
+**Sonuç: threshold moduna geçiş için gerekli koşul sağlanmadı.** Router
+%63-73 bandında (ölçümden ölçüme küçük oynama var, hepsi 30 soruluk küçük
+sette), hedef %95. Bu Faz 3'ün SP3 düzeltmesindeki bulguyla tutarlı:
+2. tur LoRA eğitimi net bir kazanım göstermedi, gerekçe tarafında taban
+modelden geriye gitti. `shadow` modda kalmaya devam — bu teknik değil,
+süreç kararı (`KISI-B-GOREV.md`, Faz 5 uyarısı).
+
+Ham sonuçlar: `training/eval/benchmark_sonuc.json`.
