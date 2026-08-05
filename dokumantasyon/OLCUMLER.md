@@ -1053,14 +1053,44 @@ sayısı olan 35'i taban model ve eğitilmiş modelle ayrı ayrı `gerekce_uret(
 
 | | taban model | eğitilmiş model (`tur2`) |
 |---|---|---|
-| guard kabul oranı | **%0** (0/35) | **%25,7** (9/35) |
+| guard kabul oranı (İLK ÖLÇÜM, YANLIŞ) | ~~%0 (0/35)~~ | %25,7 (9/35) |
 
-%0 rakamı elle 4 örnekle doğrulandı (guard'a giren metin gerçekten
-`sablon_gerekce()` şablonunun birebir aynısı — betik hatası değil, taban
-model bu görevde tutarlı biçimde reddediliyor).
+⚠️ **DÜZELTME (2026-08-05, aynı gün):** %0 rakamı yanlıştı. Sebep betik
+hatası değil, ortam hatası — **`qwen2.5:1.5b-instruct` (taban model) bu
+makinede hiç indirilmemişti.** `Ayarlar(llm_model_adi="qwen2.5:1.5b-instruct")`
+ile açılan her `OllamaIstemcisi` çağrısı `LLMErisilemiyor` (404, model bulunamadı)
+fırlatıyordu; `gerekce_uret()` **"hiçbir koşulda hata fırlatmaz"** tasarımı
+gereği bunu sessizce yakalayıp şablona düşüyordu (`app/llm/guard.py::gerekceyi_guvenceye_al`).
+Yani %0, taban modelin kalitesi hakkında hiçbir şey söylemiyordu — sadece
+modelin kurulu olmadığını gösteriyordu. Dört örneği "elle doğrulama" da bu
+yüzden yanılttı: şablon metni gerçekten şablondu, ama nedeni "model kötü"
+değil "model yok"tu.
 
-**Sonuç: eğitim, router tarafından bağımsız olarak, gerekçe/guard tarafında
-da ölçülebilir bir kazanım sağladı** (%0 → %25,7). B3.5'teki router
-sonucuyla (tam doğruluk sabit) birlikte okununca tablo şu: **router zayıf,
-guard/gerekçe tarafı belirgin iyileşti.** %25,7 hâlâ düşük — ölçek olarak
-üretime hazır değil ama yönün doğru olduğunu gösteriyor.
+Model indirilip (`ollama pull qwen2.5:1.5b-instruct`) **aynı 35 kararla
+yeniden ölçüldü:**
+
+| | taban model (gerçek) | eğitilmiş model (`tur2`) |
+|---|---|---|
+| guard kabul oranı | **%100** (35/35) | **%25,7** (9/35) |
+
+**Gerçek sonuç önceki iddianın tam tersi: LoRA eğitimi gerekçe/guard
+tarafında işleri düzeltmemiş, belirgin şekilde kötüleştirmiş.** Taban
+model — uzun istem, kurallar bloğu, few-shot örnek içeren `istem_kur()`
+(B2.3/B2.4'ün ayarladığı biçim) — guard'ı her denemede geçiyor. Eğitilmiş
+model — kısa istem, `egitilmis_istem_kur()`, davranışın ağırlıklara
+işlendiği varsayımıyla kurallar/örnek olmadan çalışıyor — 4 denemeden
+3'ünde reddediliyor.
+
+B3.5'in router bulgusuyla (tam doğruluk hiç değişmedi: %66,7 → %66,7)
+birlikte okununca tablo şu: **2. tur eğitim ölçülebilir hiçbir yerde
+iyileşme sağlamadı; gerekçe tarafında belirgin kötüleşme var.** Olası
+sebep: eğitilmiş modelin kısa istemi, taban modelin sayı kopyalamasını
+kolaylaştıran açık kuralları/örneği taşımıyor — LoRA'nın bunu ağırlıklara
+yeterince işlemediği görülüyor.
+
+**Ders:** `.env`'de bir modelin adı yanlış/eksikse (`LLMErisilemiyor`),
+guard mimarisi bunu **kararı bloke etmeden** şablona düşürüyor — bu doğru
+davranış (mimarinin ikinci kuralı) ama aynı zamanda bir ölçüm hatasını da
+sessizce gizleyebiliyor. Ölçüm scriptleri bundan sonra modelin gerçekten
+yanıt verdiğini (`ollama list` / basit bir "merhaba" isteği) **önce**
+doğrulamalı.
