@@ -1321,10 +1321,16 @@ bölme, sızıntı yok, golden set 7/7 araç kapsıyor. **Yalnızca golden set'i
 nihai onayı** ("ikiniz birlikte 300-500 örneği elle gözden geçirin") hâlâ
 bekliyor — bu, tanım gereği tek başına kapatılamayan tek adım.
 
-**3. ⬜ Hâlâ açık — `decisions.py` hâlâ `decide_stub()` çağırıyor.** Merge
-sonrası kontrol edildi, gerçek `stok_karari_uret()`/`gerekce_uret()`'e geçiş
-henüz yapılmadı. Kişi B'nin kararı — muhtemelen Faz 3 (LoRA) tamamlanınca,
-gerçek üretilmiş model hazır olduğunda yapılması mantıklı.
+**3. ✅ Kapandı (2026-08-05) — `decisions.py` artık `decide_stub()` çağırmıyor.**
+Faz 3 (LoRA, `codifya-router:tur2`) tamamlanınca geçiş yapıldı:
+`app/api/decisions.py` → `stok_karari_uret()`/`gerekce_uret()`,
+`app/jobs/nightly.py::_cli()` → `_gercek_karar_ureteci`/`llm_gerekce_ureteci`.
+`gecelik_tarama()`'nın kendi varsayılanları (stub) testler için bilinçli
+olarak kaldı. `test_api_smoke.py`'deki iki test, sabit stub değerleri yerine
+gerçek (sabit seed'li) motor çıktısına göre güncellendi — LLM'in stokastik
+olduğu (sıcaklık > 0, sabit tohum yok) göz önünde bulundurularak yapısal
+kontrole geçildi. SP3 doğrulaması: guard kabul oranı taban model %0 →
+eğitilmiş model %25,7 (bkz. `dokumantasyon/OLCUMLER.md`).
 
 **4. ✅ Kapandı — A3.2'deki 7 araç listesi.** Kişi B gerçek router şemasını
 (`app/llm/schemas.py::AracAdi`) A3.2'nin geçici listesiyle **birebir aynı**
