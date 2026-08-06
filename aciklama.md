@@ -2109,3 +2109,55 @@ Taban kipte hiçbir şey değişmedi — orada çözüm zaten istem tarafında.
 
 2 yeni test. Toplam **320 test yeşil**.
 
+## Golden set incelemesi (Kişi B tarafı)
+
+`training/eval/golden_set_inceleme.py` — golden set ölçümlerin tamamının
+referansı olduğu için **tek kişi kapatamaz**. Bu betik benim incelememi
+üretiyor, karar ortak verilecek.
+
+### Temiz çıkanlar
+
+```
+train / val sizintisi   0        <- en kritik kontrol
+tekrar                  0/400
+guard uyumu             240/240  (%100)
+sozlesme uyumu          tum arac ve karar tipleri gecerli
+```
+
+**Sızıntı kontrolünde kendi hatamı düzelttim.** İlk sürüm "400 sızıntı" diye
+alarm verdi — çünkü golden set'in 400 satırının tamamı `*_test.jsonl`'de de
+var. Ama bu **sızıntı değil**: golden set zaten ayrılmış test bölümünden
+seçiliyor, örtüşme beklenen ve doğru olan. Tehlikeli olan `train`/`val`
+çakışması, o da **sıfır**.
+
+Bu ayrım betiğe yazıldı; yanlış alarm bir daha çıkmayacak.
+
+### Ortak onaydan önce konuşulacak iki şey
+
+**1. İki araç ölçülemeyecek kadar ince**
+
+```
+onay_kuyrugu_sorgula        3 ornek   tek hata = %33 oynama
+genel_stok_durumu_sorgula   3 ornek   tek hata = %33 oynama
+```
+
+Bu araçlar için "ölçtük" demek doğru olmaz. Ya golden set'te sayıları
+artırılmalı ya da raporlarda bu iki aracın sonucu **ayrı** verilmeli.
+
+**2. `stok.tedarikci_degisim` hiç yok**
+
+240 gerekçe örneğinin hiçbirinde bu karar tipi geçmiyor. Kural motoru bu tipi
+üretmiyorsa beklenen bir durum — ama öyleyse `KararTipi`'nde neden duruyor,
+Melih'le netleşmeli.
+
+### Dağılım notu
+
+```
+stok.aksiyon_yok   159/240  (%66)
+stok.tasfiye        61/240  (%25)
+stok.siparis        20/240  (%8)
+```
+
+Doğal dağılıma yakın, ama ölçümün üçte ikisi en kolay vakayı (aksiyon yok)
+sınıyor. Zor vakalar (sipariş) 20 örnekle temsil ediliyor.
+
