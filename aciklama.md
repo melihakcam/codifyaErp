@@ -2400,3 +2400,70 @@ diye işaretledik, o kadar.
 
 Modelin yanlış cevabına bakıp doğru cevabı değiştirmek, sınavı öğrenciye
 uydurmaktır. O andan sonra sınav hiçbir şey ölçmez.
+
+---
+
+## Tahminimiz yanlıştı — ve daha ölçüm gelmeden anladık
+
+Yukarıda bir tahmin yazmıştık: *"`genel stok durumu` aracının 26 örneği var,
+`gecelik özet`'in 155. Model kararsız kalınca çok gördüğünü seçer, yani küçük
+olan kaybeder."*
+
+**Bu yanlış.** Sebebini yazalım.
+
+### Hata neredeydi
+
+Ham dosyadaki sayılara baktık. Ama eğitim o dosyayı olduğu gibi kullanmıyor —
+sınıfları **eşitliyor**. Modelin gerçekten gördüğü şu:
+
+```
+arac                     ozgun cumle   egitimde gorulen   tekrar
+siparis onerisi              1633            285          0,2x
+gecelik ozet                  155            285          1,8x
+onay kuyrugu                   39            285          7,3x
+genel stok durumu              26            285         11,0x
+```
+
+Hepsi **285**. Yani hacim farkı diye bir şey yok, tahminimizin dayanağı yok.
+
+Fark başka yerde: `genel stok durumu` 26 cümleyi 11 kez tekrar ediyor,
+`gecelik özet` ise 155 farklı cümle gösteriyor. Aynı ağırlık, çok farklı
+çeşitlilik.
+
+### Elimizde kanıt zaten varmış
+
+2. turun sonuçları duruyordu ve bakmamıştık. Baktık:
+
+```
+arac                     taban     2. tur
+siparis onerisi          5 bekle/6 sec   5/3   <- AZ secilir oldu
+tedarikci performansi    5/4             5/1   <- AZ secilir oldu
+genel stok durumu        2/3             2/4   <- FAZLA secilir oldu
+onay kuyrugu             5/5             5/7   <- FAZLA secilir oldu
+```
+
+2. turun dört hatasının **dördü de** o iki küçük sınıfa gitmiş.
+
+Yani az çeşitlilikli sınıf kaybetmiyor — **çöp kutusu oluyor.** Eşit ağırlık
+alıyor ama dar kalıpları olduğu için sınırı bulanık; başka hiçbir sınıfa tam
+uymayan soruyu kapıyor.
+
+### Düzeltilmiş tahmin
+
+Eskisini silmedik, üstüne yazdık. Sonucu görüp geçmişi düzeltmek tahmini
+anlamsız kılar.
+
+1. `genel stok durumu` **fazla** seçilecek, az değil. Bizim o araç için
+   yazdığımız 8 soru muhtemelen iyi puan alacak.
+2. Asıl zarar **başka araçlarda** görünecek — onlardan bu ikisine kaçış olacak.
+3. Karışma yönü **tersine dönecek**. (Eski tahmin tam tersini söylüyordu.)
+
+### Asıl çözüm ne
+
+Daha çok eğitim turu bunu çözmez. Örnekleme ayarını oynatmak da çözmez.
+
+Tek çözüm: bu iki araç için **çeşitli soru yazmak**. Aynı cümlenin
+"gösterir misiniz / açıklar mısınız / paylaşır mısınız" çeşitlemesi değil,
+gerçekten farklı soruluşlar. Her biri için ~150 özgün soru.
+
+Bu Melih'in tarafı (veri üretimi).

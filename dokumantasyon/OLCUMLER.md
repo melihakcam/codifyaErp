@@ -1570,3 +1570,90 @@ Daha fazla eğitim turu bunu çözmez; **veri sorunu**. İki seçenek:
 - ya da sınıf ağırlıklı örneklemede bu sınıfa özel tavan yükseltmek.
 
 Karar ölçüm geldikten sonra, birlikte.
+
+### DÜZELTME — tahminin dayanağı yanlıştı (3. tur hâlâ gelmeden)
+
+⚠️ Yukarıdaki tahmin **olduğu gibi bırakıldı**; sonradan düzeltmek tahmini
+anlamsız kılar. Bu bölüm onun üstüne yazılan bir düzeltme.
+
+#### Hata: ham dosya sayısına bakıldı
+
+Tahmin şuna dayanıyordu: *"`genel_stok` 26 örnek, `gecelik` 155 örnek; model
+kararsız kalınca çok gördüğünü seçer."*
+
+Ama eğitim ham dosyayı kullanmıyor. `train_lora.ipynb::dengeli_kota` sınıfları
+eşitliyor (`TAVAN_KAT=20`, `ROUTER_ORNEK=2000`). Modelin gerçekten gördüğü:
+
+| araç | özgün | kota | tekrar | **özgünlük** |
+|---|---|---|---|---|
+| `siparis_onerisi` | 1633 | 285 | 0,2x | %100,0 |
+| `tedarikci_performansi` | 1325 | 285 | 0,2x | %100,0 |
+| `kritik_stok` | 256 | 285 | 1,1x | %89,8 |
+| `olu_stok` | 240 | 285 | 1,2x | %84,2 |
+| `gecelik_ozet` | 155 | 285 | 1,8x | %54,4 |
+| `onay_kuyrugu` | 39 | 285 | 7,3x | **%13,7** |
+| `genel_stok_durumu` | 26 | 285 | 11,0x | **%9,1** |
+
+**Kotalar eşit.** Hacim farkı diye bir şey yok — tahminin dayanağı buharlaştı.
+Fark özgünlükte: `genel_stok` 26 cümleyi 11 kez tekrarlıyor, `gecelik` 155
+farklı cümle gösteriyor. Aynı ağırlık, çok farklı çeşitlilik.
+
+#### Kanıt: 2. tur zaten bunu gösteriyormuş
+
+2. tur sonucu elimizdeydi (`router_lora_tur2_sonuc.json`) ve bakılmamıştı.
+Sınıf başına "kaç kez beklendi / kaç kez seçildi":
+
+| araç | özgünlük | taban | 2. tur | |
+|---|---|---|---|---|
+| `siparis_onerisi` | %100,0 | 5/6 | 5/3 | az seçilir oldu |
+| `tedarikci_performansi` | %100,0 | 5/4 | 5/1 | az seçilir oldu |
+| `gecelik_ozet` | %54,4 | 3/4 | 3/3 | düzeldi |
+| `onay_kuyrugu` | **%13,7** | 5/5 | 5/**7** | **fazla seçilir oldu** |
+| `genel_stok_durumu` | **%9,1** | 2/3 | 2/**4** | **fazla seçilir oldu** |
+
+2. turun gerçek araca giden dört hatasının **dördü de** o iki sınıfa akmış:
+
+```
+2x  tedarikci_performansi -> genel_stok_durumu
+1x  kritik_stok           -> onay_kuyrugu
+1x  olu_stok              -> onay_kuyrugu
+```
+
+Yani düşük özgünlüklü sınıf **kaybetmiyor, çöp kutusu oluyor.** Eşit ağırlık
+alıyor ama dar ve ezberlenmiş kalıpları olduğu için karar sınırı bulanık;
+başka bir sınıfa güçlü şekilde uymayan her soruyu kapıyor.
+
+#### Bu zaten öngörülmüştü
+
+`train_lora.ipynb`, 2. tur bölümünde şunu yazıyordu:
+
+> *"Hiçbir örnekleme 11 özgün soruyu çoğaltamaz. Ölçüm iyileşebilir (model o
+> 11 kalıbı öğrenir) ama aynı aracın yeni bir soruluşunu tanıması beklenmez."*
+
+Doğru çıkmış. Eksik olan tek şey, bunun **diğer sınıflara zarar verdiğinin**
+görülmemesiydi.
+
+#### Düzeltilmiş tahmin (3. tur için)
+
+Eskisi geçersiz. Yenisi:
+
+1. **`genel_stok_durumu` FAZLA seçilecek**, az değil. Ek setteki 8
+   `genel_stok` sorusu **iyi** puan alabilir (≥6/8) — çünkü sınıf her şeyi
+   çekiyor.
+2. **Asıl zarar başka araçlarda görünecek.** `tedarikci_performansi` ve
+   `kritik_stok` gibi sınıflardan `genel_stok`/`onay_kuyrugu`'na kaçış olacak.
+3. **Karışma yönü tersine dönecek:** `gecelik → genel_stok` yönü artacak,
+   `genel_stok → gecelik` azalacak. (Eski tahmin tam tersini söylüyordu.)
+4. **`onay_kuyrugu` da fazla seçilecek** (%13,7 özgünlük).
+
+**Ölçülebilir imza:** her sınıf için *seçilme − beklenme*. Düşük özgünlüklü
+iki sınıfta pozitif, yüksek özgünlüklülerde negatif olmalı.
+
+#### Sonuç: doğru çözüm ne
+
+Daha fazla eğitim turu **bunu çözmez**; örnekleme ayarı da çözmez (dengeyi
+bozar). Tek gerçek çözüm `genel_stok_durumu` ve `onay_kuyrugu` için **çeşitli
+soru üretmek** — tek kalıbın nezaket çeşitlemesi değil, farklı soruluşlar.
+
+Hedef: özgünlük ≥%50, yani her iki araç için ~150 özgün soru. Kişi A'nın
+tarafı (Veri & Alan).
