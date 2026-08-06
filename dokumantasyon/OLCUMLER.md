@@ -1263,15 +1263,21 @@ B3.1'de tam bu gerekçeyle eklenmişti, tedarikçi adı atlanmış.
 Sonucu: tasfiye kararlarında model, kararın özü olan iskonto oranını
 doğal Türkçeyle ("%15") yazamıyordu — yalnızca "0,15" izinliydi.
 
-Kanıt: eğitim hedefleri 886 kez "%15" kullanıyor ve üretildikleri sırada
-**guard'dan geçmişler** (`guard_sonucu: gecti`). Yani veri, bu alanın
-×100 karşılığının izinli olduğu bir sürümle doğrulanmış; sonradan
-ayrışmış. Docstring'in "unutulursa" senaryosu aynen gerçekleşmiş.
+Kanıt (ilk ölçüm, 5.000 örneklik alt küme): eğitim hedefleri 886 kez "%15"
+kullanıyor ve üretildikleri sırada **guard'dan geçmişler**
+(`guard_sonucu: gecti`). Yani veri, bu alanın ×100 karşılığının izinli
+olduğu bir sürümle doğrulanmış; sonradan ayrışmış. Docstring'in
+"unutulursa" senaryosu aynen gerçekleşmiş.
 
 `ORAN_ALANLARI`'na eklendi. **Bu bir sözleşme değişikliği** (`contracts.py`
-donmuş dosya) — Kişi A yaptı, **Kişi B'nin teyidi gerekiyor**. Genişleme dar kapsamlı:
-yalnızca o alanın kendi değerinin ×100'ü izinli olur, iskonto gerçekte
-%20 iken modelin "%15" demesi hâlâ reddedilir.
+donmuş dosya) — Kişi A yaptı, **Kişi B onayladı** (2026-08-06).
+
+**Kişi B'nin bağımsız doğrulaması, kanıtı tam veriye genişletti:**
+10.000 tasfiye hedefinin **10.000'i** — üç oranın (0,15 / 0,30 / 0,50)
+tamamı — yüzde olarak yazılmış ve hepsi `guard_sonucu: gecti` ile
+üretilmiş. B ayrıca genişlemenin dar kaldığını test etti: iskonto %15
+olan bir kararda "20"/"30"/"50" hâlâ reddediliyor. İkisi de burada
+bağımsız olarak yeniden koşturulup doğrulandı.
 
 ### Yapısal koruma: tek kaynak
 
