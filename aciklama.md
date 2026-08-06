@@ -2336,3 +2336,67 @@ Taban çizgiyi tekrar ürettik, eski kayıtla birebir aynı çıktı — yalnız
 süreler farklı. Yani ölçüm gerçekten tekrarlanabilir.
 
 Toplam **324 test yeşil**.
+
+---
+
+## Ölçmeden önce tahmin yazdık
+
+Ek set, modelin iki aracı karıştırdığını göstermişti. Sıradaki soru: eğitim
+bunu düzeltir mi?
+
+3. tur hâlâ eğitilirken bu sorunun cevabına **veriye bakarak** yaklaşmak
+mümkündü. Baktık ve tahminimizi ölçümden **önce** yazdık. Sebebi basit:
+sonucu gördükten sonra "zaten böyle olacağını biliyorduk" demek çok kolay.
+Önceden yazılan tahmin ya tutar ya tutmaz.
+
+### Veride ne var
+
+Önce iyi haber: model bu iki aracı ayırt edecek işareti bulabiliyor.
+
+```
+"genel"     -> genel stok sorularinin %69'unda,  gecelik'te HIC
+"stok"      -> %42'sinde,                        gecelik'te HIC
+"bugün"     -> genel stokta HIC,                 gecelik'in %24'unde
+"özet"      -> %35                               %42     <- tek belirsiz kelime
+```
+
+Kötü haber, örnek sayıları:
+
+```
+genel_stok_durumu     26 ornek     (tum egitim verisinin %0,7'si)
+gecelik_ozet         155 ornek
+siparis_onerisi     1633 ornek
+```
+
+Üstelik o 26 örneğin 7'si aynı cümlenin nezaket çeşitlemesi:
+*"Envanterin genel özetini gösterir/açıklar/paylaşır mısınız?"*
+
+`gecelik_ozet`'te ise 155 örnekte 140 farklı cümle yapısı var — gerçek
+çeşitlilik.
+
+Yani ortak kelime olan "özet" geldiğinde model 155'e karşı 26 görüyor.
+
+### Tahminimiz
+
+1. **`gecelik_ozet` düzelecek** — bol ve çeşitli örneği var. 5/7'den 6-7/7'ye.
+2. **`genel_stok_durumu` düzelmeyecek, kötüleşebilir** — 26 örnek yetmez.
+   6/8'den aşağı.
+3. **Karışma tek yönlü kalacak** — şu an iki yönlü. Eğitimden sonra sadece
+   `genel_stok -> gecelik` yönü kalacak, çünkü hacim o tarafta.
+
+Tahmin tutmazsa hipotezimiz yanlış demektir ve sorun sandığımız yerde değil.
+O da öğrenilecek bir şey.
+
+### Bir şeyi yapmadık: etiket değiştirmedik
+
+Ek setteki 18 soruyu eğitim verisine karşı denetledik. Birinde çelişki çıktı:
+
+> *"Bugün depoda genel tablo nedir?"* — biz `genel_stok_durumu` dedik. Ama
+> "bugün" kelimesi eğitimde `gecelik_ozet`'e ait bir işaret.
+
+Etiketi **değiştirmedik.** Çünkü anlamca haklıyız: "depoda genel tablo" stok
+durumudur, oradaki "bugün" "şu an" demek. Soruyu dosyada "bilinçli zor vaka"
+diye işaretledik, o kadar.
+
+Modelin yanlış cevabına bakıp doğru cevabı değiştirmek, sınavı öğrenciye
+uydurmaktır. O andan sonra sınav hiçbir şey ölçmez.

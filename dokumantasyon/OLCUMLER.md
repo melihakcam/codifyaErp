@@ -1475,3 +1475,98 @@ eski kayıtla **birebir aynı** çıktı (fark yalnızca süre alanlarında) —
 determinizm bir kez daha doğrulandı.
 
 Toplam **324 test yeşil**.
+
+---
+
+## 3. tur ÖNCESİ tahmin — çürütülebilir, önceden yazıldı (Kişi B, 2026-08-06)
+
+⚠️ **Bu bölüm 3. tur ölçümünden ÖNCE yazıldı.** Sonucu görüp sonradan
+açıklama uydurmak kolaydır; önceden yazılmış tahmin ise ya tutar ya tutmaz.
+Aşağıdaki sayılar ölçüm geldiğinde **değiştirilmeyecek**.
+
+### Soru
+
+Ek set, taban modelin `genel_stok_durumu` ile `gecelik_ozet`'i **çift yönlü**
+karıştırdığını gösterdi. Eğitim bunu düzeltebilir mi?
+
+Cevabı ölçmeden önce eğitim verisine bakmak mümkündü — bakıldı.
+
+### Bulgu 1: sinyal temiz, sorun hacim
+
+Vokabüler ayrımı aslında **net**. Eğitim verisinde:
+
+| kelime | `genel_stok` | `gecelik_ozet` | ayırt edici mi |
+|---|---|---|---|
+| `genel` | %69,2 | %0,0 | ✅ kusursuz |
+| `stok` | %42,3 | %0,0 | ✅ kusursuz |
+| `envanter` | %38,5 | %0,0 | ✅ kusursuz |
+| `bugün` | %0,0 | %23,9 | ✅ kusursuz |
+| `gecelik` | %0,0 | %11,0 | ✅ kusursuz |
+| `özet` | %34,6 | %41,9 | ❌ **belirsiz** |
+
+Yani model bu iki sınıfı ayırt edecek işareti veride bulabiliyor. Tek
+gerçekten paylaşılan kelime `özet` — ve iki sınıfın da üçte birinden
+fazlasında geçiyor.
+
+### Bulgu 2: asıl sorun örnek sayısı ve şablon çeşitliliği
+
+```
+                        train   val  test   farkli iskelet
+genel_stok_durumu         26      5     3   20 (7'si AYNI kalip)
+gecelik_ozet             155     17    12   140
+siparis_onerisi         1633      —     —   —
+```
+
+`genel_stok_durumu` eğitim verisinin **%0,7'si**. Üstelik 26 örneğin 7'si
+tek bir kalıbın nezaket çeşitlemesi:
+
+```
+7x  "envanterin genel özetini <FIIL> mısınız?"
+```
+
+`gecelik_ozet` ise 155 örnekte 140 farklı iskelet taşıyor — gerçek çeşitlilik.
+Paylaşılan `özet` kelimesi geldiğinde model 155'e karşı 26 görüyor.
+
+### Tahmin
+
+1. **`gecelik_ozet` düzelecek.** 155 örnek ve yüksek çeşitlilik var. Taban
+   5/7 idi; 3. turda **6/7 veya 7/7** bekliyorum.
+
+2. **`genel_stok_durumu` düzelmeyecek, kötüleşebilir.** 26 örnek ve tek
+   baskın kalıp yeterli değil; eğitim, paylaşılan `özet` sinyalini 155
+   örneklik sınıfa doğru çekecek. Taban 6/8 idi; 3. turda **≤6/8**
+   bekliyorum.
+
+3. **Hataların yönü tek yönlüye dönecek.** Taban modelde karışma çift
+   yönlüydü. Eğitimden sonra `gecelik_ozet → genel_stok` yönü kaybolacak,
+   `genel_stok → gecelik_ozet` yönü kalacak — hacim farkının doğal sonucu.
+
+4. **`onay_kuyrugu` da riskli** (39 eğitim örneği). Taban 2/3.
+
+**Bu tahmin yanlış çıkarsa** — özellikle (2) ve (3) — hipotez yanlış demektir
+ve sorun hacim değil başka bir şeydir. İkisi de öğrenilecek bilgi.
+
+### Ne yapılmayacak
+
+Ek setin altın etiketleri **değiştirilmeyecek**. Denetim yapıldı: 18 sorunun
+1'inde eğitim verisiyle çelişen sinyal var —
+
+> `"Bugün depoda genel tablo nedir?"` → `genel_stok_durumu_sorgula`
+> çelişen: `bugün` (gecelik'in %24'ü) · destek: `genel` (genel_stok'un %69'u)
+
+Etiket anlamca doğru: *"depoda genel tablo"* stok durumudur, *"bugün"* burada
+*"şu an"* anlamında. Soru dosyada `not` alanıyla **bilinçli zor vaka** olarak
+işaretlendi.
+
+Modelin hatasına bakıp altın etiketi değiştirmek, ölçümü modele uydurmaktır —
+o noktadan sonra ölçüm hiçbir şey söylemez.
+
+### Eğer tahmin (2) tutarsa ne yapılmalı
+
+Daha fazla eğitim turu bunu çözmez; **veri sorunu**. İki seçenek:
+
+- `genel_stok_durumu` için ~150 örneğe çıkacak şekilde çeşitlilikli soru
+  üretmek (Kişi A'nın üreticisiyle, ama tek kalıptan değil),
+- ya da sınıf ağırlıklı örneklemede bu sınıfa özel tavan yükseltmek.
+
+Karar ölçüm geldikten sonra, birlikte.
