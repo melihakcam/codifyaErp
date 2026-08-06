@@ -1982,3 +1982,39 @@ taşıyor olabilir — 4. tur ya da yeni bir paraphrase turu öncesi
 **Golden set artık ortak onay için hazır** — n<10 iki araç ve
 `stok.tedarikci_degisim` boşluğu (zaten kabul edilmiş, bkz. yukarıdaki
 bölümler) dışında bilinen bir sorun yok.
+
+## Çöp kutusu araçları için hedefli paraphrase turu (2026-08-06)
+
+3. tur ölçümünde hem benim hem B'nin bağımsız doğruladığı özgünlük
+hipotezine çözüm: `genel_stok_durumu_sorgula` ve `onay_kuyrugu_sorgula`
+için `training/paraphrase_colab.ipynb` (Qwen2.5-7B, Colab GPU) ile
+hedefli, yüksek-n bir paraphrase turu koşuldu.
+
+⚠️ **İlk deneme kesilme (truncation) hatası verdi** — `VARYANT_SAYISI=18`
+için sabit `max_new_tokens=200` yetersizdi, üretim yarıda kesilip
+tamamlanmamış satırlar bıraktı ("Onay bekleyen kararları varsa l"). Kalıcı
+düzeltme: `max_new_tokens` artık `n * 45` (varyant başına pay), tamamlanmamış
+satırlar filtreleniyor, tek-üretim içi tekilleştirme eklendi.
+
+İkinci (düzeltilmiş) deneme sonrası, **mevcut havuzla birleştirilerek**
+(değiştirilmeden — hiçbir zaman geriye gitmemek için):
+
+| araç | önce | sonra |
+|---|---|---|
+| `genel_stok_durumu_sorgula` | 28 şablon | **67 şablon** (+139%) |
+| `onay_kuyrugu_sorgula` | 39 şablon | **65 şablon** (+67%) |
+
+`training.veri_bolme` yeniden koşuldu, golden set adayı yenilendi:
+
+| araç (golden set) | önce | sonra |
+|---|---|---|
+| `genel_stok_durumu_sorgula` | 3 (ince araç uyarısı) | **7** (eşiği geçti ✅) |
+| `onay_kuyrugu_sorgula` | 3 | **4** (hâlâ ince, iyileşti) |
+
+`veri_tutarlilik_kontrolu` ve `golden_set_inceleme` yeniden geçti (sızıntı
+yok, guard uyumu %100). Hedef (~150/araç) tam tutmadı — paraphrase modelinin
+tek üretimde üretebildiği gerçek çeşitlilik sınırlı çıktı — ama gerçek,
+geriye gitmesiz bir kazanım. `data/colab_yukle/` yeniden üretildi.
+
+⚠️ Veri dosyaları `.gitignore`'da; kod düzeltmesi (`paraphrase_colab.ipynb`)
+git'te, veri Drive'a ayrıca yüklenmeli.
