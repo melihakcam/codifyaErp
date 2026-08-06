@@ -283,6 +283,22 @@ def gecelik_tarama_metrikleri() -> tuple[MetrikSonucu, MetrikSonucu]:
     return sure_metrigi, ram_metrigi
 
 
+def sonuc_yolu(etiket: str) -> Path:
+    """Etikete göre ayrı dosya — koşular birbirinin üstüne yazmasın.
+
+    ⚠️ Önceden **her koşu** `benchmark_sonuc.json`'a yazıyordu: taban model,
+    3. tur, hangisi son koşulduysa o dosyada kalıyordu. Aynı hata
+    `router_taban.py::sonuc_yolu`'nun düzelttiği hatanın birebir aynısı — B
+    orada yaşadı (hatalı bir deneme taban çizgi kaydını sildi, uyarı yok),
+    burada da varmış. Desen bilinçli olarak birebir kopyalandı; iki script
+    farklı davranırsa "hangisi doğruydu" sorusu gereksiz yere sorulur.
+    """
+    guvenli = "".join(c if c.isalnum() or c in "-_" else "-" for c in etiket)
+    if guvenli in {"taban", "baseline", "taban-cizgi-egitim-oncesi"}:
+        return SONUC_DOSYASI
+    return SONUC_DOSYASI.with_name(f"benchmark_sonuc_{guvenli}.json")
+
+
 def _cli() -> None:
     ayristirici = argparse.ArgumentParser(description="Faz 5 uçtan uca benchmark")
     ayristirici.add_argument(
@@ -291,6 +307,15 @@ def _cli() -> None:
         choices=("router", "uydurma", "gecelik"),
         default=[],
         help="Zaman alan adımları atla (ör. --atla gecelik)",
+    )
+    ayristirici.add_argument(
+        "--etiket",
+        default="taban",
+        help=(
+            "Sonuç dosyasına yazılacak etiket (ör. 'lora-tur3'). "
+            "'taban' donmuş dosya adını (benchmark_sonuc.json) korur, "
+            "başka etiketler ayrı dosyaya yazar — bkz. sonuc_yolu()."
+        ),
     )
     args = ayristirici.parse_args()
     ayar = ayarlar()
@@ -339,9 +364,11 @@ def _cli() -> None:
             print(f"   - {s.ad}")
     print("\n⚠️ threshold moduna geçiş kararı bu rapora dayanmalı — teknik değil süreç kararı.")
 
-    SONUC_DOSYASI.write_text(
+    yol = sonuc_yolu(args.etiket)
+    yol.write_text(
         json.dumps(
             {
+                "etiket": args.etiket,
                 "model": ayar.llm_model_adi,
                 "istem_bicimi": ayar.llm_istem_bicimi,
                 "metrikler": [s.__dict__ for s in sonuclar],
@@ -352,7 +379,7 @@ def _cli() -> None:
         ),
         encoding="utf-8",
     )
-    print(f"\nHam sonuçlar: {SONUC_DOSYASI}")
+    print(f"\nHam sonuçlar: {yol}")
 
 
 if __name__ == "__main__":
