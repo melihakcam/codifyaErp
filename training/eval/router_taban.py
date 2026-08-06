@@ -462,12 +462,38 @@ def sonuctan_yukle(yol: Path) -> tuple[str, list[Kayit]]:
     Zaten amaç buydu.
     """
     govde = json.loads(yol.read_text(encoding="utf-8"))
+
+    # ⚠️ ALTIN ETIKETLER SORU DOSYALARINDAN TAZELENIYOR.
+    #
+    # Kayitli JSON, olcum anindaki altin etiketi de tasiyor. Ama altin etiket
+    # DUZELTILEBILIR: ek sette "dun gece ne cikti" parametresiz yazilmisti,
+    # oysa schemas.py bu araca `tarih_ifadesi` veriyor ve egitim verisindeki
+    # 155 ornegin 155'i parametreli. Etiket yanlisti.
+    #
+    # Etiket duzeltilince ESKI olcumler de yeni etiketle yeniden puanlanmali;
+    # yoksa taban ile tur3 farkli altin etiketlerle karsilastirilir ve
+    # kiyaslama gecersiz olur. Modul zaten "modeli tekrar calistirmaya gerek
+    # kalmasin" diye soz veriyordu -- bu, o sozun asil kismi.
+    #
+    # ⚠️ Bu, altin etiketi modelin ciktisina uydurmak DEGIL. Etiket yalnizca
+    # soru dosyasinda degistiyse degisir; soru dosyasi da sozlesme ve egitim
+    # kuralina gore duzeltilir, modele bakilarak degil.
+    altin: dict[str, Kayit] = {}
+    for soru_dosyasi in (SORU_DOSYASI, EK_SORU_DOSYASI):
+        if soru_dosyasi.exists():
+            for ref in kayitlari_yukle(soru_dosyasi):
+                altin[ref.soru.strip()] = ref
+
     kayitlar = [
         Kayit(
             soru=k["soru"],
             stil=k["stil"],
             beklenen_arac=k["beklenen_arac"],
-            beklenen_parametreler=k.get("beklenen_parametreler", {}),
+            beklenen_parametreler=(
+                altin[k["soru"].strip()].beklenen_parametreler
+                if k["soru"].strip() in altin
+                else k.get("beklenen_parametreler", {})
+            ),
             secilen_arac=k.get("secilen_arac"),
             secilen_parametreler=k.get("secilen_parametreler"),
             hata=k.get("hata"),
@@ -476,6 +502,16 @@ def sonuctan_yukle(yol: Path) -> tuple[str, list[Kayit]]:
         )
         for k in govde["kayitlar"]
     ]
+    degisen = [
+        k.soru
+        for k, ham in zip(kayitlar, govde["kayitlar"], strict=True)
+        if k.beklenen_parametreler != ham.get("beklenen_parametreler", {})
+    ]
+    if degisen:
+        print(f"  ⚠️ {len(degisen)} sorunun altin etiketi soru dosyasindan tazelendi:")
+        for soru in degisen:
+            print(f"       {soru}")
+        print()
     return govde.get("etiket", yol.stem), kayitlar
 
 

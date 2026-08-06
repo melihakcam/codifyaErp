@@ -1744,3 +1744,185 @@ Soğuk başlangıç *bilinen* bir kayma kaynağını kapatıyor. Ollama sürüm�
 donanım veya model dosyası değişirse aynı sorun geri gelebilir — bu yüzden
 sonuç dosyalarında model adı ve etiket saklanıyor. **3. tur ölçümü ile taban
 çizgi mümkünse aynı oturumda koşturulmalı.**
+## ⭐ 3. tur SONUCU (2026-08-06)
+
+Eğitim: 9.993 örnek, 1.250 adım, 43 dk. Kayıp eğrisi 2. turdan daha iyi
+bitti (eğitim 0,1311, doğrulama 0,1750 — 2. tur: 0,1797/0,2134),
+ezberleme işareti yok.
+
+### Ana tablo
+
+| | taban | 2. tur | **3. tur** |
+|---|---|---|---|
+| router tam doğruluk (30 soru, B2.3 seti) | %66,7 | %63,3 | **%70,0** |
+| router araç doğruluğu | %70,0 | %73,3 | **%76,7** |
+| **guard kabul oranı** ⭐ | %100 | **%25,7** | **%100** |
+| gerekçe: uydurma sayı (final metin) | 0 | — | **0** |
+| Türkçe akıcılık (LLM-jüri) | — | — | 4,80/5 |
+| gecelik tarama (2.000 SKU) | — | — | 180 sn (hedef <600) |
+| tepe RAM | — | — | 421 MB (hedef <4096) |
+
+**Kök neden düzeltmesi doğrulandı.** Guard kabul oranı %25,7 → %100 —
+taban modelle birebir eşleşti. 2. turun yarattığı hasar (istem, hedefin
+kullandığı sayıların çoğunu içermiyordu — bkz. "2. turun KÖK NEDENİ")
+tamamen giderildi. Router tarafında da taban çizgiyi geçti, ilk kez
+**hiçbir eksende taban modelden kötü değil.**
+
+⚠️ Router'daki iyileşme (%66,7→%70,0) B'nin Wilson eşiğinin (27/30, bkz.
+SP3/B4 tartışması) altında — istatistiksel olarak "kesin kazanım" denemez,
+gürültü payı içinde olabilir. Ama **guard tarafındaki fark (4 kat) gürültü
+sınırlarının çok üzerinde**, o kesin.
+
+### Ek set (18 soru, ince araçlar) — taban ile doğrudan kıyas
+
+| | taban | **3. tur** |
+|---|---|---|
+| araç doğruluğu | %72,2 | **%88,9** ↑ |
+| tam doğruluk | %72,2 | **%61,1** ↓ |
+| uydurma parametre | 0 | **4** (yeni) |
+
+Araç seçiminde net iyileşme ama **yeni bir halüsinasyon türü**: model
+`gecelik_ozet_sorgula` sorularında hiç sorulmayan bir `tarih_ifadesi`
+parametresi (`"dün"`, `"geçen gün"`) uydurmaya başladı. Taban modelde
+hiç yoktu. İzlenmeli — 3. turun kazanımı parametre uydurma riskiyle
+birlikte geliyor.
+
+### B'nin DÜZELTİLMİŞ tahmini (özgünlük hipotezi) — sonuç: doğrulandı
+
+İlk tahmin (yukarıda, "hacim" temelli) zaten yanlış çıkacağı önceden
+biliniyordu — B ölçümden önce dayanağını düzeltmişti (bkz. yukarıdaki
+"DÜZELTME" bölümü): sorun hacim değil **özgünlük**, düşük özgünlüklü
+sınıflar (`genel_stok_durumu` %9,1, `onay_kuyrugu` %13,7) kaybetmiyor,
+**çöp kutusu** oluyor — başka sınıflardan kaçan sorular oraya akıyor.
+
+30 soruluk taban setteki tüm yanlış yönlendirmeler:
+
+```
+kritik_stok_sorgula            -> onay_kuyrugu_sorgula      (kaçış)
+olu_stok_sorgula                -> onay_kuyrugu_sorgula      (kaçış)
+gecelik_ozet_sorgula             -> genel_stok_durumu_sorgula (kaçış, YÖN TERSİNE DÖNDÜ)
+onay_kuyrugu_sorgula             -> siparis_onerisi_sorgula   (tek ters örnek)
+```
+
+| düzeltilmiş tahmin | gerçekleşen | tuttu mu |
+|---|---|---|
+| `genel_stok_durumu` FAZLA seçilecek (çöp kutusu) | Ek sette 8/8, + taban sette 1 kaçış aldı | ✅ |
+| Asıl zarar başka sınıflarda görünecek | `kritik_stok`, `olu_stok` başka yere kaçtı | ✅ |
+| Karışma yönü tersine dönecek (`gecelik→genel_stok`) | Tam olarak bu yönde 1 kaçış, ters yönde 0 | ✅ |
+| `onay_kuyrugu` da fazla seçilecek | 2 kaçış aldı (kritik_stok, olu_stok'tan) | ✅ |
+
+**Dört tahminin dördü de doğrulandı.** Özgünlük hipotezi (hacim değil,
+tekrarlanan dar kalıplar karar sınırını bulanıklaştırıyor) 3. tur
+verisiyle net şekilde teyit edildi. Çözüm B'nin yazdığı gibi: daha fazla
+eğitim turu değil, bu iki araç için **çeşitli** (~150 özgün) soru
+üretmek — Kişi A'nın tarafı.
+
+### Sonuç ve öneri
+
+3. tur, ölçülen her eksende taban modelden **eşit ya da iyi** — 2. turun
+aksine. `.env` `codifya-router:tur3` + `egitilmis` kipe alındı (ölçüm
+için geçiciydi, kalıcı hale getirildi). Router hâlâ %95 hedefinin uzağında
+ama bu artık eğitimin başarısızlığı değil, veri hacminin sınırı —
+ayrı bir konu.
+
+Ham sonuçlar: `training/eval/router_sonuc_lora-tur3.json`,
+`training/eval/benchmark_sonuc_lora-tur3.json`.
+
+---
+
+## 3. tur — Kişi B'nin bağımsız incelemesi (2026-08-06)
+
+Kişi A 3. tur sonucunu paylaştı. Sonuçlar burada yeniden puanlandı
+(`--rapor`, model çalıştırılmadan). Üç bulgu var: biri onay, biri düzeltme,
+biri **Kişi A'nın raporunda görünmeyen bir gerileme**.
+
+### 1. Tahmin doğrulandı — çekim gücü tam öngörüldüğü gibi
+
+"Hacim değil özgünlük" düzeltmesi 3. turda birebir tuttu:
+
+| araç | özgünlük | beklenen → seçilen |
+|---|---|---|
+| `genel_stok_durumu` | %9,1 | 2 → 3 **(+1)** |
+| `onay_kuyrugu` | %13,7 | 5 → 6 **(+1)** |
+| `kritik_stok` | %89,8 | 5 → 3 (−2) |
+| `olu_stok` | %84,2 | 5 → 4 (−1) |
+
+Düşük özgünlüklü iki sınıf fazla seçiliyor, yüksek özgünlüklüler kaybediyor —
+imza aynen çıktı. Kaçış listesi de öyle: `kritik_stok→onay_kuyrugu`,
+`olu_stok→onay_kuyrugu`, `gecelik_ozet→genel_stok_durumu`.
+
+### 2. Kişi B'nin etiket hatası — düzeltildi
+
+Ek set ilk bakışta 3. turda **düştü** gibi görünüyordu (%72,2 → %61,1 tam).
+Sebep model değil, **benim yanlış altın etiketim**.
+
+`schemas.py::ARAC_PARAMETRELERI` `gecelik_ozet_sorgula`'ya `tarih_ifadesi`
+veriyor ve eğitim verisindeki **155 örneğin 155'i** parametreli. Ben ek
+setteki 7 gecelik sorusuna `{}` yazmıştım.
+
+Denetlendi: 7 sorunun **6'sında `{}` doğru** (soruda tarih ifadesi yok),
+**1'inde yanlış** — *"dun gece ne cikti"* içinde `dün` var. O etiket
+düzeltildi.
+
+> ⚠️ Gerekçe modelin çıktısı **değil**: şema + 155/155 eğitim kuralı. Kural
+> net — değer dört ifadeden biri (`dün`, `bugün`, `bu hafta`, `geçen hafta`)
+> ve soruda birebir geçiyor. Daha önce *"Bugün depoda genel tablo nedir?"*
+> etiketini model itiraz ettiği için **değiştirmemiştim**; fark bu: orada
+> bağımsız kanıt yoktu, burada sözleşme var.
+
+`sonuctan_yukle` artık altın etiketleri soru dosyasından tazeliyor, yani
+etiket düzeltmesi **eski ölçümlere de** uygulanıyor. Yoksa taban ile 3. tur
+farklı altın etiketlerle karşılaştırılırdı.
+
+### 3. ⚠️ Görünmeyen gerileme: parametre uydurma
+
+Düzeltilmiş altın etiketle **ek set**:
+
+| | taban | 3. tur | |
+|---|---|---|---|
+| araç doğru | 13/18 · %72,2 | **16/18 · %88,9** | ✅ gerçek kazanç |
+| araç + parametre | 12/18 · %66,7 | 12/18 · %66,7 | değişmedi |
+| **uydurma parametre** | **0** | **4** | ⚠️ **gerileme** |
+
+Araç seçimi ciddi biçimde düzeldi ama model **olmayan tarih uydurmaya
+başladı**. Tam doğruluğun sabit kalmasının sebebi bu: araçtaki kazanç
+parametredeki kayıpla götürüldü.
+
+```
+"Gece taramasının sonuçlarını görebilir miyim"  -> tarih_ifadesi: 'geçen gün'
+"Gece boyunca neler birikmiş?"                  -> tarih_ifadesi: 'geçen gün'
+"gece raporu"                                   -> tarih_ifadesi: 'geçen gün'
+"Son gecelik koşunun raporunu aç."              -> tarih_ifadesi: 'son gecelik'
+```
+
+Hiçbiri soruda geçmiyor; `geçen gün` ve `son gecelik` eğitimdeki dört geçerli
+değerden hiçbiri de değil. Model uyduruyor.
+
+**30 soruluk taban set bunu göremedi** (uydurma 0) — çünkü orada yalnızca 3
+gecelik sorusu var, ek sette 7. Ek setin varlık sebebi tam olarak buydu.
+
+### 4. Taban set sayıları — bir çekince
+
+| | taban | 3. tur |
+|---|---|---|
+| araç doğru | 21/30 · %70,0 | 23/30 · **%76,7** |
+| araç + parametre | 20/30 · %66,7 | 21/30 · **%70,0** |
+
+⚠️ **`%66,7 → %70,0` tam olarak 1 soru** — ve ölçtüğüm ısınma sürüklenmesinin
+büyüklüğü de tam olarak 1 soru, hem de aynı tipte (parametre değişimi).
+Kişi A'nın ölçümü soğuk başlangıç düzeltmesinden **önceki** kodla yapıldı
+(sonuç dosyasında `cekim_gucu` alanı yok, bu kanıtlıyor).
+
+Yani tam doğruluktaki +1, eğitim kazancı da olabilir ısınma farkı da —
+bu koşuyla ayırt edilemez.
+
+**Araç doğruluğundaki +2 daha sağlam:** ölçtüğüm sürüklenme araç seçimini
+hiç değiştirmedi, yalnızca parametreyi oynattı. Ek setteki +3 (%72,2 → %88,9)
+de aynı yöne işaret ediyor.
+
+### Sonuç
+
+- **Araç seçimi gerçekten düzeldi** — iki bağımsız sette de (+2 ve +3).
+- **Parametre disiplini geriledi** — 0 → 4 uydurma, yalnızca ek set gördü.
+- **Tam doğruluktaki +1 doğrulanmalı**: 3. tur soğuk başlangıçla yeniden
+  ölçülmeli (`d9e2eea` sonrası kodla).

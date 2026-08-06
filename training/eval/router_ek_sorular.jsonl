@@ -11,7 +11,7 @@
 {"soru": "Ben yokken sistem ne tespit etti?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "Gece boyunca neler birikmiş?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "Sabaha ne bırakmış sistem?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
-{"soru": "dun gece ne cikti", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "dun gece ne cikti", "arac": "gecelik_ozet_sorgula", "parametreler": {"tarih_ifadesi": ["dün", "dun"]}, "stil": "gunluk", "not": "DUZELTILDI — ilk yazimda parametresiz birakilmisti, YANLISTI. Gerekce modelin ciktisi DEGIL: schemas.py::ARAC_PARAMETRELERI bu araca tarih_ifadesi veriyor ve egitim verisindeki 155 ornegin 155'i parametreli. Kural: deger dort ifadeden biri ('dun','bugun','bu hafta','gecen hafta') ve soruda birebir geciyor. Burada 'dun' soruda var. Diger 6 gecelik sorusunda tarih ifadesi YOK, orada {} dogru."}
 {"soru": "gece raporu", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "gunluk"}
 {"soru": "Hangi kararlar imzamı bekliyor?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}
 {"soru": "Üzerimde kalan iş var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}

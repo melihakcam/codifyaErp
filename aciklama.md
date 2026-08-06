@@ -2527,3 +2527,81 @@ aynı yerden başlıyor.
 
 Modeli atamazsak ölçüm yine yapılıyor, sadece garanti kalkıyor. Ölçümü buna
 bağlamak yanlış olurdu.
+
+---
+
+## 3. tur geldi — üç şey buldum
+
+Melih 3. tur sonucunu gönderdi. Sonuçları kendi aracımla yeniden puanladım
+(modeli hiç çalıştırmadan, kayıtlı cevaplardan).
+
+### 1. Tahminimiz tuttu
+
+"Az çeşitlilikli sınıf çöp kutusu olur" demiştik. 3. turda aynen öyle:
+
+```
+genel stok durumu   (cesitlilik %9)    2 beklendi -> 3 secildi   FAZLA
+onay kuyrugu        (cesitlilik %14)   5 beklendi -> 6 secildi   FAZLA
+kritik stok         (cesitlilik %90)   5 beklendi -> 3 secildi   AZ
+olu stok            (cesitlilik %84)   5 beklendi -> 4 secildi   AZ
+```
+
+Hangi soruların nereye kaçtığı bile öngördüğümüz gibi çıktı.
+
+### 2. Bir etiket hatam vardı, düzelttim
+
+Ek set ilk bakışta 3. turda düşmüş görünüyordu. Sebep model değil, **benim
+yazdığım yanlış doğru cevaptı.**
+
+`gecelik özet` aracı bir tarih parametresi alıyor ve eğitim verisindeki 155
+örneğin 155'i bunu kullanıyor. Ben 7 soruma "parametre yok" yazmıştım.
+Kontrol ettim: 6'sında haklıyım (soruda tarih geçmiyor), 1'inde haksızım —
+*"dun gece ne cikti"* sorusunda "dun" zaten var.
+
+Onu düzelttim.
+
+> Daha önce başka bir etiketi model itiraz etti diye **değiştirmemiştim**.
+> Fark şu: orada elimde model çıktısından başka kanıt yoktu. Burada
+> sözleşmenin kendisi ve 155 örneğin tamamı bana "yanlış yazmışsın" diyor.
+> Etiketi modele göre değil, kurala göre düzeltirsin.
+
+### 3. Melih'in raporunda görünmeyen bir gerileme var
+
+Doğru etiketle bakınca ek set şunu söylüyor:
+
+```
+                    taban      3. tur
+dogru arac sectiei   %72,2      %88,9    <- ciddi iyilesme
+tam dogru            %66,7      %66,7    <- degismedi
+UYDURMA parametre       0          4     <- GERILEME
+```
+
+Model doğru aracı çok daha iyi seçiyor **ama olmayan tarih uydurmaya
+başlamış**:
+
+```
+"gece raporu"                     -> tarih: "gecen gun"
+"Gece boyunca neler birikmis?"    -> tarih: "gecen gun"
+```
+
+Soruda öyle bir şey yok. Zaten "geçen gün" eğitimdeki geçerli dört değerden
+biri de değil — düpedüz uyduruyor.
+
+Araçtaki kazanç parametredeki kayıpla götürülmüş, o yüzden toplam sabit
+görünüyor.
+
+**30 soruluk set bunu göremedi**, çünkü orada 3 gecelik sorusu var, ek sette
+7. Ek seti tam da bunun için yazmıştık.
+
+### Bir de çekince
+
+Melih "tam doğruluk %66,7'den %70,0'a çıktı" diyor. Bu **tam olarak 1 soru**.
+Ve ben daha önce ölçmüştüm: modelin ısınma durumu tek başına 1 soru
+oynatabiliyor, hem de aynı tipte (parametre).
+
+Melih'in ölçümü benim soğuk başlangıç düzeltmemden önceki kodla yapılmış.
+Yani o +1 gerçek kazanç da olabilir, ısınma farkı da — bu koşuyla ayırt
+edilemez.
+
+Araç doğruluğundaki +2 daha sağlam duruyor: ısınma sürüklenmesi araç seçimini
+hiç değiştirmemişti, sadece parametreyi oynatmıştı.
