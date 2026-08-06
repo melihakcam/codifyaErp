@@ -101,3 +101,38 @@ def test_llm_erisilemezken_karar_endpointi_500_vermez(istemci: TestClient):
     assert gerekce is not None
     assert gerekce["guard_sonucu"] == "sablona_dustu"
     assert gerekce["model_adi"] is None
+
+
+def test_karar_gerekceden_ONCE_kaliciya_yaziliyor(
+    istemci: TestClient, api_oturumu, monkeypatch
+):
+    """⭐ Gerekçe üretimi kararı riske atmamalı.
+
+    Sıra ters olsaydı (önce LLM, sonra kayıt) 6 saniyelik üretim penceresinde
+    süreç ölünce **karar tamamen kaybolurdu** — oysa karar zaten üretilmişti.
+
+    Bu test o pencereyi taklit ediyor: gerekçe üretimi patlatılıyor, sonra
+    kararın yine de veritabanında olduğu doğrulanıyor.
+
+    ⚠️ `gerekce_uret` normalde hata fırlatmaz (guard'ın tasarımı). Burada
+    zorla fırlattırılıyor çünkü sınanan şey guard değil, **yazma sırası**.
+    """
+    import pytest
+    from sqlalchemy import func, select
+
+    from app.models import Decision
+
+    def patla(*_args, **_kwargs):
+        raise RuntimeError("uretim sirasinda surec oldu")
+
+    monkeypatch.setattr("app.api.decisions.gerekce_uret", patla)
+
+    onceki = api_oturumu.scalar(select(func.count()).select_from(Decision))
+
+    with pytest.raises(RuntimeError):
+        istemci.post("/v1/decisions/stock/reorder-review?gerekce=true")
+
+    api_oturumu.expire_all()
+    sonraki = api_oturumu.scalar(select(func.count()).select_from(Decision))
+
+    assert sonraki == onceki + 1, "gerekce patlasa bile karar kalici olmali"

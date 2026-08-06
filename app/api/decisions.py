@@ -20,7 +20,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.contracts import KararSonucu, OtonomiSeviyesi, PolitikaSonucu
-from app.core.audit import karari_kaydet
+from app.core.audit import denetim_yaz, karari_kaydet
 from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
 from app.core.policy import esikleri_yukle, politika_uygula
@@ -69,14 +69,17 @@ def stok_siparis_degerlendir(
     esikler = esikleri_yukle(oturum, aday.tip, ayar)
     politika = politika_uygula(aday, ayar, esikler)
 
-    uretilen_gerekce = None
-    if gerekce:
-        with OllamaIstemcisi(ayar=ayar) as istemci:
-            uretilen_gerekce = gerekce_uret(aday, istemci)
-
-    # `karari_kaydet` Decision + DecisionAudit satırlarını birlikte yazar;
-    # denetim kaydını atlamak mümkün değil.
-    karari_kaydet(oturum, aday, politika, uretilen_gerekce)
+    # --- 1. Karar önce kalıcı olur ------------------------------------------
+    #
+    # ⚠️ Gerekçe üretimi bilinçli olarak BU COMMIT'TEN SONRA. Sıra ters
+    # olsaydı (önce LLM, sonra kayıt) 6 saniyelik üretim penceresinde süreç
+    # ölünce **karar tamamen kaybolurdu** — oysa karar zaten üretilmişti,
+    # kaybedilecek bir şey yoktu.
+    #
+    # `nightly.py` de aynı deseni kullanıyor: kararlar bir commit, gerekçeler
+    # ikinci commit. Mimarinin ikinci kuralının veri katmanındaki karşılığı
+    # bu — karar yolu gerekçeyi beklemez.
+    karar, _ = karari_kaydet(oturum, aday, politika)
 
     # Kuyruğa YALNIZCA insan onayı bekleyen kararlar girer. Shadow modda eşik
     # altı kalan karar kaydedilir ama kuyruğa girmez — kimsenin bakmayacağı
@@ -85,5 +88,21 @@ def stok_siparis_degerlendir(
         oturum.add(Approval(karar_id=aday.karar_id))
 
     oturum.commit()
+
+    # --- 2. Gerekçe: istenirse, kararın üstüne -------------------------------
+    uretilen_gerekce = None
+    if gerekce:
+        with OllamaIstemcisi(ayar=ayar) as istemci:
+            uretilen_gerekce = gerekce_uret(aday, istemci)
+
+        karar.gerekce_metni = uretilen_gerekce.metin
+        karar.guard_sonucu = uretilen_gerekce.guard_sonucu
+        karar.llm_model_adi = uretilen_gerekce.model_adi
+        karar.gerekce_uretim_ms = uretilen_gerekce.uretim_ms
+
+        # Gerekçe üretimi ayrı bir olay — ilk denetim satırının üstüne
+        # yazılmıyor, yenisi ekleniyor (`nightly.py` ile aynı).
+        denetim_yaz(oturum, aday, politika, uretilen_gerekce)
+        oturum.commit()
 
     return KararSonucu(aday=aday, politika=politika, gerekce=uretilen_gerekce)

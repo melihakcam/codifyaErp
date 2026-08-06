@@ -2161,3 +2161,48 @@ stok.siparis        20/240  (%8)
 Doğal dağılıma yakın, ama ölçümün üçte ikisi en kolay vakayı (aksiyon yok)
 sınıyor. Zor vakalar (sipariş) 20 örnekle temsil ediliyor.
 
+## İnceleme notunu düzeltmeye çevirdim: karar artık gerekçeden önce yazılıyor
+
+İncelemede *"`?gerekce=true` senkron LLM çağırıyor, engellemiyorum ama not
+olsun"* demiştim. Nota bakınca asıl sorunun performans değil **veri kaybı**
+olduğunu gördüm:
+
+```
+ESKI SIRA:  karar uret -> LLM (6 sn) -> veritabanina yaz
+```
+
+O altı saniyede süreç ölürse **karar tamamen kayboluyordu** — oysa karar zaten
+üretilmişti, kaybedilecek bir şey yoktu.
+
+```
+YENI SIRA:  karar uret -> veritabanina yaz -> commit
+                       -> LLM (6 sn) -> gerekceyi ekle -> commit
+```
+
+`nightly.py` zaten bu deseni kullanıyordu (kararlar bir commit, gerekçeler
+ikinci commit). API'ye de taşındı — mimarinin ikinci kuralının veri
+katmanındaki karşılığı bu.
+
+Melih'in eklediği özellik olduğu gibi duruyor; yalnızca sırası değişti.
+
+### Yan etki: iki denetim satırı
+
+`?gerekce=true` artık **iki** denetim satırı yazıyor:
+
+```
+1. karar kaydedilirken        guard_sonucu = ATLANDI  (gerekce henuz yok)
+2. gerekce uretildikten sonra gercek guard sonucu
+```
+
+Bu bir kusur değil, denetim izinin amacı: "ne zaman ne oldu" görünsün.
+`nightly.py` de aynısını yapıyor. Mevcut test bir satır bekliyordu, gerekçesiyle
+güncellendi.
+
+### Teste bağlandı
+
+`test_karar_gerekceden_ONCE_kaliciya_yaziliyor` — gerekçe üretimi zorla
+patlatılıyor, kararın yine de veritabanında olduğu doğrulanıyor. Sıra geri
+çevrilirse bu test kırılır.
+
+Toplam **321 test yeşil**.
+

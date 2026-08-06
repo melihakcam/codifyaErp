@@ -90,7 +90,22 @@ def test_her_karar_denetim_satiri_birakir(istemci: TestClient, api_oturumu: Sess
 def test_gerekce_istenince_denetime_guard_sonucu_yazilir(istemci: TestClient, api_oturumu: Session):
     _karar_uret(istemci, gerekce=True)
 
-    kayit = api_oturumu.scalars(select(DecisionAudit)).one()
+    # ⚠️ `?gerekce=true` **iki** denetim satırı yazar, bir değil:
+    #
+    #   1. karar kaydedilirken   -> guard_sonucu = ATLANDI (gerekçe henüz yok)
+    #   2. gerekçe üretildikten sonra -> gerçek guard sonucu
+    #
+    # Sebebi yazma sırası: karar, LLM çağrısından ÖNCE kalıcı hale getiriliyor
+    # ki 6 saniyelik üretim penceresinde süreç ölse bile karar kaybolmasın
+    # (bkz. `app/api/decisions.py`). `nightly.py` de aynı deseni kullanıyor —
+    # gerekçe üretimi ayrı bir olay, ilk satırın üstüne yazılmıyor.
+    #
+    # Denetim izinin amacı zaten bu: "ne zaman ne oldu" görünsün.
+    kayitlar = api_oturumu.scalars(select(DecisionAudit)).all()
+    assert len(kayitlar) == 2, "karar olayı + gerekçe olayı ayrı satırlar olmalı"
+    assert kayitlar[0].guard_sonucu is GuardSonucu.ATLANDI
+
+    kayit = kayitlar[-1]
     # ⚠️ Belirli bir guard sonucuna bağlanmıyor. Bu test stub döneminde
     # `SABLONA_DUSTU` bekliyordu (`explain_stub` her zaman şablon dönerdi);
     # gerçek model bağlandıktan sonra sonuç **hangi modelin yapılandırıldığına**
