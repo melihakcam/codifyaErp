@@ -1741,3 +1741,60 @@ ayrı bir konu.
 
 Ham sonuçlar: `training/eval/router_sonuc_lora-tur3.json`,
 `training/eval/benchmark_sonuc_lora-tur3.json`.
+
+## Golden set ortak onayı — bulunan hata ve düzeltmesi (2026-08-06)
+
+Ortak onaydan önceki rastgele örnekleme taramasında, önceden hiç fark
+edilmemiş bir veri kalitesi hatası bulundu: **golden set'in %30,6'sında
+(49/160 router sorusu) bitişik kelime tekrarı vardı** —
+*"T-0005 tedarikçisinin **tedarikçinin** gecikiyomu var mı?"*,
+*"çimento kategorisinde **kategorisinde** acil sipariş..."* gibi.
+`tedarikci_performansi_sorgula`'da oran %60,3'e çıkıyordu.
+
+### Kök neden
+
+`sablonlari_ihrac_et`, paraphrase LLM'ine gönderilecek şablonu
+`_varlik_ifadesi()` ile önceden dolduruyor: `"TEDARIKCI_KODU tedarikçisinin
+performansı..."` gibi. Paraphrase modeli cümleyi yeniden yazarken bazen
+"tedarikçisinin"/"kategorisinde" kelimesini cümlenin başka bir yerinde de
+kullanıyor. `parafraz_sablonlarindan_veri_uret` token'ı **yine** aynı sonekle
+("X tedarikçisinin") değiştirince iki kez üst üste geliyor. Paraphrase
+notebook'undaki `anlam_korundu_mu()` kontrolü bunu yakalayamıyordu çünkü
+niyet/anlam hâlâ doğruydu — sorun dil bilgiseldi, anlam değil.
+
+Ölçüm: tam üretim havuzunda (`router_sorulari_parafraz.jsonl`, 35.519 satır)
+**1.256 satır** etkilenmiş; ham (paraphrase edilmemiş) havuzda bu oran
+neredeyse sıfırdı — hata özellikle paraphrase adımından geliyor.
+
+### Düzeltme
+
+`training/build_dataset.py::yer_tutucu_tekrarini_temizle()` eklendi —
+bitişik tekrarı tek kelimeye indiriyor, cümlenin başka yerindeki **gerçek**
+tekrarlara (ör. *"tedarikçi güvenilir mi, bu tedarikçiyle devam edelim
+mi?"*) dokunmuyor. `parafraz_sablonlarindan_veri_uret`'e otomatik
+uygulanıyor (yeni paraphrase turları için kalıcı koruma). 5 regresyon
+testi (`tests/test_build_dataset_yer_tutucu.py`).
+
+Mevcut üretilmiş dosyalar yerinde yamalanıp yeniden ölçüldü:
+
+| dosya | düzeltilen |
+|---|---|
+| `golden_set_aday.jsonl` | 45/160 |
+| `router_sorulari_parafraz.jsonl` | 1.256/35.519 |
+| `router_train.jsonl` | 1.018/3.674 |
+| `router_val.jsonl` | 120/453 |
+| `router_test.jsonl` | 118/387 |
+
+Düzeltme sonrası tarama: **0 gerçek tekrar kaldı** (kalan 4 aday elle
+kontrol edildi, hepsi doğal cümleler — *"tedarikçisinin iyi bir tedarikçi
+mi?"* gibi, bitişik değil). `golden_set_inceleme.py` yeniden koşuldu:
+sızıntı yok, tekrar yok, guard uyumu %100 — değişmedi.
+
+⚠️ **Veri dosyaları `.gitignore`'da** (Drive üzerinden paylaşılıyor). Kod
+düzeltmesi git'te, ama Drive'daki mevcut kopya hâlâ eski (bozuk) veriyi
+taşıyor olabilir — 4. tur ya da yeni bir paraphrase turu öncesi
+`data/colab_yukle/`'nin yeniden yüklenmesi gerekir.
+
+**Golden set artık ortak onay için hazır** — n<10 iki araç ve
+`stok.tedarikci_degisim` boşluğu (zaten kabul edilmiş, bkz. yukarıdaki
+bölümler) dışında bilinen bir sorun yok.
