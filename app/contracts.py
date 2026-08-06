@@ -204,7 +204,9 @@ ORAN_ALANLARI: frozenset[str] = frozenset(
         "hedef_servis_seviyesi",
         "tedarikci_zamaninda_teslim_orani",
         "talep_varyasyon_katsayisi",
-        # ⚠️ SÖZLEŞME DEĞİŞİKLİĞİ (2026-08-06) — Kişi A'nın teyidi bekleniyor.
+        # ⚠️ SÖZLEŞME DEĞİŞİKLİĞİ (2026-08-06) — Kişi A yaptı, **Kişi B'nin
+        # teyidi bekleniyor** (contracts.py donmuş dosya, tek taraflı
+        # değiştirilmez — bkz. YOL-HARITASI.md, Rol dağılımı).
         #
         # `onerilen_iskonto_orani` bu listeye hiç eklenmemişti; docstring'in
         # "unutulursa" senaryosu tam olarak gerçekleşti. Sonuç: tasfiye

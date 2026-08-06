@@ -1269,7 +1269,7 @@ Kanıt: eğitim hedefleri 886 kez "%15" kullanıyor ve üretildikleri sırada
 ayrışmış. Docstring'in "unutulursa" senaryosu aynen gerçekleşmiş.
 
 `ORAN_ALANLARI`'na eklendi. **Bu bir sözleşme değişikliği** (`contracts.py`
-donmuş dosya) — Kişi A'nın teyidi gerekiyor. Genişleme dar kapsamlı:
+donmuş dosya) — Kişi A yaptı, **Kişi B'nin teyidi gerekiyor**. Genişleme dar kapsamlı:
 yalnızca o alanın kendi değerinin ×100'ü izinli olur, iskonto gerçekte
 %20 iken modelin "%15" demesi hâlâ reddedilir.
 
