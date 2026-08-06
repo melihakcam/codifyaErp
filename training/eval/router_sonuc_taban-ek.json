@@ -1,0 +1,244 @@
+{
+  "etiket": "taban-ek",
+  "ozet": {
+    "soru_sayisi": 18,
+    "arac_dogruluk": 0.7222222222222222,
+    "tam_dogruluk": 0.7222222222222222,
+    "sema_hatasi": 0,
+    "uydurma_parametre": 0,
+    "cokus": {
+      "var": false,
+      "arac": "genel_stok_durumu_sorgula",
+      "pay": 0.5
+    },
+    "arac_bazinda": {
+      "gecelik_ozet_sorgula": [
+        5,
+        7
+      ],
+      "genel_stok_durumu_sorgula": [
+        6,
+        8
+      ],
+      "onay_kuyrugu_sorgula": [
+        2,
+        3
+      ]
+    },
+    "stil_bazinda": {
+      "acik": [
+        4,
+        5
+      ],
+      "dolayli": [
+        6,
+        9
+      ],
+      "gunluk": [
+        3,
+        4
+      ]
+    },
+    "sure_sn": 30.3
+  },
+  "kayitlar": [
+    {
+      "soru": "Stokların genel durumu nasıl?",
+      "stil": "acik",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 773,
+      "deneme": 1
+    },
+    {
+      "soru": "Envanterin özet tablosunu alabilir miyim?",
+      "stil": "acik",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1081,
+      "deneme": 1
+    },
+    {
+      "soru": "Bugün depoda genel tablo nedir?",
+      "stil": "acik",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1077,
+      "deneme": 1
+    },
+    {
+      "soru": "Toplamda kaç kalemimiz var, ne durumdayız?",
+      "stil": "dolayli",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1096,
+      "deneme": 1
+    },
+    {
+      "soru": "Genel bir fotoğraf çekebilir misin?",
+      "stil": "dolayli",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1151,
+      "deneme": 1
+    },
+    {
+      "soru": "Ambarda işler yolunda mı?",
+      "stil": "dolayli",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 864,
+      "deneme": 1
+    },
+    {
+      "soru": "stok genel nasil",
+      "stil": "gunluk",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1069,
+      "deneme": 1
+    },
+    {
+      "soru": "durum ozeti ver",
+      "stil": "gunluk",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1086,
+      "deneme": 1
+    },
+    {
+      "soru": "Gece taramasının sonuçlarını görebilir miyim?",
+      "stil": "acik",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1169,
+      "deneme": 1
+    },
+    {
+      "soru": "Son gecelik koşunun raporunu aç.",
+      "stil": "acik",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1091,
+      "deneme": 1
+    },
+    {
+      "soru": "Ben yokken sistem ne tespit etti?",
+      "stil": "dolayli",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1108,
+      "deneme": 1
+    },
+    {
+      "soru": "Gece boyunca neler birikmiş?",
+      "stil": "dolayli",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1108,
+      "deneme": 1
+    },
+    {
+      "soru": "Sabaha ne bırakmış sistem?",
+      "stil": "dolayli",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1060,
+      "deneme": 1
+    },
+    {
+      "soru": "dun gece ne cikti",
+      "stil": "gunluk",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1129,
+      "deneme": 1
+    },
+    {
+      "soru": "gece raporu",
+      "stil": "gunluk",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1233,
+      "deneme": 1
+    },
+    {
+      "soru": "Hangi kararlar imzamı bekliyor?",
+      "stil": "dolayli",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1182,
+      "deneme": 1
+    },
+    {
+      "soru": "Üzerimde kalan iş var mı?",
+      "stil": "dolayli",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1148,
+      "deneme": 1
+    },
+    {
+      "soru": "Karar vermem gereken neler birikti?",
+      "stil": "dolayli",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1216,
+      "deneme": 1
+    }
+  ]
+}

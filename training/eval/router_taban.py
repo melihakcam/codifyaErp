@@ -334,6 +334,27 @@ def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, Any]:
     }
 
 
+def sonuc_yolu(etiket: str) -> Path:
+    """Etikete göre ayrı dosya — koşular birbirinin üstüne yazmasın.
+
+    ⚠️ Önceden **her koşu** `router_taban_sonuc.json`'a yazıyordu: taban çizgi,
+    ek set, 1. tur, 2. tur, hepsi aynı dosyaya. Yani dosya her zaman *en son*
+    koşuyu tutuyordu ve "modeli tekrar çalıştırmaya gerek kalmasın" vaadi
+    aslında tutulmuyordu.
+
+    Bu sessiz bir veri kaybıydı: bayrak kombinasyonunu denemek için
+    koşturduğum, var olmayan bir modele giden ve 18/18 hata veren bir koşu
+    taban çizgi kaydını sildi. Hiçbir uyarı çıkmadı.
+
+    Artık her etiket kendi dosyasına yazıyor; `router_taban_sonuc.json` ise
+    donmuş taban çizginin adı olarak korunuyor (`--etiket taban`).
+    """
+    guvenli = "".join(c if c.isalnum() or c in "-_" else "-" for c in etiket)
+    if guvenli in {"taban", "baseline", "taban-cizgi-egitim-oncesi"}:
+        return SONUC_DOSYASI
+    return SONUC_DOSYASI.with_name(f"router_sonuc_{guvenli}.json")
+
+
 def sonucu_kaydet(kayitlar: list[Kayit], ozet: dict[str, Any], etiket: str) -> Path:
     """Ham sonuçları diske yazar.
 
@@ -358,8 +379,9 @@ def sonucu_kaydet(kayitlar: list[Kayit], ozet: dict[str, Any], etiket: str) -> P
             for k in kayitlar
         ],
     }
-    SONUC_DOSYASI.write_text(json.dumps(govde, ensure_ascii=False, indent=2), encoding="utf-8")
-    return SONUC_DOSYASI
+    yol = sonuc_yolu(etiket)
+    yol.write_text(json.dumps(govde, ensure_ascii=False, indent=2), encoding="utf-8")
+    return yol
 
 
 def _cli() -> None:

@@ -445,3 +445,31 @@ def test_cokus_esigi_hicbir_sette_ulasilamaz_olmuyor():
         ]
         esik = cokus_esigi(kayitlar)
         assert esik < 1.0, f"{arac_sayisi} araç: eşik %{esik * 100:.0f} — asla ulaşılamaz"
+
+
+def test_kosular_birbirinin_sonucunu_ezmiyor():
+    """⭐ Her koşu aynı JSON'a yazıyordu — sessiz veri kaybı.
+
+    Taban çizgi, ek set, 1. tur, 2. tur: hepsi `router_taban_sonuc.json`'a
+    yazıyordu, yani dosya her zaman yalnızca *en son* koşuyu tutuyordu.
+    Docstring'in "modeli tekrar çalıştırmaya gerek kalmasın" vaadi
+    tutulmuyordu.
+
+    Nasıl yakalandı: bayrak kombinasyonunu denemek için var olmayan bir
+    modele koşturulan ve 18/18 hata veren bir deneme, taban çizgi kaydını
+    sildi. Hiçbir uyarı çıkmadı — asıl tehlike bu.
+    """
+    from training.eval.router_taban import SONUC_DOSYASI, sonuc_yolu
+
+    # Donmus taban cizgi kendi adini korumali (varsayilan etiket dahil).
+    assert sonuc_yolu("taban") == SONUC_DOSYASI
+    assert sonuc_yolu("taban-cizgi-egitim-oncesi") == SONUC_DOSYASI
+
+    # Diger her etiket ayri dosyaya gitmeli, hicbiri digerini ezmemeli.
+    yollar = [sonuc_yolu(e) for e in ("taban-ek", "lora-tur2", "lora-tur3", "lora-tur3-ek")]
+    assert len(set(yollar)) == len(yollar)
+    assert SONUC_DOSYASI not in yollar
+
+    # Etiket dosya adina giriyor; yol kacisi olusturamamali.
+    kotu = sonuc_yolu("../../etc/parola")
+    assert kotu.parent == SONUC_DOSYASI.parent

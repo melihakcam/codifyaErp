@@ -1447,4 +1447,31 @@ esik = min(COKUS_TAVANI, max(COKUS_ESIGI, 2.5 / arac_sayisi))   # tavan 0,90
 | `test_cokus_esigi_arac_sayisina_gore_kayiyor` | 7 araçta eşik değişmiyor, 3 araçta kayıyor |
 | `test_cokus_esigi_hicbir_sette_ulasilamaz_olmuyor` | 1–7 araç, eşik hep %100'ün altında |
 
-Toplam **323 test yeşil**.
+### Ayrı bulgu: koşular birbirinin sonucunu eziyordu
+
+Ek seti koştururken bayrak kombinasyonunu (`--ek --model ... --istem-bicimi
+egitilmis`) doğrulamak için var olmayan bir modele bir deneme yaptım. 18/18
+hata verdi — beklenen. Ama o deneme **taban çizgi kaydını sildi.**
+
+`sonucu_kaydet` her koşuyu tek bir dosyaya yazıyordu:
+`router_taban_sonuc.json`. Taban çizgi, ek set, 1. tur, 2. tur — hepsi aynı
+yere. Dosya her zaman yalnızca *en son* koşuyu tutuyordu. Docstring'in
+"B3.5'te modeli tekrar çalıştırmaya gerek kalmasın" vaadi aslında hiç
+tutulmuyordu ve bunu kimse fark etmemişti.
+
+Artık her etiket kendi dosyasına yazıyor (`sonuc_yolu`):
+
+```
+--etiket taban          -> router_taban_sonuc.json   (donmus taban cizgi)
+--etiket lora-tur3      -> router_sonuc_lora-tur3.json
+--etiket lora-tur3 --ek -> router_sonuc_lora-tur3-ek.json
+```
+
+Etiket dosya adına girdiği için karakter süzmesi de var; yol kaçışı
+oluşturamıyor. Testi: `test_kosular_birbirinin_sonucunu_ezmiyor`.
+
+Taban çizgi yeniden üretildi ve donmuş dosyaya geri yazıldı. Ölçüm içeriği
+eski kayıtla **birebir aynı** çıktı (fark yalnızca süre alanlarında) —
+determinizm bir kez daha doğrulandı.
+
+Toplam **324 test yeşil**.

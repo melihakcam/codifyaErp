@@ -2311,4 +2311,28 @@ alarmı kimse fark etmez.
 Eşiğe üst sınır koyduk: en fazla %90. İki test yazıldı, biri eşiğin taban
 sette değişmediğini, diğeri hiçbir sette %100'ü aşmadığını kontrol ediyor.
 
-Toplam **323 test yeşil**.
+### Bir de: ölçümler birbirinin üstüne yazıyormuş
+
+Ek seti test ederken yanlışlıkla olmayan bir modele soru sordum. Hepsi hata
+verdi, sorun değil — ama o başarısız deneme **taban çizgi kaydımızı sildi.**
+
+Sebep: bütün ölçümler tek bir dosyaya yazıyordu. Taban çizgi, ek set, 1. tur,
+2. tur, hepsi `router_taban_sonuc.json`'a. Yani dosyada her zaman sadece en
+son koşturduğumuz şey duruyordu.
+
+Oysa o dosyanın amacı şuydu: "sonradan puanlamayı değiştirirsek modeli
+tekrar çalıştırmayalım, kayıtlı cevaplara bakalım." Bu söz hiç tutulmuyormuş
+ve kimse fark etmemiş.
+
+Artık her ölçüm kendi dosyasına yazıyor:
+
+```
+taban cizgi   ->  router_taban_sonuc.json
+3. tur        ->  router_sonuc_lora-tur3.json
+3. tur ek set ->  router_sonuc_lora-tur3-ek.json
+```
+
+Taban çizgiyi tekrar ürettik, eski kayıtla birebir aynı çıktı — yalnızca
+süreler farklı. Yani ölçüm gerçekten tekrarlanabilir.
+
+Toplam **324 test yeşil**.
