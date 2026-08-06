@@ -473,3 +473,119 @@ def test_kosular_birbirinin_sonucunu_ezmiyor():
     # Etiket dosya adina giriyor; yol kacisi olusturamamali.
     kotu = sonuc_yolu("../../etc/parola")
     assert kotu.parent == SONUC_DOSYASI.parent
+
+
+def test_cekim_gucu_cop_kutusu_sinifi_gosteriyor():
+    """⭐ Genel doğruluk, bir sınıfın 'çöp kutusu' olduğunu GİZLER.
+
+    Bir sınıf başka sınıfların sorularını kapıyorsa kendi doğruluğu iyi
+    görünür ve kaybeden sınıfın düşüşüyle toplamda dengelenebilir — genel
+    yüzde hiç kıpırdamaz.
+
+    2. turda gerçekten böyle oldu: `genel_stok_durumu` ve `onay_kuyrugu`
+    beklenenden fazla seçildi, dört hatanın dördü o iki sınıfa aktı, ama
+    bu `router_lora_tur2_sonuc.json`'da fark edilmeden durdu.
+    """
+    from training.eval.router_taban import Kayit, cekim_gucu
+
+    kayitlar = []
+    # 'cop' sinifi 2 kez bekleniyor, ama 4 soruyu birden kapiyor.
+    for i in range(2):
+        k = Kayit(soru=f"c{i}", stil="acik", beklenen_arac="cop")
+        k.secilen_arac = "cop"
+        kayitlar.append(k)
+    for i in range(2):
+        k = Kayit(soru=f"k{i}", stil="acik", beklenen_arac="kurban")
+        k.secilen_arac = "cop"  # kurban'in sorulari cop'a gidiyor
+        kayitlar.append(k)
+
+    cekim = cekim_gucu(kayitlar)
+    assert cekim["cop"] == (2, 4), "cop fazla secilmis olarak gorunmeli"
+    assert cekim["kurban"] == (2, 0), "kurban hic secilmemis olarak gorunmeli"
+
+    # Asil nokta: cekim farki pozitifken kurban negatif.
+    assert cekim["cop"][1] - cekim["cop"][0] > 0
+    assert cekim["kurban"][1] - cekim["kurban"][0] < 0
+
+
+def test_kayitli_sonuc_modelsiz_yeniden_puanlanabiliyor():
+    """⭐ Modül 'modeli tekrar çalıştırmaya gerek kalmasın' diye söz veriyordu.
+
+    Ama bunu yapacak bir yol yoktu: kayıtlı sonuca bakmak için her seferinde
+    tek kullanımlık betik yazmak gerekiyordu. `--rapor` boşluğu kapattı.
+
+    Puanlama JSON'a gömülü değil, `Kayit`'in property'lerinden geliyor —
+    yani puanlama mantığı değişirse eski ölçüm yeni mantıkla yeniden
+    puanlanır. Amaç zaten buydu.
+    """
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from training.eval.router_taban import Kayit, sonuctan_yukle, sonucu_kaydet
+
+    k = Kayit(soru="Genel stok durumu nedir?", stil="acik", beklenen_arac="genel")
+    k.secilen_arac = "genel"
+    k.uretim_ms = 123
+
+    with tempfile.TemporaryDirectory() as gecici:
+        yol = Path(gecici) / "sonuc.json"
+        govde = {
+            "etiket": "deneme",
+            "ozet": {},
+            "kayitlar": [
+                {
+                    "soru": k.soru,
+                    "stil": k.stil,
+                    "beklenen_arac": k.beklenen_arac,
+                    "beklenen_parametreler": k.beklenen_parametreler,
+                    "secilen_arac": k.secilen_arac,
+                    "secilen_parametreler": k.secilen_parametreler,
+                    "hata": k.hata,
+                    "uretim_ms": k.uretim_ms,
+                    "deneme": k.deneme,
+                }
+            ],
+        }
+        yol.write_text(json.dumps(govde, ensure_ascii=False), encoding="utf-8")
+
+        etiket, geri = sonuctan_yukle(yol)
+
+    assert etiket == "deneme"
+    assert len(geri) == 1
+    assert geri[0].soru == k.soru
+    assert geri[0].secilen_arac == "genel"
+    # Puanlama JSON'dan degil property'den geliyor.
+    assert geri[0].arac_dogru is True
+    assert sonucu_kaydet is not None
+
+
+def test_olcum_soguk_baslangicla_yapiliyor():
+    """⭐ Sıcaklık 0 + sabit tohum tekrarlanabilirlik için YETMİYOR.
+
+    Böyle sanılıyordu ve modülde de öyle yazıyordu. Ölçüldü, doğru değil:
+    hiçbir kod değişmeden, aynı model digest'iyle taban çizgi 20/30 ile
+    21/30 arasında oynadı. Belirleyici olan modelin ısınma durumuydu.
+
+    1 soru = 3,3 puan. 3. tur %73,3 verirse "eğitim işe yaradı" mı yoksa
+    ısınma farkı mı — ayırt edilemezdi. Bu yüzden `olc()` ölçüme başlamadan
+    modeli düşürüyor.
+
+    Bu test o çağrının yapıldığını doğruluyor; kaldırılırsa kırılır.
+    """
+    import contextlib
+    from unittest.mock import patch
+
+    from training.eval.router_taban import Kayit, olc
+
+    with (
+        patch("training.eval.router_taban.modeli_bellekten_at") as dusur,
+        patch("training.eval.router_taban.OllamaIstemcisi"),
+        patch("training.eval.router_taban.soruyu_yonlendir") as yonlendir,
+    ):
+        yonlendir.side_effect = RuntimeError("model cagrilmasin")
+        kayitlar = [Kayit(soru="s", stil="acik", beklenen_arac="a")]
+        with contextlib.suppress(RuntimeError):
+            olc(kayitlar, ayrinti=False)
+
+    assert dusur.called, "olc() olcume baslamadan modeli dusurmeli"

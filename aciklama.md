@@ -2467,3 +2467,63 @@ Tek çözüm: bu iki araç için **çeşitli soru yazmak**. Aynı cümlenin
 gerçekten farklı soruluşlar. Her biri için ~150 özgün soru.
 
 Bu Melih'in tarafı (veri üretimi).
+
+---
+
+## Ölçümümüz sandığımız kadar sağlam değilmiş
+
+### Nasıl anladık
+
+Rapora yeni bir bölüm ekleyip taban çizgiyi tekrar koşturduk. Sayı değişti:
+
+```
+onceki:  20/30 dogru
+simdi :  21/30 dogru
+```
+
+Ama hiçbir şey değişmemişti. Kod aynı, model aynı (dosya 1 Ağustos'tan beri
+hiç değişmemiş), ayarlar aynı.
+
+### Sebep: modelin "ısınmış" olması
+
+Ollama modeli belleğe yüklüyor. Model yeni yüklendiyse bir cevap, bir süredir
+çalışıyorsa başka bir cevap verebiliyor.
+
+Denedik:
+
+```
+modeli her seferinde bellekten atarak, 3 kez  ->  hep 20/30
+isinmis modelle,                       2 kez  ->  hep 21/30
+```
+
+İkisi de kendi içinde tutarlı, ama birbirinden farklı.
+
+Oynayan tek soru şuydu: *"Bizi kim geciktiriyor?"* — model bazen boş parametre
+veriyor (doğru), bazen "Bizi Kim Geciktiriyor" diye uyduruyor. İki seçenek
+başa baş gidiyor, en ufak fark birini öne geçiriyor.
+
+### Neden önemli
+
+30 soruda **1 soru = 3,3 puan**.
+
+3. tur modeli gelip %73,3 verseydi ne diyecektik? "Eğitim işe yaradı." Ama
+o fark tam olarak bir sorudan geliyor — yani belki de sadece modelin ısınmış
+olmasından.
+
+Kodda şöyle bir cümle vardı ve yanlıştı:
+
+> "Sıcaklık 0 + sabit tohum ile model aynı girdiye aynı cevabı veriyor."
+
+Sıcaklık 0 gürültünün çoğunu alıyor (eskiden 7 puan oynuyordu, şimdi 3,3), ama
+hepsini almıyor.
+
+### Çözüm
+
+Ölçüm artık her seferinde **modeli bellekten atarak** başlıyor. Yani her ölçüm
+aynı yerden başlıyor.
+
+Üç kez üst üste koşturduk, üçü de aynı: **%70,0 / %66,7** — resmî taban
+çizgiyle birebir.
+
+Modeli atamazsak ölçüm yine yapılıyor, sadece garanti kalkıyor. Ölçümü buna
+bağlamak yanlış olurdu.

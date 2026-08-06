@@ -1657,3 +1657,90 @@ soru üretmek** — tek kalıbın nezaket çeşitlemesi değil, farklı soruluş
 
 Hedef: özgünlük ≥%50, yani her iki araç için ~150 özgün soru. Kişi A'nın
 tarafı (Veri & Alan).
+
+---
+
+## ⚠️ Determinizm iddiası yanlıştı — sıcaklık 0 yetmiyor (Kişi B, 2026-08-06)
+
+### Nasıl fark edildi
+
+Rapora çekim gücü bölümü eklenip taban çizgi yeniden koşturuldu. Sonuç:
+
+```
+  araç doğru             : 21/30  (%70.0)     <- beklenen
+  araç + parametre doğru : 21/30  (%70.0)     <- BEKLENEN %66,7 IDI
+```
+
+Tam doğruluk 20/30'dan 21/30'a çıkmıştı. Ama:
+
+- kod değişmemişti (`git diff -- app/ router_taban_sorulari.jsonl` boş),
+- model aynıydı (`qwen2.5:1.5b-instruct`, digest `65ec065481…`, 1 Ağustos'tan
+  beri dokunulmamış),
+- ölçüm sıcaklık 0 ve sabit tohumla yapılıyordu.
+
+Üstelik tekrarlanabilirdi: iki koşu da 21/30 verdi. Yani gürültü değil.
+
+### Deney
+
+Model her koşudan önce `keep_alive=0` ile bellekten atıldı:
+
+```
+soguk baslangic, 3 kez  ->  arac 21/30 · tam 20/30   (ucunde de ayni)
+isinmis modelle,  2 kez ->  arac 21/30 · tam 21/30   (ikisinde de ayni)
+```
+
+Her iki durum da **kendi içinde tam tekrarlanabilir**, ama birbirinden farklı.
+Belirleyici olan modelin **ısınma durumu**.
+
+Oynayan tek soru:
+
+> *"Bizi kim geciktiriyor?"* — ısınmış modelde parametresiz (doğru), soğuk
+> modelde `tedarikci_id="Bizi Kim Geciktiriyor"` uyduruyor.
+
+Sınıra yakın bir kararın iki yana düşmesi. llama.cpp/Ollama'da yığınlama ve KV
+önbellek durumu logit'leri son basamakta oynatabiliyor; başa baş giden iki
+seçenek yer değiştiriyor. Sıcaklıkla ilgisi yok.
+
+### Neden önemli
+
+30 soruluk sette **1 soru = 3,3 puan**. 3. tur %73,3 verseydi, bunun eğitimden
+mi yoksa ısınma farkından mı geldiği ayırt edilemezdi. Zaten Wilson %95 güven
+aralığı zaten geniş (21/30 için %52–83); üstüne bir de ölçülemeyen bir kayma
+eklenecekti.
+
+Modülde yazan şu cümle **yanlıştı** ve düzeltildi:
+
+> ~~"Sıcaklık 0 + sabit tohum ile model açgözlü üretim yapıyor ve aynı girdiye
+> aynı cevabı veriyor."~~
+
+Sıcaklık 0 gürültünün büyük kısmını alıyor (7 puanlık oynama → 3,3), ama
+hepsini değil.
+
+### Çözüm
+
+`olc()` artık ölçüme başlamadan modeli düşürüyor (`modeli_bellekten_at`).
+Her ölçüm aynı yerden başlıyor. Model düşürülemezse ölçüm yine yapılıyor —
+yalnızca soğuk başlangıç garantisi kalkıyor; ölçümü buna bağlamak yanlış olur.
+
+Doğrulama — soğuk başlangıçla üç ardışık koşu:
+
+```
+arac 21/30 (%70,0) · tam 20/30 (%66,7)
+arac 21/30 (%70,0) · tam 20/30 (%66,7)
+arac 21/30 (%70,0) · tam 20/30 (%66,7)
+```
+
+Resmî taban çizgiyle birebir aynı — o değer de soğuk başlangıçla ölçülmüştü.
+Testi: `test_olcum_soguk_baslangicla_yapiliyor`.
+
+### Ek set yeniden ölçüldü
+
+Ek set ısınmış modelle ölçülmüştü; soğuk başlangıçla tekrarlandı ve **aynı**
+çıktı: **13/18 · %72,2**. O sette sınıra yakın karar yokmuş.
+
+### Kalan güvenilirlik notu
+
+Soğuk başlangıç *bilinen* bir kayma kaynağını kapatıyor. Ollama sürümü,
+donanım veya model dosyası değişirse aynı sorun geri gelebilir — bu yüzden
+sonuç dosyalarında model adı ve etiket saklanıyor. **3. tur ölçümü ile taban
+çizgi mümkünse aynı oturumda koşturulmalı.**
