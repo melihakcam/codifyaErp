@@ -11,7 +11,7 @@ kendi regex'ini yazmak yerine `app/llm/guard.py::adayi_dogrula`'yı
 
 from __future__ import annotations
 
-from training.eval.benchmark import MetrikSonucu, _demo_kararlari_ornekle
+from training.eval.benchmark import SONUC_DOSYASI, MetrikSonucu, _demo_kararlari_ornekle, sonuc_yolu
 
 
 def test_metrik_sonucu_satir_formatlanir():
@@ -32,3 +32,20 @@ def test_demo_kararlari_ornekle_sayisi_olan_kararlar_doner():
     for aday in kararlar:
         # anlatilacak_sayi_var_mi filtresi: en az bir sifir-olmayan sayi olmali.
         assert any(v != 0 for v in aday.izinli_sayilar())
+
+
+def test_kosular_birbirinin_sonucunu_ezmiyor():
+    """⭐ `router_taban.py::sonuc_yolu`'nun düzelttiği hatanın aynısı buradaydı.
+
+    Önceden her koşu `benchmark_sonuc.json`'a yazıyordu — taban model ve
+    3. tur karşılaştırması yapılmak istendiğinde ilki sessizce kaybolurdu.
+    """
+    assert sonuc_yolu("taban") == SONUC_DOSYASI
+    assert sonuc_yolu("taban-cizgi-egitim-oncesi") == SONUC_DOSYASI
+
+    yollar = [sonuc_yolu(e) for e in ("lora-tur2", "lora-tur3", "lora-tur3-tekrar")]
+    assert len(set(yollar)) == len(yollar)
+    assert SONUC_DOSYASI not in yollar
+
+    kotu = sonuc_yolu("../../etc/parola")
+    assert kotu.parent == SONUC_DOSYASI.parent
