@@ -1,11 +1,11 @@
 # Codifya router + gerekçe modeli — Faz 3 LoRA sonrası
 #
-#     ollama create codifya-router:tur2 -f training/Modelfile
+#     ollama create codifya-router:tur3 -f training/Modelfile
 #
 # GGUF dosyası Colab'da üretilir (bkz. train_lora.ipynb, B3.4) ve bu dosyanın
 # yanına konur.
 
-FROM ./codifya-tur2-q8_0.gguf
+FROM ./codifya-tur3-q8_0.gguf
 
 # ⚠️ EN KRİTİK AYAR.
 #
