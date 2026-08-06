@@ -171,6 +171,17 @@ def sistem_istemi(tip: KararTipi) -> str:
 # durum — kullanıcıya yarım cümle gitmez.
 GEREKCE_MAX_TOKEN = 160
 
+# Eğitilmiş kipte yeniden denemede kullanılan sıcaklık.
+#
+# Neden gerekli: eğitilmiş kip `onceki_red`'i isteme yazamıyor (o satır
+# eğitimde hiç geçmedi). İstem aynı kalınca, sıcaklık 0'da çıktı da birebir
+# aynı olur ve ikinci deneme boşa gider.
+#
+# 0,7 seçildi: 0,2-0,3 açgözlü üretimden yeterince ayrışmıyor, 1,0 üstü
+# uydurmayı artırıyor. Guard ikinci denemeyi de denetlediği için risk yok —
+# tutmazsa şablona düşülür.
+YENIDEN_DENEME_SICAKLIGI = 0.7
+
 MAX_CUMLE = 2
 
 # Cümle sonu: nokta + boşluk + BÜYÜK harf, ya da metnin sonundaki nokta.
@@ -556,6 +567,23 @@ def llm_ureteci(
     egitilmis = istemci.ayar.llm_istem_bicimi == "egitilmis"
 
     def uret(aday: DecisionCandidate, *, onceki_red: list[float] | None = None) -> str:
+        # ⚠️ Eğitilmiş kipte yeniden denemeyi ANLAMLI kılan tek şey bu.
+        #
+        # Taban kipte guard reddedince isteme "şu sayıları kullanma" uyarısı
+        # ekleniyor ve ikinci deneme birinciden farklı oluyor. Eğitilmiş kipte
+        # böyle bir satır eğitimde hiç geçmedi; eklemek modeli tanımadığı bir
+        # girdiye sokar.
+        #
+        # Sonuç: istem aynı, sıcaklık 0 ise çıktı da **birebir aynı** olur ve
+        # ikinci deneme boşa gider — bir model çağrısı, hiçbir kazanç.
+        #
+        # Çözüm istemi değil ÜRETİMİ değiştirmek: yeniden denemede sıcaklığı
+        # yükseltmek. Model aynı istemi görür ama farklı bir yol seçer.
+        yeniden = bool(onceki_red)
+        etkin_sicaklik = sicaklik
+        if egitilmis and yeniden:
+            etkin_sicaklik = max(YENIDEN_DENEME_SICAKLIGI, sicaklik or 0.0)
+
         sonuc = yapilandirilmis_uret(
             istemci,
             GerekceCiktisi,
@@ -564,8 +592,10 @@ def llm_ureteci(
             # işlendi, eğitimde de sistem promptu kullanılmadı.
             sistem=None if egitilmis else sistem_istemi(aday.tip),
             max_token=GEREKCE_MAX_TOKEN,
-            sicaklik=sicaklik,
-            tohum=tohum,
+            sicaklik=etkin_sicaklik,
+            # Tohum da değişmeli: sıcaklık yükselse bile aynı tohum aynı
+            # örneklemeyi verir, yani yine aynı cümle çıkardı.
+            tohum=(tohum + 1) if (egitilmis and yeniden and tohum is not None) else tohum,
         )
         return ilk_cumleleri_al(sonuc.deger.gerekce)
 

@@ -2004,3 +2004,108 @@ listeliyor. Melih'in raporundaki yol `b33_tur1_lora` görünüyordu; 2. tur oray
 mı kaydedildi yoksa yazım hatası mı, listeden görülecek. Yanlış adaptörle
 ölçüm yapmak, yanlış modeli ölçmek demek.
 
+## B2 · Kişi A'nın Faz 3-4-5 işi incelendi
+
+### Sözleşme değişikliği — onaylandı
+
+`contracts.py::ORAN_ALANLARI`'na `onerilen_iskonto_orani` eklenmiş. Dondurulmuş
+dosya olduğu için bağımsız doğruladım; **kanıt Melih'in raporundan daha güçlü**
+çıktı:
+
+```
+tasfiye iskonto oranlari : 0,15 (4.706) · 0,30 (2.181) · 0,50 (3.113)
+hedefte yuzde yazilmis   : 10.000 / 10.000
+guard_sonucu = gecti     : 10.000 / 10.000
+```
+
+Sadece "%15, 886 kez" değil — üç oranın tamamı, on binin on bini. Veri, bu
+alanın ×100 karşılığının izinli olduğu bir guard sürümüyle üretilmiş.
+
+Genişlemenin dar olduğunu da test ettim:
+
+```
+iskonto %15 iken  "15" -> KABUL    "20" -> RED
+                "0,15" -> KABUL    "30" -> RED
+```
+
+### İki kipli ayrım — onaylandı
+
+```
+                   taban    egitilmis   fark
+stok.siparis         6         6        tedarikci_skoru
+stok.tasfiye         4         5        onerilen_iskonto_orani
+stok.aksiyon_yok     3         3        -
+```
+
+Taban kipin dar tutulması B2.4'te ölçülmüş bir kalite kararıydı (sayı artınca
+model veri döküyor). Eğitilmiş kip ise hedefin kullandığı **tüm** sayıları
+içermek zorunda. İkisi ayrı kalmalı — doğru yapılmış.
+
+### Yapısal koruma — en değerli parça
+
+`veri_hazirla.py` artık kendi alan listesini taşımıyor,
+`explain.py::egitilmis_istem_govdesi`'ni çağırıyor. Eğitim ile çalışma zamanının
+ayrışması **yapısal olarak imkânsız** hale gelmiş. Test de bağını doğruluyor.
+
+Veri tutarlılık kapısını yerelde koşturdum (`data/*` gitignore'da olduğu için
+veriyi yeniden ürettim): **%79,4 → %0,0**.
+
+### Bir inceleme notu: API artık LLM'i bekliyor
+
+`decisions.py`'de `?gerekce=true` artık senkron olarak LLM çağırıyor. B2.4'te
+bunu **bilerek yapmamıştım** — mimarinin ikinci kuralı ("ERP asla LLM'i
+beklemez") ve veritabanı oturumunun açık kalması yüzünden.
+
+Melih'in gerekçesi savunulabilir: `gerekce=true` isteğe bağlı, karar yolu
+etkilenmiyor, `gerekce_uret` hata fırlatmıyor.
+
+Somut maliyet: **veritabanı oturumu LLM çağrısı boyunca açık kalıyor** (~6 sn,
+zaman aşımında 60 sn'ye kadar). Demo/geliştirme ucu için kabul edilebilir,
+üretim yükünde bağlantı birikmesine yol açar.
+
+Engellemiyorum; not olarak kalsın, üretime çıkarken tekrar bakılmalı.
+
+### Gürültü payı iddiasına düzeltme
+
+Melih *"router'daki değişim ±7 puan gürültü payında"* demiş. O 7 puan
+**sıcaklık 0,2'den** geliyordu; artık sıcaklık 0 + sabit tohumla ölçüyoruz,
+aynı model iki kez koşunca **birebir aynı** sonucu veriyor. Gürültü sıfır.
+
+Belirsizlik başka yerden: **30 soru az.** Wilson %95 güven aralığı:
+
+```
+19/30 = %63,3  ->  %45,5 - %78,1
+21/30 = %70,0  ->  %52,1 - %83,3
+27/30 = %90,0  ->  %74,4 - %96,5
+```
+
+Yani 2. turun %63,3'ü tabandan **anlamlı şekilde kötü bile değil** — aralıklar
+çakışıyor. Sonucu doğru, sebebi farklı: örneklem küçüklüğü.
+
+Anlamlı bir iyileşme iddiası için kabaca **27/30'un üstüne** çıkmak gerekiyor.
+
+## B3 · Eğitilmiş kipte yeniden deneme düzeltildi
+
+Kendi bıraktığım eksik. Eğitilmiş kip `onceki_red`'i isteme yazamıyor (o satır
+eğitimde hiç geçmedi). İstem aynı kalınca sıcaklık 0'da çıktı da **birebir
+aynı** oluyordu — ikinci deneme bir model çağrısı harcayıp hiçbir şey
+kazandırmıyordu.
+
+Çözüm istemi değil **üretimi** değiştirmek:
+
+```
+ilk deneme      sicaklik 0,0   tohum 42
+yeniden deneme  sicaklik 0,7   tohum 43
+istem                    AYNI  (egitimde gorulmeyen satir eklenmiyor)
+```
+
+Tohum da değişmeli — sıcaklık yükselse bile aynı tohum aynı örneklemeyi verir.
+
+`0,7` seçildi: 0,2-0,3 açgözlü üretimden yeterince ayrışmıyor, 1,0 üstü
+uydurmayı artırıyor. Guard ikinci denemeyi de denetlediği için risk yok;
+tutmazsa şablona düşülür.
+
+Taban kipte hiçbir şey değişmedi — orada çözüm zaten istem tarafında.
+
+2 yeni test. Toplam **320 test yeşil**.
+

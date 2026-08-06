@@ -59,6 +59,102 @@ def test_egitim_ve_calisma_zamani_istemi_birebir_ayni():
     assert egitim_istemi == calisma_zamani_istemi
 
 
+def test_egitilmis_kipte_yeniden_deneme_sicakligi_yukseltiyor():
+    """⭐ Eğitilmiş kipte yeniden denemeyi anlamlı kılan tek şey bu.
+
+    `onceki_red` isteme yazılamıyor (o satır eğitimde hiç geçmedi), dolayısıyla
+    ikinci denemenin istemi birinciyle **aynı**. Sıcaklık 0'da çıktı da birebir
+    aynı olurdu — bir model çağrısı, hiçbir kazanç.
+
+    Çözüm istemi değil üretimi değiştirmek: sıcaklık ve tohum yeniden denemede
+    değişiyor.
+    """
+    import json
+
+    import httpx
+
+    from app.core.config import Ayarlar
+    from app.llm.client import OllamaIstemcisi
+    from app.llm.explain import YENIDEN_DENEME_SICAKLIGI, llm_ureteci
+
+    gonderilen: list[dict] = []
+
+    def isleyici(istek: httpx.Request) -> httpx.Response:
+        gonderilen.append(json.loads(istek.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "sahte",
+                "response": json.dumps({"gerekce": "Stok yeterli."}, ensure_ascii=False),
+                "eval_count": 5,
+                "eval_duration": 1_000_000_000,
+                "load_duration": 0,
+            },
+        )
+
+    ayar = Ayarlar(
+        ollama_base_url="http://sahte:11434",
+        llm_yeniden_deneme=0,
+        llm_istem_bicimi="egitilmis",
+    )
+    istemci = OllamaIstemcisi(ayar, transport=httpx.MockTransport(isleyici))
+    uret = llm_ureteci(istemci, sicaklik=0.0, tohum=42)
+    aday = decide_stub()
+
+    uret(aday)  # ilk deneme
+    uret(aday, onceki_red=[9999.0])  # guard reddetti, yeniden
+
+    ilk, ikinci = gonderilen[0]["options"], gonderilen[1]["options"]
+
+    assert ilk["temperature"] == 0.0
+    assert ikinci["temperature"] == YENIDEN_DENEME_SICAKLIGI
+    assert ikinci["seed"] != ilk["seed"], "tohum da degismeli, yoksa ayni ornekleme"
+    # İstem değişmemeli — eğitimde görülmeyen satır eklenmiyor.
+    assert gonderilen[0]["prompt"] == gonderilen[1]["prompt"]
+
+
+def test_taban_kipte_yeniden_deneme_istemi_degistiriyor():
+    """Taban kipte çözüm farklı: istem değişiyor, sıcaklık sabit kalıyor."""
+    import json
+
+    import httpx
+
+    from app.core.config import Ayarlar
+    from app.llm.client import OllamaIstemcisi
+    from app.llm.explain import llm_ureteci
+
+    gonderilen: list[dict] = []
+
+    def isleyici(istek: httpx.Request) -> httpx.Response:
+        gonderilen.append(json.loads(istek.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "sahte",
+                "response": json.dumps({"gerekce": "Stok yeterli."}, ensure_ascii=False),
+                "eval_count": 5,
+                "eval_duration": 1_000_000_000,
+                "load_duration": 0,
+            },
+        )
+
+    ayar = Ayarlar(
+        ollama_base_url="http://sahte:11434",
+        llm_yeniden_deneme=0,
+        llm_istem_bicimi="taban",
+    )
+    istemci = OllamaIstemcisi(ayar, transport=httpx.MockTransport(isleyici))
+    uret = llm_ureteci(istemci, sicaklik=0.0, tohum=42)
+    aday = decide_stub()
+
+    uret(aday)
+    uret(aday, onceki_red=[9999.0])
+
+    assert gonderilen[0]["options"]["temperature"] == gonderilen[1]["options"]["temperature"]
+    assert gonderilen[0]["prompt"] != gonderilen[1]["prompt"]
+    assert "9.999" in gonderilen[1]["prompt"]
+
+
 def test_calisma_zamani_istemi_gorev_basligi_ekler():
     aday = decide_stub()
     tam = egitilmis_istem_kur(aday)
