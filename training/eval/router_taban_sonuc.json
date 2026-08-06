@@ -55,7 +55,37 @@
         5
       ]
     },
-    "sure_sn": 58.3
+    "cekim_gucu": {
+      "gecelik_ozet_sorgula": [
+        3,
+        4
+      ],
+      "genel_stok_durumu_sorgula": [
+        2,
+        3
+      ],
+      "kritik_stok_sorgula": [
+        5,
+        5
+      ],
+      "olu_stok_sorgula": [
+        5,
+        1
+      ],
+      "onay_kuyrugu_sorgula": [
+        5,
+        5
+      ],
+      "siparis_onerisi_sorgula": [
+        5,
+        6
+      ],
+      "tedarikci_performansi_sorgula": [
+        5,
+        4
+      ]
+    },
+    "sure_sn": 59.6
   },
   "kayitlar": [
     {
@@ -66,7 +96,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1010,
+      "uretim_ms": 974,
       "deneme": 1
     },
     {
@@ -93,7 +123,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 960,
+      "uretim_ms": 1013,
       "deneme": 1
     },
     {
@@ -104,7 +134,7 @@
       "secilen_arac": "siparis_onerisi_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1092,
+      "uretim_ms": 1082,
       "deneme": 1
     },
     {
@@ -115,7 +145,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 992,
+      "uretim_ms": 958,
       "deneme": 1
     },
     {
@@ -126,7 +156,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 987,
+      "uretim_ms": 1120,
       "deneme": 1
     },
     {
@@ -154,7 +184,7 @@
       "secilen_arac": "olu_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 934,
+      "uretim_ms": 939,
       "deneme": 1
     },
     {
@@ -165,7 +195,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1025,
+      "uretim_ms": 1039,
       "deneme": 1
     },
     {
@@ -176,7 +206,7 @@
       "secilen_arac": "siparis_onerisi_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 976,
+      "uretim_ms": 992,
       "deneme": 1
     },
     {
@@ -194,7 +224,7 @@
         "tedarikci_id": "T-0014"
       },
       "hata": null,
-      "uretim_ms": 1579,
+      "uretim_ms": 1683,
       "deneme": 1
     },
     {
@@ -212,7 +242,7 @@
         "tedarikci_id": "Yılmaz Yapı"
       },
       "hata": null,
-      "uretim_ms": 1562,
+      "uretim_ms": 1580,
       "deneme": 1
     },
     {
@@ -225,7 +255,7 @@
         "tedarikci_id": "Bizi Kim Geciktiriyor"
       },
       "hata": null,
-      "uretim_ms": 1585,
+      "uretim_ms": 1566,
       "deneme": 1
     },
     {
@@ -243,7 +273,7 @@
         "tedarikci_id": "T-0031"
       },
       "hata": null,
-      "uretim_ms": 1668,
+      "uretim_ms": 1766,
       "deneme": 1
     },
     {
@@ -259,7 +289,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1105,
+      "uretim_ms": 1117,
       "deneme": 1
     },
     {
@@ -277,7 +307,7 @@
         "sku_id": "S-01432"
       },
       "hata": null,
-      "uretim_ms": 1406,
+      "uretim_ms": 1529,
       "deneme": 1
     },
     {
@@ -295,7 +325,7 @@
         "sku_id": "S-00318"
       },
       "hata": null,
-      "uretim_ms": 1478,
+      "uretim_ms": 1547,
       "deneme": 1
     },
     {
@@ -313,7 +343,7 @@
         "sku_id": "S-01949"
       },
       "hata": null,
-      "uretim_ms": 1500,
+      "uretim_ms": 1539,
       "deneme": 1
     },
     {
@@ -331,7 +361,7 @@
         "kategori": "Demir"
       },
       "hata": null,
-      "uretim_ms": 1200,
+      "uretim_ms": 1216,
       "deneme": 1
     },
     {
@@ -350,7 +380,7 @@
         "sku_id": "S-01432"
       },
       "hata": null,
-      "uretim_ms": 1544,
+      "uretim_ms": 1518,
       "deneme": 1
     },
     {
@@ -361,7 +391,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1002,
+      "uretim_ms": 1063,
       "deneme": 1
     },
     {
@@ -372,7 +402,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1046,
+      "uretim_ms": 1077,
       "deneme": 1
     },
     {
@@ -383,7 +413,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1111,
+      "uretim_ms": 1071,
       "deneme": 1
     },
     {
@@ -394,7 +424,7 @@
       "secilen_arac": "genel_stok_durumu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 930,
+      "uretim_ms": 936,
       "deneme": 1
     },
     {
@@ -405,7 +435,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1041,
+      "uretim_ms": 1078,
       "deneme": 1
     },
     {
@@ -416,7 +446,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1016,
+      "uretim_ms": 1054,
       "deneme": 1
     },
     {
@@ -427,7 +457,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1046,
+      "uretim_ms": 1086,
       "deneme": 1
     },
     {
@@ -438,7 +468,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1018,
+      "uretim_ms": 1036,
       "deneme": 1
     },
     {
@@ -449,7 +479,7 @@
       "secilen_arac": "genel_stok_durumu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1240,
+      "uretim_ms": 1042,
       "deneme": 1
     },
     {
@@ -460,7 +490,7 @@
       "secilen_arac": "genel_stok_durumu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1209,
+      "uretim_ms": 1064,
       "deneme": 1
     }
   ]

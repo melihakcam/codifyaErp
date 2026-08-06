@@ -2467,3 +2467,141 @@ Tek çözüm: bu iki araç için **çeşitli soru yazmak**. Aynı cümlenin
 gerçekten farklı soruluşlar. Her biri için ~150 özgün soru.
 
 Bu Melih'in tarafı (veri üretimi).
+
+---
+
+## Ölçümümüz sandığımız kadar sağlam değilmiş
+
+### Nasıl anladık
+
+Rapora yeni bir bölüm ekleyip taban çizgiyi tekrar koşturduk. Sayı değişti:
+
+```
+onceki:  20/30 dogru
+simdi :  21/30 dogru
+```
+
+Ama hiçbir şey değişmemişti. Kod aynı, model aynı (dosya 1 Ağustos'tan beri
+hiç değişmemiş), ayarlar aynı.
+
+### Sebep: modelin "ısınmış" olması
+
+Ollama modeli belleğe yüklüyor. Model yeni yüklendiyse bir cevap, bir süredir
+çalışıyorsa başka bir cevap verebiliyor.
+
+Denedik:
+
+```
+modeli her seferinde bellekten atarak, 3 kez  ->  hep 20/30
+isinmis modelle,                       2 kez  ->  hep 21/30
+```
+
+İkisi de kendi içinde tutarlı, ama birbirinden farklı.
+
+Oynayan tek soru şuydu: *"Bizi kim geciktiriyor?"* — model bazen boş parametre
+veriyor (doğru), bazen "Bizi Kim Geciktiriyor" diye uyduruyor. İki seçenek
+başa baş gidiyor, en ufak fark birini öne geçiriyor.
+
+### Neden önemli
+
+30 soruda **1 soru = 3,3 puan**.
+
+3. tur modeli gelip %73,3 verseydi ne diyecektik? "Eğitim işe yaradı." Ama
+o fark tam olarak bir sorudan geliyor — yani belki de sadece modelin ısınmış
+olmasından.
+
+Kodda şöyle bir cümle vardı ve yanlıştı:
+
+> "Sıcaklık 0 + sabit tohum ile model aynı girdiye aynı cevabı veriyor."
+
+Sıcaklık 0 gürültünün çoğunu alıyor (eskiden 7 puan oynuyordu, şimdi 3,3), ama
+hepsini almıyor.
+
+### Çözüm
+
+Ölçüm artık her seferinde **modeli bellekten atarak** başlıyor. Yani her ölçüm
+aynı yerden başlıyor.
+
+Üç kez üst üste koşturduk, üçü de aynı: **%70,0 / %66,7** — resmî taban
+çizgiyle birebir.
+
+Modeli atamazsak ölçüm yine yapılıyor, sadece garanti kalkıyor. Ölçümü buna
+bağlamak yanlış olurdu.
+
+---
+
+## 3. tur geldi — üç şey buldum
+
+Melih 3. tur sonucunu gönderdi. Sonuçları kendi aracımla yeniden puanladım
+(modeli hiç çalıştırmadan, kayıtlı cevaplardan).
+
+### 1. Tahminimiz tuttu
+
+"Az çeşitlilikli sınıf çöp kutusu olur" demiştik. 3. turda aynen öyle:
+
+```
+genel stok durumu   (cesitlilik %9)    2 beklendi -> 3 secildi   FAZLA
+onay kuyrugu        (cesitlilik %14)   5 beklendi -> 6 secildi   FAZLA
+kritik stok         (cesitlilik %90)   5 beklendi -> 3 secildi   AZ
+olu stok            (cesitlilik %84)   5 beklendi -> 4 secildi   AZ
+```
+
+Hangi soruların nereye kaçtığı bile öngördüğümüz gibi çıktı.
+
+### 2. Bir etiket hatam vardı, düzelttim
+
+Ek set ilk bakışta 3. turda düşmüş görünüyordu. Sebep model değil, **benim
+yazdığım yanlış doğru cevaptı.**
+
+`gecelik özet` aracı bir tarih parametresi alıyor ve eğitim verisindeki 155
+örneğin 155'i bunu kullanıyor. Ben 7 soruma "parametre yok" yazmıştım.
+Kontrol ettim: 6'sında haklıyım (soruda tarih geçmiyor), 1'inde haksızım —
+*"dun gece ne cikti"* sorusunda "dun" zaten var.
+
+Onu düzelttim.
+
+> Daha önce başka bir etiketi model itiraz etti diye **değiştirmemiştim**.
+> Fark şu: orada elimde model çıktısından başka kanıt yoktu. Burada
+> sözleşmenin kendisi ve 155 örneğin tamamı bana "yanlış yazmışsın" diyor.
+> Etiketi modele göre değil, kurala göre düzeltirsin.
+
+### 3. Melih'in raporunda görünmeyen bir gerileme var
+
+Doğru etiketle bakınca ek set şunu söylüyor:
+
+```
+                    taban      3. tur
+dogru arac sectiei   %72,2      %88,9    <- ciddi iyilesme
+tam dogru            %66,7      %66,7    <- degismedi
+UYDURMA parametre       0          4     <- GERILEME
+```
+
+Model doğru aracı çok daha iyi seçiyor **ama olmayan tarih uydurmaya
+başlamış**:
+
+```
+"gece raporu"                     -> tarih: "gecen gun"
+"Gece boyunca neler birikmis?"    -> tarih: "gecen gun"
+```
+
+Soruda öyle bir şey yok. Zaten "geçen gün" eğitimdeki geçerli dört değerden
+biri de değil — düpedüz uyduruyor.
+
+Araçtaki kazanç parametredeki kayıpla götürülmüş, o yüzden toplam sabit
+görünüyor.
+
+**30 soruluk set bunu göremedi**, çünkü orada 3 gecelik sorusu var, ek sette
+7. Ek seti tam da bunun için yazmıştık.
+
+### Bir de çekince
+
+Melih "tam doğruluk %66,7'den %70,0'a çıktı" diyor. Bu **tam olarak 1 soru**.
+Ve ben daha önce ölçmüştüm: modelin ısınma durumu tek başına 1 soru
+oynatabiliyor, hem de aynı tipte (parametre).
+
+Melih'in ölçümü benim soğuk başlangıç düzeltmemden önceki kodla yapılmış.
+Yani o +1 gerçek kazanç da olabilir, ısınma farkı da — bu koşuyla ayırt
+edilemez.
+
+Araç doğruluğundaki +2 daha sağlam duruyor: ısınma sürüklenmesi araç seçimini
+hiç değiştirmemişti, sadece parametreyi oynatmıştı.

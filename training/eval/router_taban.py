@@ -16,7 +16,7 @@ Soru seti `router_taban_sorulari.jsonl`'de ve **elle** yazıldı. Kişi A'nın
 otomatik ürettiği eğitim verisinden bilinçli olarak ayrı: aynı şablonlardan
 türeyen bir test seti, modelin şablonu ezberlemesini "başarı" diye ölçerdi.
 
-Üç koruma var, üçü de eğitim verisindeki bilinen sorunlara karşı:
+Dört koruma var, dördü de eğitim verisindeki bilinen sorunlara karşı:
 
 1. **Parametre biçimi esnek.** Eğitim verisinde `sku_adi` parametresi ürün
    ADINI değil KODUNU taşıyor (`"S-01971"`). Model eğitimden sonra kod
@@ -34,8 +34,16 @@ türeyen bir test seti, modelin şablonu ezberlemesini "başarı" diye ölçerdi
    yığılma açıkça uyarı basıyor — "doğruluk düştü" ile "model çöktü" çok
    farklı sorunlar, karıştırılmamalı.
 
-Sonuçlar `router_taban_sonuc.json`'a yazılıyor: B3.5'te yeniden puanlama
-gerekirse modeli tekrar çalıştırmaya gerek kalmasın.
+4. **Çekim gücü.** Çöküş dedektörü kaba bir soru sorar ve ancak felaket
+   seviyesinde ateşlenir. Daha ince bir bozulma var: bir sınıfın **çöp
+   kutusu** haline gelmesi — hiçbir sınıfa güçlü uymayan soruları kapması.
+   Rapor her araç için "kaç kez beklendi / kaç kez seçildi" basıyor. Genel
+   doğruluk bunu göstermez: bir sınıf kazanıp diğeri kaybettiğinde toplam
+   sabit kalabilir. 2. turda tam bu oldu ve fark edilmeden durdu.
+
+Sonuçlar etikete göre ayrı dosyalara yazılıyor (`sonuc_yolu`); donmuş taban
+çizgi `router_taban_sonuc.json`'da. `--rapor <dosya>` ile kayıtlı bir sonuç
+**modeli hiç çalıştırmadan** bugünkü puanlama mantığıyla yeniden raporlanır.
 """
 
 from __future__ import annotations
@@ -48,6 +56,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from app.core.config import Ayarlar, ayarlar
 from app.llm.client import LLMErisilemiyor, OllamaIstemcisi
@@ -93,8 +103,15 @@ COKUS_TAVANI = 0.90
 # ⚠️ Olcum TEKRARLANABILIR olmali. Varsayilan sicaklikla (0.2) ayni set iki
 # kez kosturuldugunda %70 ve %76,7 cikti — 7 puanlik gurultu. Taban cizgi ile
 # LoRA sonrasi farki bu gurultuden ayirt edilemezdi. Sicaklik 0 + sabit tohum
-# ile model acgozlu (greedy) uretim yapiyor ve ayni girdiye ayni cevabi
-# veriyor. Uretimde kullanilmiyor; orada cesitlilik zararsiz.
+# ile model acgozlu (greedy) uretim yapiyor. Uretimde kullanilmiyor; orada
+# cesitlilik zararsiz.
+#
+# ⚠️ DUZELTME: burada eskiden "ayni girdiye ayni cevabi veriyor" yaziyordu.
+# YANLIS. Sicaklik 0 gurultunun buyuk kismini aliyor ama HEPSINI degil: hicbir
+# kod degismeden, ayni model digest'iyle taban cizgi 20/30 ile 21/30 arasinda
+# oynadi. Belirleyici olan modelin ISINMA DURUMU — ayrinti icin bkz.
+# `modeli_bellekten_at`. Kalan gurultu `olc()` icinde soguk baslangicla
+# kapatiliyor.
 OLCUM_SICAKLIGI = 0.0
 OLCUM_TOHUMU = 42
 
@@ -176,6 +193,49 @@ def kayitlari_yukle(yol: Path = SORU_DOSYASI) -> list[Kayit]:
     return kayitlar
 
 
+def modeli_bellekten_at(istemci: OllamaIstemcisi) -> bool:
+    """Ölçümden önce modeli Ollama'nın belleğinden atar (soğuk başlangıç).
+
+    ⚠️ **Sıcaklık 0 + sabit tohum, tekrarlanabilirlik için YETMİYOR.**
+
+    Böyle olduğu sanılıyordu ve modül docstring'i de bunu söylüyordu. Ölçüldü,
+    doğru değil: hiçbir kod değişmeden, aynı model (aynı digest), aynı soru
+    setiyle taban çizgi **20/30 ile 21/30 arasında oynadı**.
+
+        model bellekten atilarak, 3 kez  ->  arac 21/30 · tam 20/30  (hep ayni)
+        isinmis modelle,          2 kez  ->  arac 21/30 · tam 21/30  (hep ayni)
+
+    Yani sonuç kendi içinde tutarlı ama **modelin ısınma durumuna bağlı**.
+    Oynayan soru: *"Bizi kim geciktiriyor?"* — ısınmış modelde parametresiz
+    (doğru), soğukta `tedarikci_id="Bizi Kim Geciktiriyor"` uyduruyor. Sınıra
+    yakın bir kararın iki yana düşmesi.
+
+    Sebebi sıcaklık değil: llama.cpp/Ollama'da yığınlama ve KV önbellek
+    durumu logit'leri son basamakta oynatabiliyor; başa baş giden iki seçenek
+    yer değiştiriyor.
+
+    Neden önemli: 1 soru = 3,3 puan. 3. tur %73,3 verirse bu "eğitim işe
+    yaradı" mı yoksa ısınma farkı mı — ayırt edilemezdi.
+
+    Çözüm ısınmayı beklemek değil, **her ölçümü aynı yerden başlatmak**.
+    `keep_alive=0` modeli düşürüyor; sonraki istek onu sıfırdan yüklüyor.
+
+    ⚠️ Bu, taban çizgiyi resmî değere (%70,0 araç / %66,7 tam) geri getirdi —
+    o değer de soğuk başlangıçla ölçülmüştü.
+    """
+    try:
+        cevap = istemci._istemci.post(
+            "/api/generate",
+            json={"model": istemci.ayar.llm_model_adi, "keep_alive": 0},
+            timeout=30.0,
+        )
+        return cevap.status_code == 200
+    except httpx.HTTPError:
+        # Ölçümü buna bağlamak yanlış olur: model düşürülemezse ölçüm yine
+        # yapılır, yalnızca soğuk başlangıç garantisi kalkar.
+        return False
+
+
 def olc(kayitlar: list[Kayit], *, ayrinti: bool = True, ayar: Ayarlar | None = None) -> list[Kayit]:
     """Soruları modele sorar. `ayar` verilmezse `.env`'deki model kullanılır.
 
@@ -190,6 +250,7 @@ def olc(kayitlar: list[Kayit], *, ayrinti: bool = True, ayar: Ayarlar | None = N
     sıcaklık ve tohum. Tek değişen model.
     """
     with OllamaIstemcisi(ayar) as istemci:
+        modeli_bellekten_at(istemci)
         for i, k in enumerate(kayitlar, 1):
             try:
                 sonuc = soruyu_yonlendir(
@@ -217,6 +278,37 @@ def olc(kayitlar: list[Kayit], *, ayrinti: bool = True, ayar: Ayarlar | None = N
                     f"{i:>3} [{isaret}] {k.stil:<8} {k.soru[:44]:<46} -> {k.secilen_arac or k.hata}"
                 )
     return kayitlar
+
+
+def cekim_gucu(kayitlar: list[Kayit]) -> dict[str, tuple[int, int]]:
+    """Her araç için (kaç kez beklendi, kaç kez seçildi).
+
+    ⭐ Çöküş dedektörü "model tek araca yığıldı mı" diye bakar — kaba bir
+    sorudur ve ancak felaket seviyesinde ateşlenir. Bu ise daha ince bir
+    bozulmayı görür: bir sınıfın **çöp kutusu** haline gelmesi.
+
+    Çöp kutusu sınıf, hiçbir sınıfa güçlü şekilde uymayan soruları kapan
+    sınıftır. Beklendiğinden fazla seçilir. Doğruluğu iyi bile görünebilir
+    (kendi sorularını doğru bilir) ama **başka araçların** sorularını çalar.
+
+    2. turda tam bu oldu ve `router_lora_tur2_sonuc.json`'da aylarca
+    görülmeden durdu:
+
+        siparis_onerisi        5 beklendi / 6 seçildi  ->  5 / 3   düştü
+        genel_stok_durumu      2 beklendi / 3 seçildi  ->  2 / 4   ARTTI
+        onay_kuyrugu           5 beklendi / 5 seçildi  ->  5 / 7   ARTTI
+
+    2. turun gerçek araca giden dört hatasının dördü de o iki sınıfa aktı.
+    Ortak özellikleri az örnek DEĞİL — `dengeli_kota` kotaları eşitliyor —
+    az **özgünlük**: 26 cümle 11 kez tekrarlanınca sınıfın karar sınırı
+    bulanıklaşıyor (ayrıntı: `dokumantasyon/OLCUMLER.md`).
+
+    Genel doğruluk bunu göstermez: bir sınıf kazanıp diğeri kaybettiğinde
+    toplam sabit kalabilir.
+    """
+    beklenen = Counter(k.beklenen_arac for k in kayitlar)
+    secilen = Counter(k.secilen_arac for k in kayitlar if k.secilen_arac)
+    return {a: (beklenen[a], secilen[a]) for a in sorted(set(beklenen) | set(secilen))}
 
 
 def cokus_esigi(kayitlar: list[Kayit]) -> float:
@@ -308,6 +400,28 @@ def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, Any]:
         d, t = arac_dogru_say[arac], arac_toplam[arac]
         print(f"    {arac:<32} {d}/{t}")
 
+    print("\n  ÇEKİM GÜCÜ (beklenen -> seçilen):")
+    print("    Fazla seçilen sınıf 'çöp kutusu' olmuş olabilir: kendi sorularını")
+    print("    bilirken başka araçların sorularını da kapıyor. Genel doğruluk bunu")
+    print("    göstermez — bir sınıf kazanıp diğeri kaybederse toplam sabit kalır.")
+    cekim = cekim_gucu(kayitlar)
+    kutular = []
+    for arac, (bek, sec) in cekim.items():
+        fark = sec - bek
+        if fark > 0:
+            isaret = f"  +{fark}  <-- fazla seçiliyor"
+            kutular.append((arac, fark))
+        elif fark < 0:
+            isaret = f"  {fark}"
+        else:
+            isaret = "   0"
+        print(f"    {arac:<32} {bek:>2} -> {sec:<2}{isaret}")
+    if kutular:
+        en_buyuk = max(kutular, key=lambda x: x[1])
+        print(f"\n    En çok çeken: {en_buyuk[0]} (+{en_buyuk[1]})")
+        print("    Bu sınıfın eğitim örnekleri az çeşitliyse beklenen davranış;")
+        print("    çözüm daha çok eğitim turu değil, daha çeşitli soru.")
+
     if uydurmali:
         print("\n  UYDURMA PARAMETRELER (soruda hiç geçmiyor):")
         for k in uydurmali:
@@ -330,8 +444,75 @@ def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, Any]:
         "cokus": {"var": cokmus, "arac": cokus_araci, "pay": cokus_payi},
         "arac_bazinda": {a: [arac_dogru_say[a], arac_toplam[a]] for a in sorted(arac_toplam)},
         "stil_bazinda": {s: [stil_dogru[s], stil_toplam[s]] for s in sorted(stil_toplam)},
+        "cekim_gucu": {a: list(v) for a, v in cekim.items()},
         "sure_sn": round(gecen_sn, 1),
     }
+
+
+def sonuctan_yukle(yol: Path) -> tuple[str, list[Kayit]]:
+    """Kayıtlı sonuç JSON'unu `Kayit` listesine geri çevirir.
+
+    Modül docstring'i "B3.5'te yeniden puanlama gerekirse modeli tekrar
+    çalıştırmaya gerek kalmasın" diye söz veriyordu ama bunu yapacak bir yol
+    yoktu — kayıtlı sonuca bakmak için her seferinde tek kullanımlık betik
+    yazmak gerekiyordu. `--rapor` bu boşluğu kapatıyor.
+
+    Puanlama `Kayit`'in property'lerinden geliyor, JSON'a gömülü değil; yani
+    puanlama mantığı değişirse eski ölçüm **yeni mantıkla** yeniden puanlanır.
+    Zaten amaç buydu.
+    """
+    govde = json.loads(yol.read_text(encoding="utf-8"))
+
+    # ⚠️ ALTIN ETIKETLER SORU DOSYALARINDAN TAZELENIYOR.
+    #
+    # Kayitli JSON, olcum anindaki altin etiketi de tasiyor. Ama altin etiket
+    # DUZELTILEBILIR: ek sette "dun gece ne cikti" parametresiz yazilmisti,
+    # oysa schemas.py bu araca `tarih_ifadesi` veriyor ve egitim verisindeki
+    # 155 ornegin 155'i parametreli. Etiket yanlisti.
+    #
+    # Etiket duzeltilince ESKI olcumler de yeni etiketle yeniden puanlanmali;
+    # yoksa taban ile tur3 farkli altin etiketlerle karsilastirilir ve
+    # kiyaslama gecersiz olur. Modul zaten "modeli tekrar calistirmaya gerek
+    # kalmasin" diye soz veriyordu -- bu, o sozun asil kismi.
+    #
+    # ⚠️ Bu, altin etiketi modelin ciktisina uydurmak DEGIL. Etiket yalnizca
+    # soru dosyasinda degistiyse degisir; soru dosyasi da sozlesme ve egitim
+    # kuralina gore duzeltilir, modele bakilarak degil.
+    altin: dict[str, Kayit] = {}
+    for soru_dosyasi in (SORU_DOSYASI, EK_SORU_DOSYASI):
+        if soru_dosyasi.exists():
+            for ref in kayitlari_yukle(soru_dosyasi):
+                altin[ref.soru.strip()] = ref
+
+    kayitlar = [
+        Kayit(
+            soru=k["soru"],
+            stil=k["stil"],
+            beklenen_arac=k["beklenen_arac"],
+            beklenen_parametreler=(
+                altin[k["soru"].strip()].beklenen_parametreler
+                if k["soru"].strip() in altin
+                else k.get("beklenen_parametreler", {})
+            ),
+            secilen_arac=k.get("secilen_arac"),
+            secilen_parametreler=k.get("secilen_parametreler"),
+            hata=k.get("hata"),
+            uretim_ms=k.get("uretim_ms", 0),
+            deneme=k.get("deneme", 0),
+        )
+        for k in govde["kayitlar"]
+    ]
+    degisen = [
+        k.soru
+        for k, ham in zip(kayitlar, govde["kayitlar"], strict=True)
+        if k.beklenen_parametreler != ham.get("beklenen_parametreler", {})
+    ]
+    if degisen:
+        print(f"  ⚠️ {len(degisen)} sorunun altin etiketi soru dosyasindan tazelendi:")
+        for soru in degisen:
+            print(f"       {soru}")
+        print()
+    return govde.get("etiket", yol.stem), kayitlar
 
 
 def sonuc_yolu(etiket: str) -> Path:
@@ -417,7 +598,23 @@ def _cli() -> None:
             "taban cizgiyle karistirilmaz)"
         ),
     )
+    ayristirici.add_argument(
+        "--rapor",
+        type=Path,
+        default=None,
+        help=(
+            "Modeli hic calistirmadan, kayitli bir sonuc JSON'undan raporu "
+            "yeniden uret (or. --rapor training/eval/router_lora_tur2_sonuc.json)"
+        ),
+    )
     args = ayristirici.parse_args()
+
+    if args.rapor:
+        etiket, kayitlar = sonuctan_yukle(args.rapor)
+        print(f"kayitli sonuc: {args.rapor.name}  (etiket: {etiket})")
+        print("model CAGRILMADI — puanlama bugunku mantikla yeniden yapildi.\n")
+        rapor(kayitlar, 0.0)
+        return
 
     ayar = None
     if args.model or args.istem_bicimi:
@@ -467,10 +664,13 @@ if __name__ == "__main__":
 __all__ = [
     "COKUS_ESIGI",
     "Kayit",
+    "cekim_gucu",
     "cokus_esigi",
     "cokus_kontrolu",
     "kayitlari_yukle",
+    "modeli_bellekten_at",
     "olc",
     "rapor",
+    "sonuctan_yukle",
     "sonucu_kaydet",
 ]
