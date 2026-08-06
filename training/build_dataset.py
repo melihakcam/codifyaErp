@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -458,6 +459,39 @@ def sablonlari_ihrac_et(yalnizca_araclar: set[str] | None = None) -> pd.DataFram
     return pd.DataFrame(kayitlar)
 
 
+_YER_TUTUCU_TEKRAR_DESENLERI: dict[str, re.Pattern[str]] = {
+    # `_varlik_ifadesi()` bu varlık türleri için sabit bir sonek üretir
+    # ("X tedarikçisinin ", "Y kategorisinde "). Paraphrase LLM'i şablonu
+    # yeniden yazarken bazen aynı kelimeyi cümlede başka bir yere de
+    # ekliyor; token yerine geçen sonek ile çakışınca bitişik tekrar
+    # oluşuyor ("T-0005 tedarikçisinin tedarikçinin gecikiyomu var mı?").
+    #
+    # ⚠️ Bulgu: golden set'in %30,6'sında (49/160) bu desen vardı,
+    # `tedarikci_performansi_sorgula`'da %60,3'e çıkıyordu — ortak onaydan
+    # önce fark edildi (bkz. dokumantasyon/OLCUMLER.md, golden set
+    # incelemesi). Kaynağı burası: paraphrase LLM'e gönderilmeden önce bile
+    # şablon zaten "TEDARIKCI_KODU tedarikçisinin ..." biçimindeydi
+    # (`sablonlari_ihrac_et`), LLM onu yeniden yazarken kelimeyi bir kez
+    # daha kullanabiliyordu.
+    "tedarikci_id": re.compile(r"\btedarikçisinin\s+tedarikç\w*\b", re.IGNORECASE),
+    "kategori": re.compile(r"\bkategorisinde\s+kategorisinde\b", re.IGNORECASE),
+}
+
+
+def yer_tutucu_tekrarini_temizle(soru: str, varlik_turu: str) -> str:
+    """Bitişik "X sonekinin sonekinin/soneki" tekrarını tek kelimeye indirir.
+
+    Yalnızca **bitişik** tekrarı temizler — cümlenin başka bir yerinde
+    doğal bir tekrar varsa (ör. "tedarikçi güvenilir mi, bu tedarikçiyle
+    devam edelim mi?") dokunmaz, çünkü o gerçek bir tekrar değil.
+    """
+    desen = _YER_TUTUCU_TEKRAR_DESENLERI.get(varlik_turu)
+    if desen is None:
+        return soru
+    tekli = "tedarikçisinin" if varlik_turu == "tedarikci_id" else "kategorisinde"
+    return desen.sub(tekli, soru, count=1)
+
+
 def parafraz_sablonlarindan_veri_uret(
     parafraz_df: pd.DataFrame,
     sku_df: pd.DataFrame,
@@ -484,6 +518,7 @@ def parafraz_sablonlarindan_veri_uret(
                 if token not in satir.sablon_metni:
                     continue  # guard: token korunmamışsa bu satır güvenilmez, atla
                 soru = satir.sablon_metni.replace(token, varlik_ifadesi)
+                soru = yer_tutucu_tekrarini_temizle(soru, satir.varlik_turu)
             else:
                 soru = satir.sablon_metni
             soru = " ".join(soru.split())  # fazla boşlukları temizle
