@@ -1,5 +1,5 @@
 {
-  "etiket": "taban-cizgi-egitim-oncesi",
+  "etiket": "taban-dogrulama",
   "ozet": {
     "soru_sayisi": 30,
     "arac_dogruluk": 0.7,
@@ -55,7 +55,7 @@
         5
       ]
     },
-    "sure_sn": 74.5
+    "sure_sn": 58.5
   },
   "kayitlar": [
     {
@@ -66,7 +66,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1202,
+      "uretim_ms": 1109,
       "deneme": 1
     },
     {
@@ -93,7 +93,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1198,
+      "uretim_ms": 1001,
       "deneme": 1
     },
     {
@@ -104,7 +104,7 @@
       "secilen_arac": "siparis_onerisi_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1228,
+      "uretim_ms": 1060,
       "deneme": 1
     },
     {
@@ -115,7 +115,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1210,
+      "uretim_ms": 1090,
       "deneme": 1
     },
     {
@@ -126,7 +126,7 @@
       "secilen_arac": "kritik_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1227,
+      "uretim_ms": 951,
       "deneme": 1
     },
     {
@@ -154,7 +154,7 @@
       "secilen_arac": "olu_stok_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1181,
+      "uretim_ms": 928,
       "deneme": 1
     },
     {
@@ -165,7 +165,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1295,
+      "uretim_ms": 1288,
       "deneme": 1
     },
     {
@@ -176,7 +176,7 @@
       "secilen_arac": "siparis_onerisi_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1280,
+      "uretim_ms": 1077,
       "deneme": 1
     },
     {
@@ -194,7 +194,7 @@
         "tedarikci_id": "T-0014"
       },
       "hata": null,
-      "uretim_ms": 2092,
+      "uretim_ms": 1758,
       "deneme": 1
     },
     {
@@ -212,7 +212,7 @@
         "tedarikci_id": "Yılmaz Yapı"
       },
       "hata": null,
-      "uretim_ms": 1996,
+      "uretim_ms": 1748,
       "deneme": 1
     },
     {
@@ -225,7 +225,7 @@
         "tedarikci_id": "Bizi Kim Geciktiriyor"
       },
       "hata": null,
-      "uretim_ms": 1989,
+      "uretim_ms": 1957,
       "deneme": 1
     },
     {
@@ -243,7 +243,7 @@
         "tedarikci_id": "T-0031"
       },
       "hata": null,
-      "uretim_ms": 2114,
+      "uretim_ms": 1724,
       "deneme": 1
     },
     {
@@ -259,7 +259,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1287,
+      "uretim_ms": 1179,
       "deneme": 1
     },
     {
@@ -277,7 +277,7 @@
         "sku_id": "S-01432"
       },
       "hata": null,
-      "uretim_ms": 1915,
+      "uretim_ms": 1552,
       "deneme": 1
     },
     {
@@ -295,7 +295,7 @@
         "sku_id": "S-00318"
       },
       "hata": null,
-      "uretim_ms": 1923,
+      "uretim_ms": 1569,
       "deneme": 1
     },
     {
@@ -313,7 +313,7 @@
         "sku_id": "S-01949"
       },
       "hata": null,
-      "uretim_ms": 1916,
+      "uretim_ms": 1512,
       "deneme": 1
     },
     {
@@ -331,7 +331,7 @@
         "kategori": "Demir"
       },
       "hata": null,
-      "uretim_ms": 1510,
+      "uretim_ms": 1231,
       "deneme": 1
     },
     {
@@ -350,7 +350,7 @@
         "sku_id": "S-01432"
       },
       "hata": null,
-      "uretim_ms": 1885,
+      "uretim_ms": 1535,
       "deneme": 1
     },
     {
@@ -361,7 +361,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1314,
+      "uretim_ms": 1038,
       "deneme": 1
     },
     {
@@ -372,7 +372,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1311,
+      "uretim_ms": 1022,
       "deneme": 1
     },
     {
@@ -383,7 +383,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1303,
+      "uretim_ms": 1040,
       "deneme": 1
     },
     {
@@ -394,7 +394,7 @@
       "secilen_arac": "genel_stok_durumu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1184,
+      "uretim_ms": 1172,
       "deneme": 1
     },
     {
@@ -405,7 +405,7 @@
       "secilen_arac": "onay_kuyrugu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1291,
+      "uretim_ms": 1065,
       "deneme": 1
     },
     {
@@ -416,7 +416,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1349,
+      "uretim_ms": 1043,
       "deneme": 1
     },
     {
@@ -427,7 +427,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1342,
+      "uretim_ms": 1044,
       "deneme": 1
     },
     {
@@ -438,7 +438,7 @@
       "secilen_arac": "gecelik_ozet_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1322,
+      "uretim_ms": 1066,
       "deneme": 1
     },
     {
@@ -449,7 +449,7 @@
       "secilen_arac": "genel_stok_durumu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1337,
+      "uretim_ms": 1128,
       "deneme": 1
     },
     {
@@ -460,7 +460,7 @@
       "secilen_arac": "genel_stok_durumu_sorgula",
       "secilen_parametreler": {},
       "hata": null,
-      "uretim_ms": 1314,
+      "uretim_ms": 1008,
       "deneme": 1
     }
   ]

@@ -2206,3 +2206,109 @@ patlatılıyor, kararın yine de veritabanında olduğu doğrulanıyor. Sıra ge
 
 Toplam **321 test yeşil**.
 
+
+---
+
+## Ek soru seti: ölçemediğimiz iki araç
+
+### Sorun
+
+Modelin doğru aracı seçip seçmediğini 30 soruluk bir setle ölçüyoruz. Ama o
+30 soru 7 araca **eşit dağılmıyor**:
+
+```
+genel_stok_durumu_sorgula   2 soru
+gecelik_ozet_sorgula        3 soru
+```
+
+İki soruyla "bu araç %100 doğru" demek ölçüm değil. Yazı tura attık, iki kez
+tura geldi. Üçüncü atışta ne olacağını bilmiyoruz.
+
+Ve bu set önemsiz bir set değil — sistemin gerçekten karar vermeye
+başlamasına (`threshold` seviyesi) izin verecek olan kapı bu.
+
+### Neden o sete soru eklemedik
+
+Ekleyemezdik. Taban çizgi sayımız (**%70,0**) tam olarak o 30 soruyla
+ölçüldü. Eğitimin işe yarayıp yaramadığını anlamanın tek yolu **aynı**
+soruları eğitimden sonra tekrar sormak. Sete bir soru eklersek "%70'ten
+%75'e çıktı" cümlesi anlamsızlaşır — soru seti değişmiş olur.
+
+O dosya donmuş kabul ediliyor.
+
+### Ne yaptık
+
+Ayrı bir dosya açtık: `router_ek_sorular.jsonl`, 18 yeni soru, elle yazıldı.
+
+```
+genel_stok_durumu   2 soru  ->  10 soru
+gecelik_ozet        3 soru  ->  10 soru
+onay_kuyrugu        5 soru  ->   8 soru
+```
+
+Ayrı koşuyor, ayrı raporlanıyor. Taban sayıya karışmıyor:
+
+```bash
+uv run python -m training.eval.router_taban --ek
+```
+
+Yeni soruların hiçbiri eğitim verisinde yok — kontrol edildi. Olsaydı model
+cevabı ezberlemiş olabilirdi ve ölçüm şişerdi.
+
+### İlk sonuç: model iki aracı birbirine karıştırıyor
+
+Eğitilmemiş model 18 sorunun 13'ünü doğru bildi (%72,2). İlginç olan
+**hataların şekli** — beşinin dördü aynı iki araç arasında ve **iki yönde
+birden**:
+
+```
+"Bugün depoda genel tablo nedir?"     genel stok  ->  gecelik ozet   X
+"Ben yokken sistem ne tespit etti?"   gecelik ozet ->  genel stok    X
+```
+
+Bir yönde olsa "model bu aracı seviyor" derdik. İki yönde olması şunu
+söylüyor: **model bu iki aracı birbirinden ayıramıyor.** İkisi de kulağa
+"bana durumu anlat" gibi geliyor. Aradaki fark zamansal — biri *şu anki*
+durum, diğeri *gece boyunca olanlar* — ve model bu farkı görmüyor.
+
+2 ve 3 soruyla bunu asla fark edemezdik. Eğitim bittiğinde bakacağımız ilk
+yer burası olacak: model bu ayrımı öğrenebildi mi?
+
+### Bir de yanlış alarm yakaladık
+
+Sistemde "çöküş dedektörü" var: model bütün sorulara aynı cevabı vermeye
+başlarsa uyarı basıyor. Eşik %40 — yani bir araç cevapların %40'ından
+fazlasını alırsa alarm.
+
+Ek seti ilk koşturduğumuzda **alarm çaldı.** Ama model çökmemişti.
+
+Sebep: %40 eşiği 7 araçlı set düşünülerek konmuştu. 7 araç varsa her birine
+düşen normal pay ~%14; %40 bunun neredeyse 3 katı, gerçekten anormal. Ama ek
+sette sadece 3 araç var — orada normal pay zaten ~%33. Eşik normal davranışı
+anormal sayıyordu.
+
+Eşik artık sete göre hesaplanıyor:
+
+```
+7 araç  ->  %40    (değişmedi)
+3 araç  ->  %83
+```
+
+Taban çizgi yeniden koşturuldu, sayı aynı çıktı: **%70,0**. Değişiklik eski
+ölçümü bozmuyor.
+
+### Düzeltmenin kendisi de bir kusur doğurdu
+
+İlk yazdığımız formül bir testi kırdı. Testin hatası değildi, formülünkü.
+
+Eşiği "araç sayısına böl" diye hesaplayınca, **tek araçlı** bir sette eşik
+%250 çıkıyordu. Bir araç cevapların en fazla %100'ünü alabilir — yani o sette
+alarm asla çalamaz. Dedektör var gibi görünüyor ama çalışmıyor.
+
+Bu, yanlış alarmdan daha kötü: yanlış alarmı duyan gelip bakar, hiç çalmayan
+alarmı kimse fark etmez.
+
+Eşiğe üst sınır koyduk: en fazla %90. İki test yazıldı, biri eşiğin taban
+sette değişmediğini, diğeri hiçbir sette %100'ü aşmadığını kontrol ediyor.
+
+Toplam **323 test yeşil**.

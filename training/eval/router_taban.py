@@ -60,11 +60,35 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 SORU_DOSYASI = Path(__file__).with_name("router_taban_sorulari.jsonl")
+
+# ⚠️ EK SET — `SORU_DOSYASI`'na KARIŞTIRILMAZ.
+#
+# Taban çizgi (%70,0 araç / %66,7 tam) o 30 soruyla ölçüldü. Sete tek bir soru
+# eklemek bile karşılaştırmayı geçersiz kılar; o dosya **donmuş** sayılmalı.
+#
+# Ama 30 soruluk set iki aracı ölçemiyor:
+#
+#     genel_stok_durumu_sorgula   2 soru   tek hata = %50 oynama
+#     gecelik_ozet_sorgula        3 soru   tek hata = %33 oynama
+#
+# Bu set projenin `threshold`'a geçiş kapısı olduğu için bu kabul edilemez.
+# Çözüm: ek soruları ayrı dosyada tutmak ve **ayrı raporlamak**. Taban
+# karşılaştırması bozulmadan araç bazında çözünürlük artıyor.
+#
+# Sorular elle yazıldı (üreticiden değil) ve hiçbiri taban setle, eğitim,
+# doğrulama ya da test verisiyle çakışmıyor — sızıntı yok.
+EK_SORU_DOSYASI = Path(__file__).with_name("router_ek_sorular.jsonl")
 SONUC_DOSYASI = Path(__file__).with_name("router_taban_sonuc.json")
 
 # Dengeli bir test setinde 7 araç varsa tek aracın payı ~%14 olmalı. Bu eşiğin
 # üstü, modelin ayrım yapmayı bırakıp tek cevaba yığıldığına işaret eder.
 COKUS_ESIGI = 0.40
+
+# Eşik araç sayısına göre yukarı kayıyor (bkz. `cokus_esigi`), ama sınırsız
+# değil: tavan olmazsa az araçlı setlerde eşik %100'ü aşar ve dedektör hiçbir
+# zaman ateşlenemez hale gelir. Bu tavanın üstünde bir yığılma her sette
+# çöküştür — model artık ayrım yapmıyordur.
+COKUS_TAVANI = 0.90
 
 # ⚠️ Olcum TEKRARLANABILIR olmali. Varsayilan sicaklikla (0.2) ayni set iki
 # kez kosturuldugunda %70 ve %76,7 cikti — 7 puanlik gurultu. Taban cizgi ile
@@ -195,6 +219,29 @@ def olc(kayitlar: list[Kayit], *, ayrinti: bool = True, ayar: Ayarlar | None = N
     return kayitlar
 
 
+def cokus_esigi(kayitlar: list[Kayit]) -> float:
+    """Çöküş eşiği — setteki araç sayısına göre.
+
+    Sabit %40, yedi araçlı taban set için konmuştu: orada dengeli dağılım araç
+    başına ~%14 demek, %40 bunun ~2,8 katı — gerçek bir yığılma.
+
+    Ama ek set (`router_ek_sorular.jsonl`) yalnızca üç aracı kapsıyor; orada
+    dengeli dağılım zaten ~%33. Sabit eşik o sette **yanlış alarm** veriyordu —
+    ilk koşuda tam bu oldu, taban model %50 payla "ÇÖKÜŞ" damgası yedi.
+
+    `2,5 / araç_sayısı` dengeli paya oranlı bir sınır veriyor. Taban set için
+    0,357 çıkıyor; `COKUS_ESIGI` tabanı devrede kaldığı için **taban çizginin
+    sonucu değişmiyor** (%70,0 / %66,7, çöküş yok — doğrulandı).
+
+    ⚠️ `COKUS_TAVANI` olmazsa formül kendi kendini iptal ediyor: tek araçlı bir
+    sette eşik %250 çıkar ve pay hiçbir zaman oraya ulaşamayacağı için dedektör
+    **sessizce işlevsizleşir**. Bunu `test_cokus_tespit_ediliyor` yakaladı.
+    Tavan, dedektörün hiçbir sette boşa düşmemesini garanti ediyor.
+    """
+    arac_sayisi = len({k.beklenen_arac for k in kayitlar}) or 1
+    return min(COKUS_TAVANI, max(COKUS_ESIGI, 2.5 / arac_sayisi))
+
+
 def cokus_kontrolu(kayitlar: list[Kayit]) -> tuple[bool, str, float]:
     """Model tek araca yığılmış mı?
 
@@ -211,7 +258,7 @@ def cokus_kontrolu(kayitlar: list[Kayit]) -> tuple[bool, str, float]:
         return False, "", 0.0
     arac, adet = Counter(secilenler).most_common(1)[0]
     pay = adet / len(secilenler)
-    return pay >= COKUS_ESIGI, arac, pay
+    return pay >= cokus_esigi(kayitlar), arac, pay
 
 
 def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, Any]:
@@ -239,7 +286,7 @@ def rapor(kayitlar: list[Kayit], gecen_sn: float) -> dict[str, Any]:
         print("       Bu 'doğruluk düştü' değil, 'ayrım yapmayı bıraktı' demek.")
         print("       Muhtemel sebep: eğitim verisi dengesizliği (bkz. modül docstring'i).")
     else:
-        print(f"    tamam — eşik %{COKUS_ESIGI * 100:.0f}, altında.")
+        print(f"    tamam — eşik %{cokus_esigi(kayitlar) * 100:.0f}, altında.")
 
     print("\n  STİLE GÖRE:")
     stil_toplam: dict[str, int] = defaultdict(int)
@@ -340,6 +387,14 @@ def _cli() -> None:
             "aynı olmazsa model tanımadığı bir girdi görür"
         ),
     )
+    ayristirici.add_argument(
+        "--ek",
+        action="store_true",
+        help=(
+            "Ince araclar icin ek soru setini de kostur (AYRI raporlanir; "
+            "taban cizgiyle karistirilmaz)"
+        ),
+    )
     args = ayristirici.parse_args()
 
     ayar = None
@@ -368,6 +423,20 @@ def _cli() -> None:
     print(f"\nHam sonuçlar: {yol}")
     print("⚠️ Özeti dokumantasyon/OLCUMLER.md'ye de yaz — B3.5'te karşılaştırılacak.")
 
+    if args.ek:
+        # ⚠️ AYRI raporlanıyor, taban setle BİRLEŞTİRİLMİYOR. Taban çizgi
+        # (%70,0 / %66,7) 30 soruyla ölçüldü; karışık bir toplam o sayıyla
+        # karşılaştırılamaz hale gelirdi.
+        ek = kayitlari_yukle(EK_SORU_DOSYASI)
+        print("\n" + "=" * 66)
+        print(f"EK SET — ince araçlar için ayrı ölçüm ({len(ek)} soru)")
+        print("Taban çizgiyle KARŞILAŞTIRILMAZ; araç bazında çözünürlük içindir.")
+        print("=" * 66)
+        baslangic = time.perf_counter()
+        olc(ek, ayrinti=not args.sessiz, ayar=ayar)
+        ek_ozet = rapor(ek, time.perf_counter() - baslangic)
+        sonucu_kaydet(ek, ek_ozet, args.etiket + "-ek")
+
 
 if __name__ == "__main__":
     _cli()
@@ -376,6 +445,7 @@ if __name__ == "__main__":
 __all__ = [
     "COKUS_ESIGI",
     "Kayit",
+    "cokus_esigi",
     "cokus_kontrolu",
     "kayitlari_yukle",
     "olc",

@@ -1316,3 +1316,135 @@ eğitim bu veriyle koşulabilir. **Eğitimden önce zorunlu:**
 ```bash
 uv run python -m training.eval.veri_tutarlilik_kontrolu
 ```
+
+---
+
+## Ek soru seti — ince araçlar için çözünürlük (Kişi B, 2026-08-06)
+
+### Sorun: taban çizgi iki aracı hiç ölçemiyor
+
+30 soruluk taban çizgi seti 7 araca dağılmış ama dağılım eşit değil:
+
+```
+genel_stok_durumu_sorgula   2 soru   tek hata = %50 oynama
+gecelik_ozet_sorgula        3 soru   tek hata = %33 oynama
+```
+
+Bu setle "genel_stok_durumu doğruluğu %100" demek ölçüm değil, iki yazı
+turasının ikisinin de tura gelmesi. Ve bu set projenin `threshold`
+seviyesine geçiş kapısı — yani karar verecek olan sayı.
+
+Aynı eleştiriyi golden set için yapmıştım; Kişi A doğruladı ve golden'daki
+dağılımı paylaştı (`onay_kuyrugu` 3, `genel_stok_durumu` 3). Sorun tek bir
+dosyada değil, **ölçüm altyapısının tamamında.**
+
+### Neden taban sete soru eklenmedi
+
+**Eklenemezdi.** Taban çizgi (%70,0 araç / %66,7 tam) o 30 soruyla ölçüldü
+ve eğitimin işe yarayıp yaramadığının tek karşılaştırma noktası. Sete tek
+bir soru eklemek bile 1. ve 2. tur karşılaştırmalarını geçersiz kılardı.
+`router_taban_sorulari.jsonl` **donmuş dosya** sayılmalı.
+
+### Çözüm: ayrı dosya, ayrı rapor
+
+`training/eval/router_ek_sorular.jsonl` — 18 soru, elle yazıldı:
+
+| araç | ek soru | taban ile toplam |
+|---|---|---|
+| `genel_stok_durumu_sorgula` | 8 | 10 |
+| `gecelik_ozet_sorgula` | 7 | 10 |
+| `onay_kuyrugu_sorgula` | 3 | 8 |
+
+Artık her araç için en az 5 örnek var (golden set incelemesindeki
+`ASGARI_ORNEK` eşiği).
+
+Sızıntı kontrolü yapıldı: 18 sorunun hiçbiri taban setle, `router_train`,
+`router_val` ya da `router_test` ile çakışmıyor.
+
+```bash
+uv run python -m training.eval.router_taban --ek --sessiz --etiket taban-ek
+```
+
+`--ek` bayrağı seti **ayrı** koşturur ve ayrı raporlar. Taban sayıya
+karışmaz.
+
+### Taban modelin ek set sonucu
+
+| | sonuç |
+|---|---|
+| araç doğru | 13/18 · **%72,2** |
+| araç + parametre | 13/18 · **%72,2** |
+| şema hatası | 0 |
+| uydurma parametre | 0 |
+
+Araca göre: `gecelik_ozet` 5/7 · `genel_stok_durumu` 6/8 · `onay_kuyrugu` 2/3
+
+### Bulgu: iki araç çift yönlü karışıyor
+
+Beş hatanın dördü aynı çiftte ve **iki yönde birden**:
+
+```
+"Bugün depoda genel tablo nedir?"    genel_stok_durumu -> gecelik_ozet
+"durum ozeti ver"                    genel_stok_durumu -> gecelik_ozet
+"Ben yokken sistem ne tespit etti?"  gecelik_ozet      -> genel_stok_durumu
+"Sabaha ne bırakmış sistem?"         gecelik_ozet      -> genel_stok_durumu
+```
+
+Tek yönlü olsaydı "model bir aracı tercih ediyor" derdik. Çift yönlü olması
+başka bir şey söylüyor: model bu iki aracı **birbirinden ayıramıyor**. İkisi
+de "bana genel durumu anlat" gibi okunuyor; ayrım zamansal (*şu an* mı,
+*gece boyunca olanlar* mı) ve model bu ayrımı yakalamıyor.
+
+2 ve 3 soruluk taban set bu bulguyu asla üretemezdi. 3. tur sonrası bakılacak
+ilk yer burası: eğitim bu ayrımı öğretebiliyor mu?
+
+Beşinci hata ayrı: *"Üzerimde kalan iş var mı?"* → `genel_stok_durumu`
+(beklenen `onay_kuyrugu`). "Üzerimde kalan iş" = bekleyen onaylar; model
+bunu stok sorusu sanıyor.
+
+### Yan düzeltme: çöküş dedektörü yanlış alarm veriyordu
+
+İlk ek koşuda rapor **"⚠️ ÇÖKÜŞ"** bastı. Yanlış alarmdı.
+
+`COKUS_ESIGI = 0.40` sabiti 7 araçlı taban set için konmuştu: orada dengeli
+dağılım araç başına ~%14, %40 bunun ~2,8 katı — gerçek yığılma. Ama ek set
+3 aracı kapsıyor, orada dengeli dağılım zaten ~%33. Sabit eşik normal
+davranışı çöküş sayıyordu.
+
+Eşik artık setteki araç sayısına uyarlanıyor (`cokus_esigi()`):
+
+```
+esik = max(COKUS_ESIGI, 2.5 / arac_sayisi)
+```
+
+| araç sayısı | dengeli pay | eşik |
+|---|---|---|
+| 7 (taban) | %14,3 | **%40,0** — değişmedi |
+| 3 (ek) | %33,3 | %83,3 |
+
+`COKUS_ESIGI` tabanı devrede kaldığı için **taban çizginin sonucu
+değişmedi** — yeniden koşturulup doğrulandı: %70,0 / %66,7, çöküş yok.
+
+#### Ölçeklemenin kendi kusuru: tavan gerekiyordu
+
+İlk sürüm yalnızca `max(COKUS_ESIGI, 2.5 / arac_sayisi)` idi ve mevcut bir
+testi kırdı (`test_cokus_tespit_ediliyor`). Test artefaktı değildi, gerçek
+kusurdu: **tek araçlı bir sette eşik %250 çıkıyor.** Pay tanımı gereği en
+fazla %100 olabileceği için dedektör o sette hiçbir zaman ateşlenemez —
+sessizce işlevsizleşir.
+
+Sessiz işlevsizlik yanlış alarmdan daha tehlikeli: yanlış alarmı gören
+inceler, ateşlenmeyen dedektörü kimse fark etmez.
+
+```
+esik = min(COKUS_TAVANI, max(COKUS_ESIGI, 2.5 / arac_sayisi))   # tavan 0,90
+```
+
+İki uç durum da teste bağlandı:
+
+| test | ne koruyor |
+|---|---|
+| `test_cokus_esigi_arac_sayisina_gore_kayiyor` | 7 araçta eşik değişmiyor, 3 araçta kayıyor |
+| `test_cokus_esigi_hicbir_sette_ulasilamaz_olmuyor` | 1–7 araç, eşik hep %100'ün altında |
+
+Toplam **323 test yeşil**.

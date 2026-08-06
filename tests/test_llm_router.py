@@ -401,3 +401,47 @@ def test_kabul_edilen_biçimlerden_biri_yeterli():
 
     k.secilen_parametreler = {"sku_id": "Beyaz Tuğla"}
     assert not k.tam_dogru, "yanlış ürün kabul edilmemeli"
+
+
+def test_cokus_esigi_arac_sayisina_gore_kayiyor():
+    """⭐ Sabit %40 eşiği az araçlı setlerde YANLIŞ ALARM veriyordu.
+
+    `router_ek_sorular.jsonl` yalnızca üç aracı kapsıyor; orada dengeli
+    dağılım zaten ~%33, yani sabit %40 normal davranışı çöküş sayıyor. İlk ek
+    koşuda tam bu oldu: taban model %50 payla "ÇÖKÜŞ" damgası yedi.
+
+    Eşik artık `2,5 / araç_sayısı` ile ölçekleniyor. Kritik olan: taban setin
+    (7 araç) eşiği DEĞİŞMEMELİ, yoksa %70,0 karşılaştırması geçersiz olur.
+    """
+    from training.eval.router_taban import COKUS_ESIGI, Kayit, cokus_esigi
+
+    def kayitlar_uret(arac_sayisi: int) -> list[Kayit]:
+        araclar = [a.value for a in AracAdi][:arac_sayisi]
+        return [
+            Kayit(soru=f"s{i}", stil="acik", beklenen_arac=a) for i, a in enumerate(araclar * 3)
+        ]
+
+    # Taban set: 7 araç -> 2,5/7 = 0,357, COKUS_ESIGI tabanı devrede kalıyor.
+    assert cokus_esigi(kayitlar_uret(7)) == COKUS_ESIGI
+
+    # Ek set: 3 araç -> dengeli pay zaten %33, eşik yukarı kaymalı.
+    assert cokus_esigi(kayitlar_uret(3)) > COKUS_ESIGI
+
+
+def test_cokus_esigi_hicbir_sette_ulasilamaz_olmuyor():
+    """⭐ Tavan olmazsa dedektör sessizce işlevsizleşiyor.
+
+    Ölçekleme tek başına bırakılırsa tek araçlı bir sette eşik %250 çıkar;
+    pay tanımı gereği en fazla %100 olabileceği için dedektör hiçbir zaman
+    ateşlenemez. Sessiz işlevsizlik, yanlış alarmdan daha tehlikeli — kimse
+    fark etmez.
+    """
+    from training.eval.router_taban import Kayit, cokus_esigi
+
+    for arac_sayisi in range(1, 8):
+        araclar = [a.value for a in AracAdi][:arac_sayisi]
+        kayitlar = [
+            Kayit(soru=f"s{i}", stil="acik", beklenen_arac=a) for i, a in enumerate(araclar)
+        ]
+        esik = cokus_esigi(kayitlar)
+        assert esik < 1.0, f"{arac_sayisi} araç: eşik %{esik * 100:.0f} — asla ulaşılamaz"

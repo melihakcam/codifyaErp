@@ -1,0 +1,18 @@
+{"soru": "Stokların genel durumu nasıl?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Envanterin özet tablosunu alabilir miyim?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Bugün depoda genel tablo nedir?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Toplamda kaç kalemimiz var, ne durumdayız?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Genel bir fotoğraf çekebilir misin?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Ambarda işler yolunda mı?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "stok genel nasil", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "durum ozeti ver", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "Gece taramasının sonuçlarını görebilir miyim?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Son gecelik koşunun raporunu aç.", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Ben yokken sistem ne tespit etti?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Gece boyunca neler birikmiş?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Sabaha ne bırakmış sistem?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "dun gece ne cikti", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "gece raporu", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "Hangi kararlar imzamı bekliyor?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Üzerimde kalan iş var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Karar vermem gereken neler birikti?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}
