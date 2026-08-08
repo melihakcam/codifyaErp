@@ -1,5 +1,15 @@
 # Kişi A — Veri & Alan · Görev Dosyası
 
+> ⚠️ **GÜNCELLEME (2026-08-08): bu dosya artık bir GÖREV ATAMASI değil,
+> KONTROL LİSTESİ.**
+>
+> Proje iki geliştiriciyle (Kişi A / Kişi B) planlanmıştı; gerçekte tek kişi
+> + AI asistanı ile yürüdü ve iki tarafın işi de yapıldı. Aşağıdaki adımlar
+> hâlâ geçerli — ama "senin işin / onun işi" ayrımı yok.
+>
+> Yürürlükteki süreç kuralları: [YOL-HARITASI.md](YOL-HARITASI.md#tek-kişilik-düzende-neler-değişti)
+> · Ölçülmüş durum: [RAPOR.md](RAPOR.md)
+
 > Bu dosya kendi başına yeterlidir. Projeyi hiç bilmiyorsan baştan sonuna oku,
 > sonra "Hemen başla" bölümündeki komutları çalıştır.
 
