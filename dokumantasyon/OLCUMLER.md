@@ -2325,3 +2325,82 @@ Kapılar yeniden geçti: `veri_tutarlilik_kontrolu` ✅ %0,0,
 düzeltme).
 
 **4. tur eğitimi için veri hazır.**
+
+## 4. TUR SONUCU (2026-08-08)
+
+Eğitim: 1.250 adım, 44 dk, dengeli örnekleme (router 2.000 + gerekçe 8.000),
+ayarlar 3. turla birebir aynı — **tek değişken veri**.
+
+| | eğitim kaybı | doğrulama kaybı |
+|---|---|---|
+| 2. tur | 0,1797 | 0,2134 |
+| 3. tur | 0,1311 | 0,1750 |
+| **4. tur** | 0,1418 | **0,1845** |
+
+Doğrulama kaybı baştan sona düştü, sona doğru yataylaştı — ezberleme yok
+(aralık 0,043; 3. turda 0,044).
+
+⚠️ Kayıp 3. turdan **yüksek** ama bu kötü değil: veri kasten zorlaştı
+(parametresiz şablon 15→44, `gecelik_ozet` 155→190 satır). Farklı veri
+kümesinde ölçülen kayıplar yan yana konmaz. **Kayıp bu projede karar
+metriği değil** — 3. tur da kaybı düşürmüştü ve `gecelik_ozet`'i çökertmişti.
+
+### Router ölçümü — 48 soru (taban set 30 + ek set 18)
+
+Aynı sorular, aynı puanlama, sıcaklık 0 + tohum 42, soğuk başlangıç.
+Değişen tek şey model.
+
+| | araç doğru | **tam doğru** | uydurma | şema hatası |
+|---|---|---|---|---|
+| taban | 34/48 · %70,8 | 32/48 · %66,7 | 0 | 0 |
+| 3. tur | **39/48 · %81,2** | 33/48 · %68,8 | 3 | 0 |
+| **4. tur** | 38/48 · %79,2 | **35/48 · %72,9** | **1** | **3** ⚠️ |
+
+### Araç bazında — hedef tuttu
+
+| araç | n | taban | 3. tur | 4. tur | |
+|---|---|---|---|---|---|
+| `gecelik_ozet` | 10 | 7 | **1** | **5** | ✅ +4 |
+| `onay_kuyrugu` | 8 | 6 | 7 | **8** | ✅ +1 |
+| `kritik_stok` | 5 | 3 | 3 | 3 | — |
+| `olu_stok` | 5 | 1 | 4 | 4 | — |
+| `siparis_onerisi` | 5 | 4 | 4 | 4 | — |
+| `genel_stok_durumu` | 10 | 8 | 10 | 9 | ⚠️ −1 |
+| `tedarikci_performansi` | 5 | 3 | 4 | **2** | ⚠️ −2 |
+
+**Bu turun sebebi olan çöküş onarıldı: 1/10 → 5/10.** Tabanın 7/10'una tam
+dönülmedi, ama üçte ikisi geri alındı — ve bu **veriyle** yapıldı, model
+ayarıyla değil. Kapsama boşluğunu kapatmak işe yaradı.
+
+### ⚠️ Açık gerileme: şema kırılganlığı
+
+3. turda 0 olan şema hatası 4. turda **3**. Üçü de tekrar üretilebiliyor:
+
+    "Aylardır dönmeyen mal var mı elimizde?"  -> sema uyumsuz (2 deneme)
+    "T-0031 güvenilir mi?"                    -> sema uyumsuz (2 deneme)
+    "t-0007 gecikiyomu"                       -> sema uyumsuz (2 deneme)
+
+`tedarikci_performansi`'nin 4→2 düşüşünün 2'si tam bu üçünden geliyor;
+yani ayrı bir sorun değil, aynı kırılganlığın belirtisi.
+
+**Yine de tur4 tercih edildi:** şema hatası "yanlış cevap" değil, "cevap
+verememe" — sistem sessizce yanlış araç çağırmıyor, açıkça düşüyor. Bu
+projenin felsefesi güvenli başarısızlığı yanlış cevaba tercih ediyor ve
+tur4 toplamda daha az yanlış veriyor (35/48 vs 33/48).
+
+### 5. tur için asıl fikir: biçim modelde değil, grammar'da
+
+Şema zorlamasını **kapatıp** ham çıktıya bakınca çarpıcı bir şey görüldü:
+
+    tur4 -> "Aracim acil olmakta, bu konunun detayli versiyonunu..."
+    tur3 -> "T-0031 tedarikçisinin performansı hakkında bilgi verebilir miyim?"
+
+**Her iki model de düz Türkçe cümle üretiyor, JSON değil.** Yani JSON
+biçimini modelden çok Ollama'nın grammar zorlaması taşıyor. Eğitim, biçim
+tarafını yeterince öğretmemiş; grammar kısıtı sıkıştırdığında model
+tanımadığı bir yola giriyor ve bazen çıkamıyor — şema kırılganlığının
+muhtemel kökü bu.
+
+5. turun hedefi daha çok veri değil, **biçim öğretimi** olmalı: router
+örneklerinin oranını yükseltmek (şu an 2.000/10.000 = %20) ve/veya cevabı
+üretmeden önce biçimi zorlayan bir istem düzeni denemek.
