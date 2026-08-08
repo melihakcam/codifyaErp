@@ -2404,3 +2404,84 @@ muhtemel kökü bu.
 5. turun hedefi daha çok veri değil, **biçim öğretimi** olmalı: router
 örneklerinin oranını yükseltmek (şu an 2.000/10.000 = %20) ve/veya cevabı
 üretmeden önce biçimi zorlayan bir istem düzeni denemek.
+
+### KARAR: 3. turda kalındı — 4. tur gerekçe tarafını bozdu
+
+Benchmark'ta bir satır dikkat çekti:
+
+    20 gerçek karar örneklendi, 11 LLM'den (şablona düşmeden) kabul edildi
+
+3. turda bu **20/20**'ydi. Sert kapı yine de geçti (uydurma sayı 0) çünkü
+şablon güvenli — ama 20 gerekçenin 9'u modelden değil şablondan geliyor
+demek.
+
+⚠️ **İki açıklama vardı ve ayırmadan karar verilemezdi:** bugün guard'a dil
+kontrolü eklendi ve 3. turun 20/20'si o kontrolden **önce** ölçülmüştü.
+Düşüşün sebebi model de olabilirdi, yeni kontrol de.
+
+Ayrım için iki model **aynı guard'la, aynı 20 kararla** koşuldu:
+
+| model | kabul | şablona düştü |
+|---|---|---|
+| `tur3` | **20** | 0 |
+| `tur4` | 11 | **9** |
+
+Guard masum. **4. turun gerekçe tarafı gerçekten bozuldu.**
+
+Reddedilenlerde `reddedilen_sayilar=[]` — yani sayısal guard temiz geçti,
+sorun sayı uydurma değil metnin kendisi. Ham çıktıda parça cümleler ve
+İngilizce kelime karışması görüldü (*"293 days, 19 adet, 5.220,32 TL,
+50% iskonto"* — bu örnek guard'dan **geçmişti** bile).
+
+### Karar ve gerekçesi
+
+| | 4. tur kazancı | 4. tur bedeli |
+|---|---|---|
+| router | tam doğruluk 33 → **35**/48 · `gecelik_ozet` 1/10 → **5/10** | 3 şema hatası (tur3: 0) |
+| gerekçe | — | kabul oranı **20/20 → 11/20** · akıcılık 4,8 → 4,6 |
+
+**Gerekçe yüzeyi router'dan çok daha geniş**: her karar bir gerekçe
+üretiyor, router ise yalnızca kullanıcı soru sorunca çalışıyor. 48 soruda
++2 doğru, açıklamaların %45'ini tahtalaştırmaya değmez.
+
+`.env` `codifya-router:tur3`'te bırakıldı. `codifya-router:tur4` Ollama'da
+duruyor, silinmedi.
+
+### ⭐ 5. tur için asıl bulgu: iki görev kapasite için yarışıyor
+
+Kritik gözlem: **gerekçe verisi 3. ve 4. tur arasında hiç değişmedi.**
+`gerekce_train.jsonl` iki turda da aynı 40.293 satır, örnekleme de aynı
+(8.000). Değişen tek şey **router** verisiydi.
+
+Buna rağmen gerekçe kalitesi düştü. Sebep tek model olması: router ve
+gerekçe aynı LoRA ağırlıklarını paylaşıyor (`r=16`, eğitilebilir parametre
+%1,18). Router verisi çeşitlenip zorlaşınca kapasitenin daha büyük bir
+kısmını tüketti ve gerekçe tarafı bunun bedelini ödedi.
+
+Bu, "daha çok/iyi veri her zaman daha iyi model" varsayımının bu ölçekte
+kırıldığı yer. 5. tur için üç seçenek:
+
+1. **LoRA rank'ı yükselt** (`r=16` → 32 veya 64) — en ucuz deneme, kapasite
+   darboğazı hipotezini doğrudan sınar
+2. **Görev oranını ayarla** — router şu an 2.000/10.000 (%20); gerekçe
+   payını korurken router çeşitliliğini artırmanın yolu aranmalı
+3. **İki ayrı adaptör** — aynı taban model, göreve göre farklı LoRA. Yönetim
+   yükü artar ama kapasite yarışı biter
+
+⚠️ Hangisi seçilirse seçilsin, **her turda İKİ tarafı da ölçmek zorunlu.**
+Bu tur bunu öğretti: router ölçümü tek başına bakılsa 4. tur "başarılı"
+görünüyordu.
+
+### 4. turun kalıcı kazancı: veri düzeltmeleri
+
+Model geri alındı ama **veri tarafındaki iş duruyor ve git'te kalıcı**:
+
+- `gecelik_ozet` parametresiz kapsama boşluğu kapatıldı (184/0 → 184/35)
+- parametresiz şablon 15 → 44
+- ölçüm setine anlamsal yakınlık kapısı eklendi
+- uydurma dedektöründeki aksan hatası düzeltildi
+- guard'a dil kontrolü eklendi
+
+Bunlar 5. turda da geçerli. Kapatılan boşluğun **işe yaradığı da kanıtlandı**
+— `gecelik_ozet` 1/10'dan 5/10'a çıktı. Sorun düzeltmede değil, o
+düzeltmenin tek modelde gerekçe tarafına yansıyan bedelinde.
