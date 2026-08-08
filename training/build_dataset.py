@@ -319,22 +319,70 @@ ARAC_TANIMLARI: tuple[AracTanimi, ...] = (
         # Hiçbiri ölçüm setlerindeki cümlelerle çakışmıyor (sızıntı kapısı
         # `veri_tutarlilik_kontrolu` bunu ayrıca doğruluyor) ve hiçbirinde
         # tarih ifadesi yok — geçseydi parametre zaten doğru olurdu.
+        # ⚠️ Bir paraphrase turu koşuldu (Qwen2.5-7B, 24 varyant istendi) ve
+        # çıktısı ELENDI: 65 parametresiz varyantın çoğu ya bozuk Türkçeydi
+        # ("özeten", "hazırsınız mı?", "bildirir miye?") ya da niyeti ters
+        # çeviriyordu ("paylaşır mısınız?" -> "paylaşmayı mı istiyorsunuz?").
+        # Notebook'un `anlam_korundu_mu()` kontrolü bunları geçiriyor çünkü
+        # kelime örtüşmesine bakıyor; niyet dönünce kelimeler aynı kalıyor.
+        # Sağlam çıkanlar alındı, gerisi elle yazıldı — mevcut şablonların
+        # tamamı zaten elle yazılmış, tasarım buna uygun.
+        #
+        # ⚠️ Paraphrase'in ürettiği "Sistem gece ne buldu?" BİLİNÇLİ OLARAK
+        # ALINMADI: ölçüm setindeki "Dün gece sistem ne buldu?" ile 0,80
+        # benzerlikte. Eğitime konsaydı o soruyu sınavdan önce modele
+        # göstermiş olurduk. Benzerlik kapısı için bkz.
+        # `tests/test_build_dataset_parametresiz.py::test_..._olcum_setine_yakin_degil`.
         parametresiz_sablonlar=(
+            # resmi
             "Gecelik iş çıktısını paylaşır mısınız?",
             "Toplu işin ürettiği özeti alabilir miyim?",
             "Gecelik analiz sonuçlarını raporlar mısınız?",
             "Sistemin ürettiği son içgörü özetini görebilir miyim?",
             "Gecelik koşuda öne çıkanları bildirir misiniz?",
+            "Gecelik iş sonuçlarını paylaşabilir misiniz?",
+            "Gecelik koşuda öne çıkanları belirtir misiniz?",
+            "Toplu işin çıktısını inceleyebilir miyim?",
+            "Otomatik üretilen gecelik değerlendirmeyi alabilir miyim?",
+            "Gecelik toplu işin özetini iletir misiniz?",
+            "Gecelik işlem sonuçlarını listeler misiniz?",
+            "Toplu işin bulgularını paylaşır mısınız?",
+            "Gecelik değerlendirmenin sonucunu öğrenebilir miyim?",
+            "Gecelik rapor hakkında bilgi verir misiniz?",
+            "Geceleyin sistem ne yaptığını söyler misiniz?",
+            # günlük
             "gecelik özette ne var?",
             "sistem geceleyin ne çıkarmış?",
             "toplu iş ne demiş?",
             "gece ne olmuş bakalım",
+            "gecelik rapor nedir?",
+            "gecelik özeti nedir?",
+            "gece ne olmuş kontrol edelim",
+            "gece ne olmuş diye bilgi almak istiyorum",
+            "toplu işten ne çıkmış?",
+            "gecelik analizde ne var?",
+            "gecelik özeti okumak istiyorum",
+            "toplu işin özetini almak istiyorum",
+            "gecelik değerlendirme ne diyor?",
+            "toplu iş bitti mi, sonucu ne?",
+            # kısaltmalı
             "gecelik ozet",
             "gecelik rapor ne diyo",
             "toplu is ozeti",
+            "gecelik analiz ozeti",
+            "toplu is ciktisi",
+            "gecelik sonuc ne",
+            "toplu isin ozeti",
+            "gecelik degerlendirme",
+            # yazım hatalı
             "geclik ozette ne var",
             "gecelk raporu gosterir misn",
-            "sistm gece ne bulmus",
+            "gecelk analizde ne var",
+            "toplu isin ozeti nerde",
+            "gecelık ozet varmı",
+            "geceki analiz ne cikardi",
+            "gecelik ozeti okuycam",
+            "geçlik özeti ne içeriyor",
         ),
     ),
     AracTanimi(

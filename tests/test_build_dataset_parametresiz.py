@@ -12,6 +12,7 @@ Bu testler boşluğun geri açılmamasını koruyor. Ayrıntı:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -96,6 +97,64 @@ def test_parametresiz_sablonlar_olcum_setleriyle_cakismiyor():
 
     cakisan = [s for s in parametresiz["soru"] if s.strip().casefold() in olcum_sorulari]
     assert not cakisan, f"ölçüm setiyle çakışan şablon: {cakisan}"
+
+
+def _kelimeler(metin: str) -> set[str]:
+    from training.eval.router_taban import aksansiz
+
+    return set(re.findall(r"[^\W\d_]+", aksansiz(metin)))
+
+
+def _en_yakin_olcum_sorusu(aday: str) -> tuple[float, str]:
+    """Adayın ölçüm setindeki en benzer soruyla Jaccard benzerliği."""
+    sorular = []
+    for yol in OLCUM_DOSYALARI:
+        for satir in yol.read_text(encoding="utf-8").splitlines():
+            if satir.strip():
+                d = json.loads(satir)
+                if d["arac"] == "gecelik_ozet_sorgula":
+                    sorular.append(d["soru"])
+
+    aday_k = _kelimeler(aday)
+    en_iyi = max(
+        sorular,
+        key=lambda s: len(aday_k & _kelimeler(s)) / max(1, len(aday_k | _kelimeler(s))),
+    )
+    ortak = aday_k & _kelimeler(en_iyi)
+    birlesim = aday_k | _kelimeler(en_iyi)
+    return len(ortak) / max(1, len(birlesim)), en_iyi
+
+
+# Sızıntı yalnızca birebir kopyayla olmaz. Ölçüm sorusuna çok yakın bir eğitim
+# cümlesi de o soruyu sınav öncesi modele göstermek demektir ve ölçümü şişirir.
+#
+# ⚠️ Eşik ölçülerek kondu, tahminle değil: elle yazılmış şablonlar doğal olarak
+# en fazla 0,33'e çıkıyor (kısa sorular ortak kelime paylaşır). Paraphrase
+# turunun ürettiği "Sistem gece ne buldu?" ise "Dün gece sistem ne buldu?" ile
+# **0,80** çıktı — o yüzden alınmadı. 0,50 ikisinin arasında geniş paylı bir yer.
+OLCUM_YAKINLIK_SINIRI = 0.50
+
+
+def test_parametresiz_sablonlar_olcum_setine_yakin_degil():
+    tanim = next(a for a in ARAC_TANIMLARI if a.isim == "gecelik_ozet_sorgula")
+
+    fazla_yakin = []
+    for sablon in tanim.parametresiz_sablonlar:
+        oran, en_yakin = _en_yakin_olcum_sorusu(sablon)
+        if oran >= OLCUM_YAKINLIK_SINIRI:
+            fazla_yakin.append(f"{oran:.2f} {sablon!r} ~ {en_yakin!r}")
+
+    assert not fazla_yakin, "ölçüm sorusuna fazla yakın şablon:\n" + "\n".join(fazla_yakin)
+
+
+def test_paraphrase_turundan_gelen_sizintili_aday_reddedilirdi():
+    """Kapının gerçekten çalıştığının kanıtı.
+
+    Paraphrase turu bu cümleyi üretti ve elenmesinin sebebi tam olarak buydu.
+    """
+    oran, _ = _en_yakin_olcum_sorusu("Sistem gece ne buldu?")
+
+    assert oran >= OLCUM_YAKINLIK_SINIRI
 
 
 def test_parametresiz_sablonlar_ihracta_varlik_almiyor():

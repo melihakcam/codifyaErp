@@ -2161,8 +2161,20 @@ eklendi**, hepsi parametresiz `gecelik_ozet` (yedekle birebir diff'lendi).
 Kapılar: `veri_tutarlilik_kontrolu` ✅ (%0,0 uyumsuz sayı),
 `golden_set_inceleme` ✅ (train/val sızıntısı yok, 400/400 özgün, guard
 uyumu %100). Kalan iki uyarı (`onay_kuyrugu` n=4, `stok.tedarikci_degisim`
-boş) önceden bilinen ve kabul edilmiş durumlar. `data/colab_yukle/`
-yenilendi.
+boş) önceden bilinen ve kabul edilmiş durumlar.
+
+⚠️ **DÜZELTME (2026-08-08):** bu bölümde önce "`data/colab_yukle/`
+yenilendi" yazıyordu — yanlıştı. O klasör `data/egitim/`'in kopyası DEĞİL:
+gerekçe dosyaları `training/veri_hazirla.py` ile `istem`/`cevap` biçimine
+dönüştürülmüş hâlleridir. Ham dosyalar elle kopyalanınca
+`train_lora.ipynb` `KeyError: 'istem'` verir — `veri_hazirla.py`'nin
+docstring'i tam olarak bunu uyarıyor. Doğru komut:
+
+    uv run python -m training.veri_hazirla --kaynak data/egitim --hedef data/colab_yukle
+
+Hata bir sonraki turda kapı yeniden koşulduğunda ortaya çıktı; ilk seferinde
+kapı kopyalamadan ÖNCE koşturulduğu için görünmemişti. Sıra önemli: önce
+dönüştür, sonra kapıyı koştur.
 
 ⚠️ **Kalan çekince — oran hâlâ ince.** train'de parametresiz pay %5,5
 (9/164); `kritik_stok`'ta bu oran %11. Bu şablonlar henüz paraphrase
@@ -2241,3 +2253,75 @@ gerçek metinlerle (biri bozuk, biri sağlam).
 ⚠️ Bu düzeltme **gelecekte üretilecek** gerekçeleri koruyor; kuyrukta duran
 14 bozuk kayıt yerinde duruyor. Onlar 2. tur modelinden kalma ve zaten
 yeniden üretilecekler.
+
+## Hedefli paraphrase turu (gecelik_ozet) — çıktının %89'u elendi (2026-08-08)
+
+Parametresiz şablonları çeşitlendirmek için `paraphrase_colab.ipynb` ile
+hedefli bir tur koşuldu (Qwen2.5-7B, `VARYANT_SAYISI=24`, 24 şablon).
+**102 varyant döndü, 11'i kullanıldı.**
+
+### Neden elendi
+
+**1. Bozuk dil bilgisi.** `"özeten"` (özetleyen değil), `"hazırsınız mı?"`,
+`"bildirir miye?"`, `"mevcutsun mu?"`, `"alabilirim mi?"`, `"oldu ne"`.
+Yazım hatası şablonlarından türeyenlerde anlamsız kelimeler: `"bisiyer"`.
+
+**2. Niyet tersine dönmüş** — en tehlikelisi:
+
+    "gecelik raporu paylaşır mısınız?"
+      -> "gecelik raporu paylaşmayı mı istiyorsunuz?"
+
+Orijinalde kullanıcı rapor istiyor; varyantta sisteme "sen mi paylaşmak
+istiyorsun" diye soruluyor. Aynı desen: `"durum özeti nedir?"` →
+`"hangi durumu özetlemeniz gerekmektedir?"` (soru, emre dönmüş).
+
+Notebook'un `anlam_korundu_mu()` kontrolü bunları geçiriyor çünkü kelime
+örtüşmesine bakıyor — niyet dönünce kelimeler aynı kalıyor. Bu, golden
+set'teki yer tutucu hatasıyla aynı sınıftan bir kör nokta: kontrol doğru
+şeyi ölçüyor ama yanlış boyutu.
+
+**3. Model 24 varyant üretemiyor.** 24 istendi; en verimli şablonda 8,
+birinde **sıfır** geldi. Geçen turda kaydedilen sınırın tekrarı.
+
+### Ölçüm sızıntısı — kapı eklendi
+
+Paraphrase `"Sistem gece ne buldu?"` üretti. Ölçüm setinde
+`"Dün gece sistem ne buldu?"` var — **Jaccard benzerliği 0,80.** Eğitime
+konsaydı o soruyu sınavdan önce modele göstermiş olurduk ve 4. tur ölçümü
+şişerdi.
+
+Mevcut sızıntı testi bunu yakalayamazdı: birebir eşleşmeye bakıyor.
+`test_parametresiz_sablonlar_olcum_setine_yakin_degil` eklendi — her eğitim
+şablonunun ölçüm sorularına anlamsal yakınlığını ölçüyor.
+
+⚠️ Eşik **ölçülerek** kondu: elle yazılmış şablonlar doğal olarak en fazla
+0,33'e çıkıyor (kısa sorular ortak kelime paylaşır), sızıntılı aday 0,80'di.
+Sınır 0,50 — ikisinin arasında geniş paylı bir yer. Ayrı bir test de kapının
+işlediğini kanıtlıyor: reddedilen o cümleyi alıp "bu geçmemeli" diye sınıyor.
+
+### Sonuç
+
+Sağlam çıkanlar alındı, gerisi elle yazıldı. Parametreli taraf hiç
+alınmadı — havuzda zaten 184 satır var, boşluk orada değildi ve o
+varyantlar daha da bozuktu.
+
+| | önce | sonra |
+|---|---|---|
+| parametresiz şablon | 15 | **44** |
+| `gecelik_ozet` ham satır | 51 | **81** |
+| train'de parametresiz pay | %5,5 | **%18,4** |
+
+(`kritik_stok`'ta bu oran %11 — artık onun da üstünde.)
+
+Stil dağılımı: resmi 15, günlük 14, kısaltmalı 8, yazım hatalı 7.
+
+⚠️ Şablonlar `build_dataset.py` içinde, veri dosyasında değil — veri
+`.gitignore`'da olduğu için oraya yazılsa bir Drive senkronunda kaybolurdu.
+Böylece git'te kalıcılar.
+
+Kapılar yeniden geçti: `veri_tutarlilik_kontrolu` ✅ %0,0,
+`golden_set_inceleme` ✅ (sızıntı yok, 400/400 özgün, guard %100).
+`data/colab_yukle/` **`veri_hazirla.py` ile** yenilendi (bkz. yukarıdaki
+düzeltme).
+
+**4. tur eğitimi için veri hazır.**
