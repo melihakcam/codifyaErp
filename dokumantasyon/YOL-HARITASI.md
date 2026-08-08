@@ -1,38 +1,11 @@
-# Yol Haritası
+# Yol Haritası — Ortak Referans
 
-> ⚠️ **GÜNCELLEME (2026-08-08): iki kişilik kurulum artık geçerli değil.**
+> Bu dosya **ikinizin de** ihtiyaç duyduğu, kimsenin tek başına sahiplenmediği bilgiyi
+> tutar: mimari kararlar, buluşma noktaları, takvim, riskler.
 >
-> Bu belge iki geliştiricinin (Kişi A — Veri & Alan, Kişi B — Servis & Model)
-> paralel çalışacağı varsayımıyla yazıldı. Gerçekte proje **tek kişi + AI
-> asistanı** ile yürüdü ve iki tarafın işi de yapıldı.
->
-> Aşağıdaki rol dağılımı, buluşma noktaları ve "diğerinin onayı" kuralları
-> **tarihsel kayıt** olarak duruyor — silinmedi çünkü mimari kararların
-> gerekçesini taşıyorlar (dondurulmuş sözleşme, stub'lar, dosya ayrımı gibi
-> tasarımlar oradan doğdu ve hâlâ geçerli). Ama **süreç kuralı olarak
-> uygulanmıyorlar.** Yürürlükte olan kurallar için bkz. "Tek kişilik düzende
-> neler değişti".
->
-> Görev listeleri hâlâ kullanışlı birer kontrol listesi:
+> Kendi adım adım görev listen için:
 > · [KISI-A-GOREV.md](KISI-A-GOREV.md) — Veri & Alan
 > · [KISI-B-GOREV.md](KISI-B-GOREV.md) — Servis & Model
->
-> Ölçülmüş durum ve teslimat raporu: [RAPOR.md](RAPOR.md)
-
-## Tek kişilik düzende neler değişti
-
-| iki kişilik kural | yerine geçen |
-|---|---|
-| Merge için diğerinin PR onayı şart | **Otomatik kapılar zorunlu**: `pytest` (353 test), `ruff`, `veri_tutarlilik_kontrolu`, `golden_set_inceleme`. Kapı geçmeden commit'lenmez. |
-| Sözleşme değişikliği iki kişi konuşup yapar | `app/contracts.py` **yine de dondurulmuş sayılır** — değiştirmek için yazılı gerekçe ve ölçüm gerekir. Tek kişi olmak sözleşmeyi gevşetmez, aksine daha kolay bozar. |
-| Buluşma noktalarında (SP0-SP5) birlikte oturulur | Aynı kontroller **tek başına** yapılır ama **yazılı** yapılır: her buluşma noktasının çıktısı `OLCUMLER.md`'ye işlenir. |
-| Bilgi tek kişide toplanmasın diye karşılıklı inceleme | Bilgi zaten tek kişide. Karşılığı: **her karar gerekçesiyle belgelenir.** `OLCUMLER.md` bunun için var — kod neden böyle yazıldığını değil, hangi ölçümün onu gerektirdiğini tutuyor. |
-| Paralel çalışma için stub'lar | Artık paralellik yok, ama stub'lar duruyor: testleri LLM'siz koşturmayı sağlıyorlar. |
-
-⚠️ **En çok kaybedilen şey inceleme.** İki kişilik düzende ikinci bir çift
-göz vardı. Tek kişide onun yerini otomatik kapılar ve ölçüm alıyor — bu
-yüzden bu projede "çalışıyor gibi görünüyor" yeterli sayılmıyor, her
-iddianın bir ölçümü var.
 
 ---
 
@@ -99,16 +72,15 @@ tamamını tanır.
 A bu tipleri üretir, B tüketir. B, A'nın gerçek kural motoru bitene kadar
 `decide_stub()` kullanır. Dosya kümeleri hiç kesişmiyor — merge çakışması da yok.
 
-> ~~Sözleşmede değişiklik gerekiyorsa **tek taraflı yapılmaz.** İkiniz konuşup tek PR'da
-> yaparsınız.~~ · **Tek kişilik düzende:** sözleşme yine dondurulmuş sayılır; değiştirmek
-> için yazılı gerekçe ve etkilenen testlerin güncellenmesi gerekir.
+> Sözleşmede değişiklik gerekiyorsa **tek taraflı yapılmaz.** İkiniz konuşup tek PR'da
+> yaparsınız. Tek taraflı değişiklik diğerinin kodunu sessizce bozar.
 
 ---
 
 ## Buluşma noktaları
 
-~~Buralarda birlikte oturup entegrasyonu yaparsınız.~~ · **Tek kişilik düzende:**
-her buluşma noktası bir **yazılı kontrol** — çıktısı `OLCUMLER.md`'ye işlenir.
+Buralarda birlikte oturup entegrasyonu yaparsınız. Aradaki sürede birbirinizi
+beklemeden çalışırsınız.
 
 | # | Ne zaman | Kontrol | Süre |
 |---|----------|---------|------|
@@ -158,7 +130,7 @@ Kalıp artık kurulu. Her yeni alan için aynı 5 adım:
 
 ## Paylaşılan Google Drive düzeni
 
-Faz 3'te eğitim verisinin ve model çıktılarının durduğu yer.
+Faz 3'te ikinizin buluştuğu yer. **Bir kişi oluşturur, diğerine paylaşır.**
 
 ```
 MyDrive/codifya/
@@ -220,8 +192,8 @@ tükenmesini %Y azalttı"** konur. İş değerini gösteren tek sayı bu.
 | Colab'da yazılan kod kaybolabilir | Notebook repoda yaşar, Drive yalnızca veri/model deposu; oturum sonunda repoya işle |
 | 1B modelin Türkçe JSON tutarlılığı | Şema zorlamalı çıktı → GBNF grammar yedeği → guard → şablon geri dönüşü |
 | Simülasyon-gerçek farkı (sim2real) | `shadow` modda gerçek veride ölçüm; Faz 4'te çok şirket profili |
-| ~~İkinizin birbirini beklemesi~~ (tek kişide geçersiz) | Dondurulmuş sözleşme + stub'lar yine de duruyor: testleri LLM'siz koşturuyorlar |
-| **Bilgi tek kişide toplanıyor** (tek kişilik düzende kaçınılmaz) | Karşılığı: her karar **gerekçesiyle** `OLCUMLER.md`'ye yazılır + otomatik kapılar (353 test, ruff, veri tutarlılığı, golden set) |
+| İkinizin birbirini beklemesi | Dondurulmuş sözleşme + stub'lar; dosya kümeleri kesişmiyor |
+| Bilgi tek kişide toplanıyor | Zorunlu karşılıklı PR incelemesi — merge için diğerinin onayı şart |
 | Eğitim verisi halüsinasyon içeriyor | Guard'ı **etiketleme hattında da** kullan (A3.4); reddedilme oranını izle |
 | "LLM her şeyi çözer" beklentisi | Gerçek zekâ kural motorunda; LLM dil katmanı. Sunumda net tutulur |
 | CPU'da LLM gecikmesi | Karar yolu LLM'den bağımsız; gerekçe kuyruklu; gecelik işte yalnızca üst N karar |
