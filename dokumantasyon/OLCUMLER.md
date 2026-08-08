@@ -2093,3 +2093,81 @@ gelmediği için henüz patlamadı. Aynı kusur, yalnızca görülmemiş.
 
 **Karar:** 4. tur eğitimi bu boşluk kapatılmadan koşulmaz — aksi hâlde
 kusur modele bir kez daha pekiştirilir.
+
+### 3. Boşluğun asıl bedeli: `gecelik_ozet` eğitimle BOZULDU
+
+Kapsama boşluğu bulununca bu aracı iki ölçüm setinde birden (taban set +
+ek set, toplam 10 soru) ayrı puanladım. Tablo, genel doğruluğun sakladığı
+şeyi gösteriyor:
+
+| model | araç doğru | **tam doğru** |
+|---|---|---|
+| taban | 8/10 | **7/10** |
+| 3. tur | 7/10 | **1/10** |
+
+3. tur bu aracı **bozdu**. Genel doğruluk aynı anda %70,0'dan %76,7'ye
+çıktığı için bu ölçümde hiç görünmedi — `cekim_gucu`'nun araç seçimi için
+uyardığı "bir sınıf kazanır, diğeri kaybeder" durumunun **parametre**
+hâli. Uydurma sayacı da tamamını göstermiyordu, çünkü hataların bir kısmı
+teknik olarak uydurma değil:
+
+    "Dün gece sistem ne buldu?"   -> tarih_ifadesi="dün"    (altın etiket: {})
+    "Sabah raporunda ne çıkmış?"  -> tarih_ifadesi="Sabah"  (altın etiket: {})
+
+İkisi de soruda geçtiği için "uydurma" sayılmıyor ama ikisi de **yanlış**:
+bu sorular bir tarih aralığı istemiyor. Model, hiç görmediği "parametresiz
+gecelik sorusu" durumunda eline geçen ilk zaman kelimesini slota koyuyor.
+
+### Düzeltme
+
+`AracTanimi`'ye `parametresiz_sablonlar` alanı eklendi ve
+`gecelik_ozet_sorgula` için 15 şablon yazıldı (resmi / günlük / kısaltmalı
+/ yazım hatalı karışımı, hiçbirinde tarih ifadesi yok).
+
+Neden ayrı bir alan gerekti: `kategori` ve `tedarikci_id`'de parametresiz
+örnekler `"genel"` varlığından geliyor ve şablon dilbilgisel kalıyor.
+`tarih_ifadesi`'nde şablonlar baştaki varlığın üstüne kurulu, düşürünce
+cümle bozuluyor — *"{varlik}için hazırlanan özeti alabilir miyim?"* →
+*"İçin hazırlanan özeti alabilir miyim?"*. Bu durum kendi şablonlarını
+istiyor.
+
+`sablonlari_ihrac_et` bunları `varlik_turu="yok"` + boş token ile ihraç
+ediyor; kendi varlık türleriyle gitselerdi yeniden çoğaltma adımı onları
+tarihlerle çarpar ve kapatılan boşluğu geri açardı.
+
+6 regresyon testi (`tests/test_build_dataset_parametresiz.py`) — biri
+parametresiz şablonlarda tarih ifadesi geçmediğini (ters hatayı öğretmemek
+için), biri ölçüm setleriyle çakışma olmadığını doğruluyor.
+
+### Kapsamı `gecelik_ozet` ile sınırlama kararı
+
+`siparis_onerisi_sorgula` da 2000/0 görünüyor ama **oraya dokunulmadı**:
+`router.py` bu aracı *"belirli bir ürün için ne kadar sipariş verilmeli"*
+diye tanımlıyor — parametresiz çağrı sözleşmede yok. Oradaki 0, boşluk
+değil tasarım. Ölçüm setlerinde de ürünsüz bir sipariş sorusu yok.
+
+### Yeniden üretim ve kapılar
+
+`router_sorulari.jsonl` yeniden üretildi: **0 satır kayboldu, tam 15 satır
+eklendi**, hepsi parametresiz `gecelik_ozet` (yedekle birebir diff'lendi).
+`veri_bolme` sonrası:
+
+| bölme | parametreli | parametresiz |
+|---|---|---|
+| train | 155 | **9** |
+| val | 17 | **3** |
+| test | 12 | **3** |
+
+Kapılar: `veri_tutarlilik_kontrolu` ✅ (%0,0 uyumsuz sayı),
+`golden_set_inceleme` ✅ (train/val sızıntısı yok, 400/400 özgün, guard
+uyumu %100). Kalan iki uyarı (`onay_kuyrugu` n=4, `stok.tedarikci_degisim`
+boş) önceden bilinen ve kabul edilmiş durumlar. `data/colab_yukle/`
+yenilendi.
+
+⚠️ **Kalan çekince — oran hâlâ ince.** train'de parametresiz pay %5,5
+(9/164); `kritik_stok`'ta bu oran %11. Bu şablonlar henüz paraphrase
+turundan geçmedi, yani 15 ham cümle. Özgünlük dersi (bkz. 3. tur bölümü)
+burada da geçerli: az çeşitlilik karar sınırını bulanıklaştırıyor. 4. tur
+öncesi bu 15 şablon için hedefli bir paraphrase turu koşulması önerilir —
+`--sablon-ihrac-araclar gecelik_ozet_sorgula` ile ihraç edilebiliyor.
+Boşluk kapandı ama dar; kapanmış olması 0'dan çok daha önemli.

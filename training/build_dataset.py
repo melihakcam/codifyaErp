@@ -177,6 +177,16 @@ class AracTanimi:
     aciklama: str
     varlik_turu: str  # "kategori" | "tedarikci_id" | "sku_id" | "tarih_ifadesi" | "yok"
     sablonlar: tuple[str, ...]
+    # Varlık ALMAYAN sorular — her zaman `parametreler={}` üretirler.
+    #
+    # ⚠️ Neden ayrı bir alan: `kategori` ve `tedarikci_id`'de parametresiz
+    # örnekler "genel" varlığından geliyor (`_varlik_ifadesi` onu boş dizeye
+    # çeviriyor) ve şablon yine dilbilgisel kalıyor: "Kritik stok seviyesine
+    # düşen ürünleri listeler misiniz?". `tarih_ifadesi`'nde bu işlemiyor —
+    # şablonlar baştaki varlığın üstüne kurulu, düşürünce cümle bozuluyor:
+    # "{varlik}için hazırlanan özeti alabilir miyim?" -> "İçin hazırlanan
+    # özeti alabilir miyim?". O yüzden bu durum kendi şablonlarını istiyor.
+    parametresiz_sablonlar: tuple[str, ...] = ()
 
 
 KATEGORILER = ("çimento", "demir", "tuğla", "alçı", "boya", "seramik", "izolasyon", "hırdavat")
@@ -299,6 +309,33 @@ ARAC_TANIMLARI: tuple[AracTanimi, ...] = (
             "{varlik}rapor varmi",
             "{varlik}one cikan bisi varmi",
         ),
+        # ⚠️ Tarih ifadesi GEÇMEYEN sorular. Bu araç, ölçüm setlerinde
+        # parametresiz sorulan tek araç (10 sorunun 9'unda altın etiket `{}`)
+        # ama eğitim verisinde parametresiz **tek örneği yoktu** (184/0).
+        # Sonuç: 3. tur modeli slotu doldurmak zorunda kalıp tarih uydurdu ve
+        # bu araçta tam doğruluk 7/10'dan 1/10'a düştü — genel doğruluk
+        # artarken. Ayrıntı: dokumantasyon/OLCUMLER.md.
+        #
+        # Hiçbiri ölçüm setlerindeki cümlelerle çakışmıyor (sızıntı kapısı
+        # `veri_tutarlilik_kontrolu` bunu ayrıca doğruluyor) ve hiçbirinde
+        # tarih ifadesi yok — geçseydi parametre zaten doğru olurdu.
+        parametresiz_sablonlar=(
+            "Gecelik iş çıktısını paylaşır mısınız?",
+            "Toplu işin ürettiği özeti alabilir miyim?",
+            "Gecelik analiz sonuçlarını raporlar mısınız?",
+            "Sistemin ürettiği son içgörü özetini görebilir miyim?",
+            "Gecelik koşuda öne çıkanları bildirir misiniz?",
+            "gecelik özette ne var?",
+            "sistem geceleyin ne çıkarmış?",
+            "toplu iş ne demiş?",
+            "gece ne olmuş bakalım",
+            "gecelik ozet",
+            "gecelik rapor ne diyo",
+            "toplu is ozeti",
+            "geclik ozette ne var",
+            "gecelk raporu gosterir misn",
+            "sistm gece ne bulmus",
+        ),
     ),
     AracTanimi(
         isim="genel_stok_durumu_sorgula",
@@ -395,6 +432,11 @@ def router_veri_seti_uret(
                     parametreler = {arac.varlik_turu: parametre_degeri}
                 kayitlar.append({"soru": soru, "arac": arac.isim, "parametreler": parametreler})
 
+        # Varlık çarpımına girmezler — her biri tek satır, parametresiz.
+        for sablon in arac.parametresiz_sablonlar:
+            soru = sablon[0].upper() + sablon[1:] if sablon else sablon
+            kayitlar.append({"soru": soru, "arac": arac.isim, "parametreler": {}})
+
     df = pd.DataFrame(kayitlar).drop_duplicates(subset="soru").reset_index(drop=True)
     return df
 
@@ -453,6 +495,22 @@ def sablonlari_ihrac_et(yalnizca_araclar: set[str] | None = None) -> pd.DataFram
                     "arac": arac.isim,
                     "varlik_turu": arac.varlik_turu,
                     "placeholder_token": token,
+                    "sablon_metni": metin,
+                }
+            )
+        # ⚠️ `varlik_turu="yok"` ve boş token ile ihraç ediliyorlar. Aracın
+        # kendi varlık türüyle (`tarih_ifadesi`) gönderilselerdi
+        # `parafraz_sablonlarindan_veri_uret` onları tarihlerle çarpar ve
+        # kapatmaya çalıştığımız boşluğu geri açardı. "yok" ise tek satır +
+        # `parametreler={}` üretiyor — paraphrase turları da bu şablonları
+        # çeşitlendirebilsin diye ihraca dahil ediliyorlar.
+        for sablon in arac.parametresiz_sablonlar:
+            metin = sablon[0].upper() + sablon[1:] if sablon else sablon
+            kayitlar.append(
+                {
+                    "arac": arac.isim,
+                    "varlik_turu": "yok",
+                    "placeholder_token": "",
                     "sablon_metni": metin,
                 }
             )
