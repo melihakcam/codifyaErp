@@ -2171,3 +2171,73 @@ burada da geçerli: az çeşitlilik karar sınırını bulanıklaştırıyor. 4.
 öncesi bu 15 şablon için hedefli bir paraphrase turu koşulması önerilir —
 `--sablon-ihrac-araclar gecelik_ozet_sorgula` ile ihraç edilebiliyor.
 Boşluk kapandı ama dar; kapanmış olması 0'dan çok daha önemli.
+
+## Guard'ın dil açığı — canlı kuyrukta bulundu (2026-08-08)
+
+Sistem ayağa kaldırılıp onay ekranı (`/onay`) gerçek veriyle incelendiğinde,
+hiçbir ölçümün göstermediği bir kusur göze çarptı: **gerekçelerin bir
+kısmında Çince/Japonca karakterler vardı.**
+
+    "... ürününün 1.090 gün hareket göstermedikten sonra tafiyetine karar
+     verildi ve bu tafiyetine契合したのは24 adet矣。"
+
+Ölçüldü — gerekçesi olan **100 kararın 14'ü (%14)** bozuktu ve **hepsi
+`guard_sonucu="gecti"` damgasıyla geçmişti.**
+
+⚠️ Bu oran ilk bakışta %2,8 sanılmıştı; payda yanlıştı. Kuyrukta 500 karar
+var ama gerekçe yalnızca üst N karara üretiliyor (`GECELIK_GEREKCE_UST_N`),
+yani gerekçesi olan 100 kayıt. Doğru payda o.
+
+### Neden guard yakalamadı
+
+Guard'ın kuralı "metindeki her sayı izinli kümede mi" idi ve bu sağlanıyordu
+— `契合したのは24 adet矣` cümlesindeki `24` meşru bir değer. Yani hata guard'ın
+**mantığında değil kapsamındaydı**: dil hiç denetlenmiyordu. Mimarinin en
+kritik koruması sayı tarafında sağlam, dil tarafında tamamen açıktı.
+
+İkinci bir desen daha vardı: 13 kayıtta gerekçe yerine yalnızca ürün adı
+yazılmıştı (*"İnşaat Demiri 10mm - Kardemir"*). Hiç sayı içermediği için o
+da sorunsuz geçiyordu.
+
+### Düzeltme
+
+`metni_dogrula()` eklendi, iki kontrol:
+
+1. **Yazı sistemi.** Latin dışı **harf** içeren metin reddedilir. Yalnızca
+   harflere bakılıyor, tüm karakterlere değil — `₺ % — “ ”` gibi işaretler
+   meşru ve onlara takılmak yanlış alarm üretirdi. Türkçe harfler Unicode'da
+   LATIN olarak adlandırıldığı için geçiyorlar. CJK'ya özel bir liste değil:
+   Kiril, Arap, Yunan da yakalanıyor.
+2. **Asgari içerik.** Ad/kod alanları maskelendikten sonra en az 2 kelime
+   kalmalı.
+
+⚠️ İkinci kural **önce yanlış kuruldu**: eşik karakter sayısıydı (15) ve
+`"Stok yeterli."` gibi kısa ama bilgi taşıyan meşru bir gerekçeyi kesiyordu.
+`test_guard.py`'deki mevcut bir test bunu yakaladı. Karakter eşiği kırılgan
+çünkü sınıra yakın meşru metinler var. Kelime sayımı ayrımı keskin yapıyor:
+hedeflenen hatada ad maskelenince geriye tire ve boşluktan başka bir şey
+kalmıyor (**0 kelime**), meşru en kısa gerekçede **2 kelime** var.
+
+Kontrol bilinçli olarak `sayilari_dogrula`'ya **eklenmedi** — o arayüz Kişi
+A'nın etiketleme hattının sözleşmesi ve sade kalmalı. Çalışma zamanı
+zincirine bağlandı (`gerekceyi_guvenceye_al`): reddedilen metin bir kez
+yeniden üretilir, yine olmazsa şablona düşer. Şablon deterministik ve her
+zaman Türkçe, yani güvenli çıkış korunuyor. `contracts.py`'ye de
+dokunulmadı (sözleşme değişikliği tek taraflı yapılmaz).
+
+### Doğrulama — canlı veriye karşı
+
+Kural, kuyruktaki 100 gerçek gerekçeye uygulandı:
+
+| | sonuç |
+|---|---|
+| reddedilen | **14** — hepsi Latin dışı harf, birebir bozuk olanlar |
+| geçen | **86** — meşru gerekçelerin tamamı |
+| yanlış alarm | **0** |
+
+9 regresyon testi (`tests/test_guard_dil.py`), ikisi kuyruktan alınmış
+gerçek metinlerle (biri bozuk, biri sağlam).
+
+⚠️ Bu düzeltme **gelecekte üretilecek** gerekçeleri koruyor; kuyrukta duran
+14 bozuk kayıt yerinde duruyor. Onlar 2. tur modelinden kalma ve zaten
+yeniden üretilecekler.

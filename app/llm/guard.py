@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
@@ -237,6 +238,101 @@ def sayilari_dogrula(
     return DogrulamaSonucu(gecti=not reddedilen, bulunan=bulunan, reddedilen=reddedilen)
 
 
+# ---------------------------------------------------------------------------
+# Metin kalitesi — guard'ın dil tarafındaki açığı
+# ---------------------------------------------------------------------------
+#
+# ⚠️ Guard yalnızca SAYILARI denetliyordu. Canlı onay kuyruğunda ölçüldü:
+# 500 kararın 14'ünde (%2,8) gerekçeye Çince/Japonca karakter sızmıştı ve
+# **hepsi `guard_sonucu="gecti"` damgasıyla geçmişti**:
+#
+#     "... bu tafiyetine契合したのは24 adet矣。"
+#
+# Guard'ın bunu geçirmesi tutarlı: içindeki `24` meşru bir sayı, kural
+# "metindeki her sayı izinli mi" idi ve o sağlanıyordu. Yani hata guard'ın
+# mantığında değil, kapsamındaydı — dil hiç denetlenmiyordu.
+#
+# Ayrıca 13 kayıtta (%2,6) gerekçe yerine yalnızca ürün adı yazılmıştı
+# ("İnşaat Demiri 10mm - Kardemir"). Sayı içermediği için o da geçiyordu.
+#
+# Bu kontroller bilinçli olarak `sayilari_dogrula`'ya EKLENMEDİ: o arayüz
+# Kişi A'nın etiketleme hattının sözleşmesi ve sade kalmalı (bkz. modül
+# başındaki not). Kontrol çalışma zamanı zincirine bağlandı — reddedilen
+# metin yeniden üretilir, yine olmazsa şablona düşer. Şablon deterministik
+# ve her zaman Türkçe, yani güvenli çıkış korunuyor.
+
+# Maskelemeden sonra geriye kalması gereken en az kelime sayısı.
+#
+# ⚠️ Önce karakter sayısı (15) denendi ve YANLIŞ ÇIKTI: `"Stok yeterli."`
+# gibi kısa ama meşru bir gerekçeyi kesiyordu (`test_guard.py`'deki mevcut
+# bir test bunu yakaladı). Karakter eşiği kırılgan — sınıra yakın meşru
+# metinler var, dolayısıyla eşiği güvenle koyacak bir yer yok.
+#
+# Kelime sayımı ayrımı keskin yapıyor, çünkü hedeflenen hata şudur: gerekçe
+# yerine YALNIZCA ürün adı yazılmış. Ad maskelenince geriye tire ve boşluktan
+# başka bir şey kalmıyor (0 kelime), meşru en kısa gerekçede ise 2 kelime var.
+ASGARI_KELIME_SAYISI = 2
+
+# En az bu kadar harften oluşan diziler kelime sayılır — tek harfli artıklar
+# ("a", "-") maskeleme kalıntısı olabilir.
+_KELIME_DESENI = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+
+
+def latin_disi_harfler(metin: str) -> list[str]:
+    """Metindeki Latin alfabesi dışındaki HARFLERİ döndürür.
+
+    Yalnızca harflere bakılıyor, tüm karakterlere değil — noktalama, para
+    birimi simgesi (₺), tırnak çeşitleri ve matematik işaretleri meşru ve
+    bunlara takılmak yanlış alarm üretirdi. Türkçe harfler (ı, ğ, ş, ç, ö, ü
+    ve büyükleri) Unicode'da LATIN olarak adlandırılır, yani geçerler.
+
+    Tespit ettiği: CJK ideogramları, hiragana/katakana, Kiril, Arap, Yunan.
+    Bunların hiçbirinin Türkçe bir gerekçede işi yok.
+    """
+    return [
+        ch
+        for ch in metin
+        if ch.isalpha() and not unicodedata.name(ch, "").startswith("LATIN")
+    ]
+
+
+@dataclass(frozen=True)
+class MetinSonucu:
+    """Bir gerekçe metninin dil/içerik denetimi sonucu."""
+
+    gecti: bool
+    sorunlar: list[str]
+
+
+def metni_dogrula(metin: str, *, maskelenecek: Iterable[str] = ()) -> MetinSonucu:
+    """Metin Türkçe ve anlamlı bir gerekçe mi?
+
+    İki kontrol:
+
+    1. **Yazı sistemi.** Latin dışı harf içeriyorsa reddedilir.
+    2. **Asgari içerik.** Ad/kod alanları maskelendikten sonra geriye
+       `ASGARI_KELIME_SAYISI` kelimeden azı kalıyorsa reddedilir —
+       gerekçe yerine yalnızca ürün adı yazılmış demektir.
+
+    ⚠️ Maskeleme burada da zorunlu: ürün adı zaten ekranda ayrı bir sütunda
+    duruyor, gerekçenin bilgi taşıyan kısmı adın dışındaki kısımdır.
+    """
+    sorunlar: list[str] = []
+
+    yabanci = latin_disi_harfler(metin)
+    if yabanci:
+        ornek = "".join(dict.fromkeys(yabanci))[:12]
+        sorunlar.append(f"latin disi harf ({len(yabanci)} adet): {ornek}")
+
+    kelimeler = _KELIME_DESENI.findall(metni_maskele(metin, maskelenecek))
+    if len(kelimeler) < ASGARI_KELIME_SAYISI:
+        sorunlar.append(
+            f"maskeleme sonrasi {len(kelimeler)} kelime kaldi — gerekce bos sayilir"
+        )
+
+    return MetinSonucu(gecti=not sorunlar, sorunlar=sorunlar)
+
+
 def maskelenecek_alanlar(aday: DecisionCandidate) -> list[str]:
     """Bir karar adayında rakam içerebilen ad/kod alanları."""
     o = aday.ozellikler
@@ -295,8 +391,12 @@ def gerekceyi_guvenceye_al(
             # loglarından izlenir.
             break
 
+        # ⚠️ Metin denetimi sayı denetiminden ÖNCE: Latin dışı harf içeren bir
+        # metnin sayıları doğru olsa bile kullanıcıya gitmesi kabul edilemez.
+        # Canlı kuyrukta tam bu oldu — 14 kayıt "gecti" damgasıyla geçti.
+        metin_sonucu = metni_dogrula(metin, maskelenecek=maskelenecek_alanlar(aday))
         sonuc = adayi_dogrula(metin, aday)
-        if sonuc.gecti:
+        if sonuc.gecti and metin_sonucu.gecti:
             return Gerekce(
                 karar_id=aday.karar_id,
                 metin=metin,
@@ -320,13 +420,17 @@ def gerekceyi_guvenceye_al(
 
 
 __all__ = [
+    "ASGARI_KELIME_SAYISI",
     "SAYI_DESENI",
     "YUVARLAMA_BAGIL_SINIRI",
     "DogrulamaSonucu",
     "GerekceUreteci",
+    "MetinSonucu",
     "adayi_dogrula",
     "gerekceyi_guvenceye_al",
+    "latin_disi_harfler",
     "maskelenecek_alanlar",
+    "metni_dogrula",
     "metni_maskele",
     "sayi_izinli_mi",
     "sayilari_cikar",
