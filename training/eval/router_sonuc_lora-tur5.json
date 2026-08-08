@@ -1,0 +1,503 @@
+{
+  "etiket": "lora-tur5",
+  "ozet": {
+    "soru_sayisi": 30,
+    "arac_dogruluk": 0.8,
+    "tam_dogruluk": 0.7333333333333333,
+    "sema_hatasi": 2,
+    "uydurma_parametre": 0,
+    "cokus": {
+      "var": false,
+      "arac": "gecelik_ozet_sorgula",
+      "pay": 0.21428571428571427
+    },
+    "arac_bazinda": {
+      "gecelik_ozet_sorgula": [
+        3,
+        3
+      ],
+      "genel_stok_durumu_sorgula": [
+        2,
+        2
+      ],
+      "kritik_stok_sorgula": [
+        4,
+        5
+      ],
+      "olu_stok_sorgula": [
+        4,
+        5
+      ],
+      "onay_kuyrugu_sorgula": [
+        5,
+        5
+      ],
+      "siparis_onerisi_sorgula": [
+        4,
+        5
+      ],
+      "tedarikci_performansi_sorgula": [
+        2,
+        5
+      ]
+    },
+    "stil_bazinda": {
+      "acik": [
+        12,
+        12
+      ],
+      "dolayli": [
+        8,
+        13
+      ],
+      "gunluk": [
+        4,
+        5
+      ]
+    },
+    "cekim_gucu": {
+      "gecelik_ozet_sorgula": [
+        3,
+        6
+      ],
+      "genel_stok_durumu_sorgula": [
+        2,
+        2
+      ],
+      "kritik_stok_sorgula": [
+        5,
+        4
+      ],
+      "olu_stok_sorgula": [
+        5,
+        4
+      ],
+      "onay_kuyrugu_sorgula": [
+        5,
+        5
+      ],
+      "siparis_onerisi_sorgula": [
+        5,
+        5
+      ],
+      "tedarikci_performansi_sorgula": [
+        5,
+        2
+      ]
+    },
+    "sure_sn": 98.2
+  },
+  "kayitlar": [
+    {
+      "soru": "Kritik stok seviyesine düşen ürünler hangileri?",
+      "stil": "acik",
+      "beklenen_arac": "kritik_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "kritik_stok_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1312,
+      "deneme": 1
+    },
+    {
+      "soru": "Boya kategorisinde kritik stok var mı?",
+      "stil": "acik",
+      "beklenen_arac": "kritik_stok_sorgula",
+      "beklenen_parametreler": {
+        "kategori": [
+          "Boya",
+          "boya"
+        ]
+      },
+      "secilen_arac": "kritik_stok_sorgula",
+      "secilen_parametreler": {
+        "kategori": "boya"
+      },
+      "hata": null,
+      "uretim_ms": 1634,
+      "deneme": 1
+    },
+    {
+      "soru": "Hangi ürünler tükenmek üzere?",
+      "stil": "dolayli",
+      "beklenen_arac": "kritik_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "kritik_stok_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1177,
+      "deneme": 1
+    },
+    {
+      "soru": "Neyin acilen sipariş edilmesi gerekiyor?",
+      "stil": "dolayli",
+      "beklenen_arac": "kritik_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "siparis_onerisi_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1392,
+      "deneme": 1
+    },
+    {
+      "soru": "stok azalan var mi",
+      "stil": "gunluk",
+      "beklenen_arac": "kritik_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "kritik_stok_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1285,
+      "deneme": 1
+    },
+    {
+      "soru": "Ölü stok durumundaki ürünleri listeler misin?",
+      "stil": "acik",
+      "beklenen_arac": "olu_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "olu_stok_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1217,
+      "deneme": 1
+    },
+    {
+      "soru": "Çimento kategorisinde hareketsiz ürün var mı?",
+      "stil": "acik",
+      "beklenen_arac": "olu_stok_sorgula",
+      "beklenen_parametreler": {
+        "kategori": [
+          "Çimento",
+          "cimento",
+          "çimento"
+        ]
+      },
+      "secilen_arac": "olu_stok_sorgula",
+      "secilen_parametreler": {
+        "kategori": "çimento"
+      },
+      "hata": null,
+      "uretim_ms": 1438,
+      "deneme": 1
+    },
+    {
+      "soru": "Aylardır dönmeyen mal var mı elimizde?",
+      "stil": "dolayli",
+      "beklenen_arac": "olu_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {
+        "tarih_ifadesi": "ay"
+      },
+      "hata": null,
+      "uretim_ms": 1812,
+      "deneme": 1
+    },
+    {
+      "soru": "Rafta bekleyip duran ürünleri görebilir miyim?",
+      "stil": "dolayli",
+      "beklenen_arac": "olu_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "olu_stok_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1133,
+      "deneme": 1
+    },
+    {
+      "soru": "tasfiye onerlen urun var mi",
+      "stil": "gunluk",
+      "beklenen_arac": "olu_stok_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "olu_stok_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1219,
+      "deneme": 1
+    },
+    {
+      "soru": "T-0014 tedarikçisinin performansı nedir?",
+      "stil": "acik",
+      "beklenen_arac": "tedarikci_performansi_sorgula",
+      "beklenen_parametreler": {
+        "tedarikci_id": [
+          "T-0014",
+          "t-0014"
+        ]
+      },
+      "secilen_arac": "tedarikci_performansi_sorgula",
+      "secilen_parametreler": {
+        "tedarikci_id": "T-0014"
+      },
+      "hata": null,
+      "uretim_ms": 2368,
+      "deneme": 1
+    },
+    {
+      "soru": "Yılmaz Yapı'nın teslimat skoru kaç?",
+      "stil": "acik",
+      "beklenen_arac": "tedarikci_performansi_sorgula",
+      "beklenen_parametreler": {
+        "tedarikci_id": [
+          "Yılmaz Yapı",
+          "Yılmaz Yapı'nın"
+        ]
+      },
+      "secilen_arac": "tedarikci_performansi_sorgula",
+      "secilen_parametreler": {
+        "tedarikci_id": "Yılmaz Yapı"
+      },
+      "hata": null,
+      "uretim_ms": 2242,
+      "deneme": 1
+    },
+    {
+      "soru": "Bizi kim geciktiriyor?",
+      "stil": "dolayli",
+      "beklenen_arac": "tedarikci_performansi_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1290,
+      "deneme": 1
+    },
+    {
+      "soru": "T-0031 güvenilir mi?",
+      "stil": "dolayli",
+      "beklenen_arac": "tedarikci_performansi_sorgula",
+      "beklenen_parametreler": {
+        "tedarikci_id": [
+          "T-0031",
+          "t-0031"
+        ]
+      },
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {
+        "tarih_ifadesi": "T-0031"
+      },
+      "hata": null,
+      "uretim_ms": 2080,
+      "deneme": 1
+    },
+    {
+      "soru": "t-0007 gecikiyomu",
+      "stil": "gunluk",
+      "beklenen_arac": "tedarikci_performansi_sorgula",
+      "beklenen_parametreler": {
+        "tedarikci_id": [
+          "T-0007",
+          "t-0007"
+        ]
+      },
+      "secilen_arac": null,
+      "secilen_parametreler": null,
+      "hata": "sema uyumsuz (2 deneme)",
+      "uretim_ms": 0,
+      "deneme": 0
+    },
+    {
+      "soru": "Kırmızı Tuğla (S-01432) için sipariş önerisi nedir?",
+      "stil": "acik",
+      "beklenen_arac": "siparis_onerisi_sorgula",
+      "beklenen_parametreler": {
+        "sku_id": [
+          "Kırmızı Tuğla",
+          "S-01432"
+        ]
+      },
+      "secilen_arac": "siparis_onerisi_sorgula",
+      "secilen_parametreler": {
+        "sku_id": "S-01432"
+      },
+      "hata": null,
+      "uretim_ms": 1880,
+      "deneme": 1
+    },
+    {
+      "soru": "Alçıpan (S-00318) için ne kadar sipariş verilmeli?",
+      "stil": "acik",
+      "beklenen_arac": "siparis_onerisi_sorgula",
+      "beklenen_parametreler": {
+        "sku_id": [
+          "Alçıpan",
+          "S-00318"
+        ]
+      },
+      "secilen_arac": "siparis_onerisi_sorgula",
+      "secilen_parametreler": {
+        "sku_id": "S-00318"
+      },
+      "hata": null,
+      "uretim_ms": 2043,
+      "deneme": 1
+    },
+    {
+      "soru": "Portland Çimento (S-01949) ürününden kaç tane almalıyım?",
+      "stil": "dolayli",
+      "beklenen_arac": "siparis_onerisi_sorgula",
+      "beklenen_parametreler": {
+        "sku_id": [
+          "Portland Çimento",
+          "S-01949"
+        ]
+      },
+      "secilen_arac": "siparis_onerisi_sorgula",
+      "secilen_parametreler": {
+        "sku_id": "S-01949"
+      },
+      "hata": null,
+      "uretim_ms": 2146,
+      "deneme": 1
+    },
+    {
+      "soru": "Demir profil (S-01971) için ne ısmarlayalım?",
+      "stil": "dolayli",
+      "beklenen_arac": "siparis_onerisi_sorgula",
+      "beklenen_parametreler": {
+        "sku_id": [
+          "Demir profil",
+          "S-01971"
+        ]
+      },
+      "secilen_arac": null,
+      "secilen_parametreler": null,
+      "hata": "sema uyumsuz (2 deneme)",
+      "uretim_ms": 0,
+      "deneme": 0
+    },
+    {
+      "soru": "kirmizi tugla (S-01432) kac adet siparis verelim",
+      "stil": "gunluk",
+      "beklenen_arac": "siparis_onerisi_sorgula",
+      "beklenen_parametreler": {
+        "sku_id": [
+          "Kırmızı Tuğla",
+          "kirmizi tugla",
+          "S-01432"
+        ]
+      },
+      "secilen_arac": "siparis_onerisi_sorgula",
+      "secilen_parametreler": {
+        "sku_id": "S-01432"
+      },
+      "hata": null,
+      "uretim_ms": 2046,
+      "deneme": 1
+    },
+    {
+      "soru": "Onay bekleyen kararlar var mı?",
+      "stil": "acik",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1412,
+      "deneme": 1
+    },
+    {
+      "soru": "Onay kuyruğunu gösterir misin?",
+      "stil": "acik",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1362,
+      "deneme": 1
+    },
+    {
+      "soru": "Benim onaylamam gereken bir şey var mı?",
+      "stil": "dolayli",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1306,
+      "deneme": 1
+    },
+    {
+      "soru": "Sistem neyi bana sordu?",
+      "stil": "dolayli",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1470,
+      "deneme": 1
+    },
+    {
+      "soru": "bekleyen karar var mi",
+      "stil": "gunluk",
+      "beklenen_arac": "onay_kuyrugu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "onay_kuyrugu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1460,
+      "deneme": 1
+    },
+    {
+      "soru": "Gecelik özeti gösterir misin?",
+      "stil": "acik",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1418,
+      "deneme": 1
+    },
+    {
+      "soru": "Dün gece sistem ne buldu?",
+      "stil": "dolayli",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {
+        "tarih_ifadesi": "dün"
+      },
+      "hata": null,
+      "uretim_ms": 1682,
+      "deneme": 1
+    },
+    {
+      "soru": "Sabah raporunda ne çıkmış?",
+      "stil": "dolayli",
+      "beklenen_arac": "gecelik_ozet_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "gecelik_ozet_sorgula",
+      "secilen_parametreler": {
+        "tarih_ifadesi": "Sabah"
+      },
+      "hata": null,
+      "uretim_ms": 2042,
+      "deneme": 1
+    },
+    {
+      "soru": "Genel stok durumu nedir?",
+      "stil": "acik",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1406,
+      "deneme": 1
+    },
+    {
+      "soru": "Depoda genel olarak durum ne?",
+      "stil": "dolayli",
+      "beklenen_arac": "genel_stok_durumu_sorgula",
+      "beklenen_parametreler": {},
+      "secilen_arac": "genel_stok_durumu_sorgula",
+      "secilen_parametreler": {},
+      "hata": null,
+      "uretim_ms": 1445,
+      "deneme": 1
+    }
+  ]
+}

@@ -1,0 +1,169 @@
+{
+  "etiket": "lora-tur5",
+  "model": "codifya-router:tur5",
+  "istem_bicimi": "egitilmis",
+  "metrikler": [
+    {
+      "ad": "router: araç+parametre tam eşleşme",
+      "deger": 0.7333333333333333,
+      "hedef": 0.95,
+      "gecti": false,
+      "yorum": "22/30 — bkz. dokumantasyon/OLCUMLER.md B3.5",
+      "sert_kapi": true
+    },
+    {
+      "ad": "gerekçe: uydurma sayı (final metinde)",
+      "deger": 0.0,
+      "hedef": 0.0,
+      "gecti": true,
+      "yorum": "20 gerçek karar örneklendi, 7 LLM'den (şablona düşmeden) kabul edildi",
+      "sert_kapi": true
+    },
+    {
+      "ad": "gerekçe: Türkçe akıcılık (LLM-jüri, 1-5)",
+      "deger": 4.857142857142857,
+      "hedef": 4.0,
+      "gecti": true,
+      "yorum": "7/7 örnek puanlandı — gösterge, sert kapı değil",
+      "sert_kapi": false
+    },
+    {
+      "ad": "gecelik tarama süresi (sn)",
+      "deger": 170.12523919999876,
+      "hedef": 600.0,
+      "gecti": true,
+      "yorum": "2000 SKU, 25 gerekçe üretildi",
+      "sert_kapi": true
+    },
+    {
+      "ad": "tepe RAM (MB)",
+      "deger": 425.78515625,
+      "hedef": 4096.0,
+      "gecti": true,
+      "yorum": "bu Python sürecinin RSS'i — Ollama sunucusu ayrı süreç, dahil değil",
+      "sert_kapi": true
+    }
+  ],
+  "uydurma_detay": [
+    {
+      "karar_id": "2977b33c-0720-44e8-a95b-3c0e6bf70d0b",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "82b6fbd0-cae3-442e-9bc5-e0071a7eefcc",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "6f3a57c6-593b-46de-ad81-38a8f3efb655",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "7926f135-9a37-468d-897d-4277ff0ff1b4",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "af16a536-dcfb-4d01-9226-295f2960a82a",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "1bef6f3f-5fa0-4dd2-a09d-9cd15b92c641",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "6769c58f-41a5-46a8-a031-b6e71b75f73e",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "acfd7bae-f090-4a0e-9b1e-b3aa14ed127a",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "ac90b1ce-2f02-42b7-9f1b-50b032c80c53",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "77bb7bbc-5ac7-4438-9043-9f6e639da139",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "bd14d1ac-9eb7-401c-9be0-9b683ab884f2",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "a7fe1790-f19d-4903-bf41-4bb1c89fbb31",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "496c73bc-8ff3-4adb-8001-4be58a14e413",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "28a718dd-acc9-4fc5-bbf6-45788967a0dc",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "65eab1e2-7bd8-4b52-8ff8-912d4b37c464",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "417da17b-0d7d-4a05-9200-48362f0932be",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "a17fdbf2-f5dd-4922-a2d4-8c4ff29aebfa",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "443f46e9-c336-47c4-9585-8070a6bdafcd",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "e849c3b7-15d1-4466-98f3-33f3cebb2432",
+      "guard_sonucu": "sablona_dustu",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    },
+    {
+      "karar_id": "04616fa1-39bd-4805-bd72-9ce697ae1f39",
+      "guard_sonucu": "gecti",
+      "uydurma_bulundu": false,
+      "uydurma_sayilar": []
+    }
+  ]
+}

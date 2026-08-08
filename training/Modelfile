@@ -1,14 +1,14 @@
 # Codifya router + gerekçe modeli — Faz 3 LoRA sonrası
 #
-#     ollama create codifya-router:tur4 -f training/Modelfile
+#     ollama create codifya-router:tur5 -f training/Modelfile
 #
-# GGUF dosyası Colab'da üretilir (bkz. tur4_gguf_colab.ipynb) ve bu dosyanın
+# GGUF dosyası Colab'da üretilir (bkz. tur5_gguf_colab.ipynb) ve bu dosyanın
 # yanına konur.
 #
 # ⚠️ Her turda bu satır güncellenir. Önceki turların Modelfile'ı git
 # geçmişinde duruyor; eski bir turu yeniden kurman gerekirse oradan al.
 
-FROM ./codifya-tur4-q8_0.gguf
+FROM ./codifya-tur5-q8_0.gguf
 
 # ⚠️ EN KRİTİK AYAR.
 #

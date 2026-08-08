@@ -2485,3 +2485,85 @@ Model geri alındı ama **veri tarafındaki iş duruyor ve git'te kalıcı**:
 Bunlar 5. turda da geçerli. Kapatılan boşluğun **işe yaradığı da kanıtlandı**
 — `gecelik_ozet` 1/10'dan 5/10'a çıktı. Sorun düzeltmede değil, o
 düzeltmenin tek modelde gerekçe tarafına yansıyan bedelinde.
+
+## 5. TUR — kapasite hipotezi ÇÜRÜTÜLDÜ (2026-08-08)
+
+4. tur şunu bulmuştu: gerekçe verisi hiç değişmediği hâlde gerekçe kalitesi
+düştü, sebebi muhtemelen router ve gerekçenin aynı LoRA kapasitesini
+paylaşması. 5. tur bunu sınadı.
+
+**Tek değişken LoRA rank'ı:** `r=16 → 32`, `alpha=32 → 64`. Veri, örnekleme,
+adım sayısı (1.250), öğrenme oranı, tohum — hepsi 4. turla birebir aynı.
+Devam-etme testi ikisinde de atlandı (aynı başlangıç noktası).
+
+| tur | rank | eğitim kaybı | doğrulama | adaptör |
+|---|---|---|---|---|
+| 4 | 16 | 0,1418 | 0,1845 | 81 MB |
+| 5 | **32** | 0,1399 | 0,1831 | **152 MB** |
+
+Kayıp neredeyse hiç oynamadı — ilk uyarı işareti buydu.
+
+### Router: en iyi sonuç
+
+| | araç doğru | **tam doğru** | şema hatası |
+|---|---|---|---|
+| taban | 34/48 · %70,8 | 32/48 · %66,7 | 0 |
+| 3. tur | 39/48 · %81,2 | 33/48 · %68,8 | 0 |
+| 4. tur | 38/48 · %79,2 | 35/48 · %72,9 | 3 |
+| **5. tur** | **39/48 · %81,2** | **36/48 · %75,0** | 3 |
+
+| araç | n | taban | 3. tur | 4. tur | **5. tur** |
+|---|---|---|---|---|---|
+| `gecelik_ozet` | 10 | 7 | 1 | 5 | **7** ✅ |
+| `kritik_stok` | 5 | 3 | 3 | 3 | **4** |
+| `olu_stok` | 5 | 1 | 4 | 4 | 4 |
+| `onay_kuyrugu` | 8 | 6 | 7 | 8 | 7 |
+| `genel_stok_durumu` | 10 | 8 | 10 | 9 | 8 |
+| `tedarikci_performansi` | 5 | 3 | 4 | 2 | **2** ⚠️ |
+
+`gecelik_ozet` **taban seviyesine tam döndü** (1 → 5 → 7). Router tarafında
+5. tur dört modelin en iyisi.
+
+### ⭐ Ama hipotez çürüdü
+
+| tur | rank | gerekçe kabul (20 karar) |
+|---|---|---|
+| 3 | 16 | **20/20** |
+| 4 | 16 | 11/20 |
+| **5** | **32** | **7/20** |
+
+**Kapasiteyi iki katına çıkarmak gerekçe tarafını DAHA DA bozdu.** Hipotez
+doğru olsaydı 20/20'ye dönmesi beklenirdi; tam tersi oldu.
+
+Akıcılık puanı yükseldi (4,86) ama bu yanıltıcı: yalnızca **7 örnek**
+puanlandı, çünkü diğer 13'ü şablona düşmüştü. Az sayıda kabul edilen metnin
+ortalaması yüksek çıkıyor — kabul oranı düştükçe bu gösterge şişiyor.
+
+### Yeni yorum: sorun kapasite değil, GİRİŞİM
+
+İki turluk kanıt şunu söylüyor:
+
+    veri degisikligi (tur3 -> tur4):  20/20 -> 11/20
+    rank iki katina  (tur4 -> tur5):  11/20 ->  7/20
+
+Kapasite artınca model router görevine **daha güçlü** oturuyor ve o görevin
+biçimi (kısa, yapılandırılmış JSON) serbest Türkçe düzyazı üretimini daha çok
+bastırıyor. Yani iki görev kapasite için yarışmıyor — birbirine **karışıyor**.
+Daha fazla kapasite karışmayı azaltmıyor, güçlendiriyor.
+
+Bu, `r=64` denemesini de anlamsız kılıyor: aynı yönde daha kötü sonuç verir.
+
+### Karar
+
+`.env` `codifya-router:tur3`'te kaldı. `tur4` ve `tur5` Ollama'da duruyor.
+
+**6. tur için tek makul yol: iki ayrı adaptör.** Aynı taban model, göreve göre
+farklı LoRA — router için bir tane, gerekçe için bir tane. Karışma fiziksel
+olarak imkânsız hale gelir. Yönetim yükü artar (iki adaptör, iki GGUF ya da
+çalışma zamanında adaptör değiştirme) ama elimizdeki iki turluk kanıt başka
+yol bırakmıyor.
+
+⚠️ **Bu turun asıl değeri, ucuz bir çürütme olması.** Bir saatlik GPU turu,
+"rank'ı büyütelim" fikrinin yanlış olduğunu kesin olarak gösterdi. O fikri
+sınamadan iki adaptöre geçseydik, işe yaramayan bir karmaşıklığı kalıcı
+olarak üstlenmiş olabilirdik.

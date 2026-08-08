@@ -178,31 +178,43 @@ Ham ölçüm sonuçları: `training/eval/*.json`
 
 ---
 
-## 8. Sıradaki adım hazır: 5. tur (kapasite denemesi)
+## 8. 5. tur sonucu: kapasite hipotezi çürütüldü
 
-4. turun bulduğu darboğazı sınamak için iki defter yazıldı ve **tek geçişte
-çalışacak şekilde** hazırlandı — hücre arama, atlama, elle düzenleme yok:
+`r=16 → 32` denendi (tek değişken rank; veri, adım, tohum aynı).
 
-| defter | ne yapar | süre |
+**Router tarafı en iyi sonucu verdi:** tam doğruluk 36/48 (%75,0),
+`gecelik_ozet` 1/10 → 5/10 → **7/10** ile taban seviyesine tam döndü.
+
+**Ama gerekçe tarafı daha da bozuldu:**
+
+| tur | rank | gerekçe kabul |
 |---|---|---|
-| `training/tur5_colab.ipynb` | eğitim (`Run all`) | ~50 dk |
-| `training/tur5_gguf_colab.ipynb` | GGUF'a çevirme (`Run all`) | ~15 dk |
+| 3 | 16 | **20/20** |
+| 4 | 16 | 11/20 |
+| 5 | **32** | **7/20** |
 
-**Tek değişken LoRA rank'ı:** `r=16 → 32`, `alpha=32 → 64`. Veri, örnekleme,
-adım sayısı, öğrenme oranı, tohum — hepsi 4. turla birebir aynı. Eğitilebilir
-parametre %1,18 → ~%2,3.
+Kapasite hipotezi doğru olsaydı 20/20'ye dönmesi beklenirdi. Tam tersi oldu.
 
-Hipotez: kapasite darboğazıysa, gerekçe kabul oranı 20/20'ye dönerken 4.
-turun router kazancı (`gecelik_ozet` 1/10 → 5/10) korunur.
+### Yeni yorum: kapasite değil, görev girişimi
 
-Eğitim sonrası **iki ölçüm de** koşulmalı:
+    veri degisikligi (tur3 -> tur4):  20/20 -> 11/20
+    rank iki katina  (tur4 -> tur5):  11/20 ->  7/20
 
-```bash
-uv run python -m training.eval.router_taban --model codifya-router:tur5 --istem-bicimi egitilmis --etiket lora-tur5 --ek
-uv run python -m training.eval.benchmark --etiket lora-tur5
-```
+Kapasite arttıkça model router görevine daha güçlü oturuyor ve o görevin
+biçimi (kısa, yapılandırılmış JSON) serbest Türkçe düzyazıyı bastırıyor.
+İki görev kapasite için **yarışmıyor**, birbirine **karışıyor**. Daha fazla
+kapasite karışmayı güçlendiriyor.
 
-İkincisindeki *"N LLM'den (şablona düşmeden) kabul edildi"* satırı bu turun
-asıl sınavı. 4. turda 11/20'ydi; hipotez doğruysa 20/20'ye dönmeli.
+`r=64` denemesi de anlamsız — aynı yönde daha kötü sonuç verir.
 
-⚠️ Veri Drive'da güncel (2026-08-08 yüklemesi), yeniden yüklemeye gerek yok.
+### 6. tur için tek makul yol: iki ayrı adaptör
+
+Aynı taban model, göreve göre farklı LoRA. Karışma fiziksel olarak imkânsız
+hale gelir. Yönetim yükü artar (iki adaptör, çalışma zamanında seçim) ama
+iki turluk kanıt başka yol bırakmıyor.
+
+⚠️ Bu turun değeri **ucuz bir çürütme** olması: bir saatlik GPU turu,
+"rank'ı büyütelim" fikrinin yanlış olduğunu kesin gösterdi. Sınamadan iki
+adaptöre geçseydik, işe yaramayan bir karmaşıklığı boşuna üstlenebilirdik.
+
+Canlı model değişmedi: `codifya-router:tur3`.
