@@ -379,6 +379,54 @@ def test_soruda_gecen_parametre_uydurma_sayilmaz():
     assert k.uydurma_parametre == []
 
 
+def test_aksansiz_yazilan_soruda_aksanli_cevap_uydurma_sayilmaz():
+    """Kullanıcı aksansız yazınca modelin doğru normalleştirmesi cezalanmasın.
+
+    3. tur ölçümünde raporlanan 4 uydurmanın 1'i buydu: *"dun gece ne cikti"*
+    sorusuna model `tarih_ifadesi="dün"` üretti — altın etiket bunu zaten kabul
+    ediyor (`["dün", "dun"]`) ama düz altdizi araması `"dün"`ü soruda bulamayıp
+    uydurma saydı. Dedektör doğru davranışı yanlış olarak raporluyordu.
+    """
+    from training.eval.router_taban import Kayit
+
+    k = Kayit(
+        soru="dun gece ne cikti",
+        stil="kisa",
+        beklenen_arac="gecelik_ozet_sorgula",
+        beklenen_parametreler={"tarih_ifadesi": ["dün", "dun"]},
+    )
+    k.secilen_arac = "gecelik_ozet_sorgula"
+    k.secilen_parametreler = {"tarih_ifadesi": "dün"}
+
+    assert k.uydurma_parametre == []
+    assert k.tam_dogru
+
+
+def test_normallestirme_gercek_uydurmayi_gizlemiyor():
+    """Aksan katlaması dedektörü körleştirmemeli.
+
+    Asıl vaka bu: soruda hiçbir tarih ifadesi yokken model `"geçen gün"`
+    üretiyor — 3. turdaki gerçek 3 uydurmanın deseni. Normalleştirme bunu
+    hâlâ yakalamalı.
+    """
+    from training.eval.router_taban import Kayit
+
+    k = Kayit(soru="gece raporu", stil="kisa", beklenen_arac="gecelik_ozet_sorgula")
+    k.secilen_arac = "gecelik_ozet_sorgula"
+    k.secilen_parametreler = {"tarih_ifadesi": "geçen gün"}
+
+    assert k.uydurma_parametre == ["tarih_ifadesi=geçen gün"]
+
+
+def test_aksansiz_turkce_harfleri_katliyor():
+    from training.eval.router_taban import aksansiz
+
+    assert aksansiz("ÇĞİIÖŞÜ") == "cgiiosu"
+    assert aksansiz("çğıöşü") == "cgiosu"
+    # Katlama yalnızca aksanı düşürür; farklı harfleri eşitlemez.
+    assert aksansiz("boya") != aksansiz("boye")
+
+
 # --- Esnek parametre karşılaştırması ------------------------------------------
 
 

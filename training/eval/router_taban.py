@@ -52,6 +52,7 @@ import argparse
 import json
 import sys
 import time
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -116,6 +117,32 @@ OLCUM_SICAKLIGI = 0.0
 OLCUM_TOHUMU = 42
 
 
+def aksansiz(metin: str) -> str:
+    """Türkçe aksanları düşürüp karşılaştırılabilir hale getirir.
+
+    ⚠️ Yalnızca `uydurma_parametre` için. `parametre_dogru` altın etiketteki
+    kabul listesine bakıyor; orada hangi biçimlerin doğru sayılacağı **elle**
+    yazılmış bir sözleşme ve normalleştirmeyle gevşetilmemeli.
+
+    Neden gerekli: uydurma dedektörü "değer soruda geçiyor mu" diye düz altdizi
+    araması yapıyordu. Kullanıcı aksansız yazdığında (*"dun gece ne cikti"*)
+    model doğru olanı yapıp `tarih_ifadesi="dün"` üretiyor — altın etiket de
+    bunu kabul ediyor (`["dün", "dun"]`) — ama düz arama `"dün"`ü soruda
+    bulamayıp **uydurma** sayıyordu. 3. tur ölçümündeki 4 uydurmanın 1'i tam
+    olarak buydu; yani gerçek sayı 3.
+
+    Bu ölçüm hatası tek yönlü değil: modeli aksan normalleştirmesi yaptığı için
+    cezalandırıyor, yani doğru davranışı yanlış olarak raporluyordu.
+
+    `ı`/`İ`/`I` elle eşitleniyor çünkü NFKD onları ayrıştırmıyor (`ı` kendi
+    başına bir kod noktası, `i`'nin aksanlı hâli değil). Kalan `ç ğ ö ş ü`
+    NFKD ile ayrışıp birleşen işaretleri atılarak düşüyor.
+    """
+    esitlenmis = metin.replace("ı", "i").replace("İ", "i").replace("I", "i")
+    ayrik = unicodedata.normalize("NFKD", esitlenmis.casefold())
+    return "".join(c for c in ayrik if not unicodedata.combining(c))
+
+
 @dataclass
 class Kayit:
     soru: str
@@ -162,12 +189,16 @@ class Kayit:
 
         Model parametreyi ancak sorudan çıkarabilir; soruda olmayan bir değer
         üretmek uydurmadır. Araç doğru olsa bile bu bir kalite sorunu.
+
+        ⚠️ Karşılaştırma **aksansız** yapılıyor (bkz. `aksansiz`). Aksi hâlde
+        aksansız yazılmış bir soruya modelin doğru şekilde aksanlı cevap
+        vermesi uydurma sayılıyordu.
         """
-        soru = self.soru.casefold()
+        soru = aksansiz(self.soru)
         return [
             f"{ad}={deger}"
             for ad, deger in (self.secilen_parametreler or {}).items()
-            if deger.strip() and deger.strip().casefold() not in soru
+            if deger.strip() and aksansiz(deger.strip()) not in soru
         ]
 
 
@@ -664,6 +695,7 @@ if __name__ == "__main__":
 __all__ = [
     "COKUS_ESIGI",
     "Kayit",
+    "aksansiz",
     "cekim_gucu",
     "cokus_esigi",
     "cokus_kontrolu",

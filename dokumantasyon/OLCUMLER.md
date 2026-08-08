@@ -2018,3 +2018,78 @@ geriye gitmesiz bir kazanım. `data/colab_yukle/` yeniden üretildi.
 
 ⚠️ Veri dosyaları `.gitignore`'da; kod düzeltmesi (`paraphrase_colab.ipynb`)
 git'te, veri Drive'a ayrıca yüklenmeli.
+
+## 3. turdaki uydurmaların kökü: iki ayrı sorun (2026-08-08)
+
+3. tur ek sette **4 uydurma parametre** raporlanmıştı (taban: 0) — araç
+seçimi ilerlerken parametre disiplininin gerilediği tek işaret buydu ve
+4. tur kararının önündeki asıl engeldi. Kazınca altından **iki farklı**
+sorun çıktı, biri ölçümde biri veride.
+
+### 1. Ölçüm hatası — 4'ün 1'i uydurma değildi
+
+`Kayit.uydurma_parametre` "değer soruda geçiyor mu" diye düz altdizi
+araması yapıyordu. Kullanıcı aksansız yazdığında:
+
+    soru      : "dun gece ne cikti"
+    model     : tarih_ifadesi = "dün"
+    altın etiket: ["dün", "dun"]   -> parametre_dogru GEÇİYOR
+    dedektör  : "dün" soruda yok   -> UYDURMA (yanlış)
+
+Yani dedektör, modeli **doğru** aksan normalleştirmesi yaptığı için
+cezalandırıyordu. Tek yönlü bir hata: doğru davranışı yanlış raporluyor.
+
+Düzeltme: `aksansiz()` — `ı/İ/I` elle eşitlenir (NFKD onları ayrıştırmaz,
+`ı` bağımsız bir kod noktası), kalan `ç ğ ö ş ü` NFKD + birleşen işaret
+atmayla düşer. Yalnızca uydurma dedektöründe kullanılıyor; `parametre_dogru`
+elle yazılmış kabul listesine bakmaya devam ediyor — o bir sözleşme,
+normalleştirmeyle gevşetilmemeli. 3 regresyon testi
+(`tests/test_llm_router.py`), biri normalleştirmenin **gerçek** uydurmayı
+gizlemediğini doğruluyor.
+
+Kayıtlı tüm sonuçlar `--rapor` ile yeniden puanlandı:
+
+| sonuç | önce | sonra |
+|---|---|---|
+| `lora-tur3-ek` | 4 uydurma | **3** |
+| taban, taban-ek, lora-tur3, lora-tur2 | 0 | 0 (değişmedi) |
+
+Taban çizgilerin hiçbiri oynamadı — düzeltme hedefli.
+
+### 2. Gerçek kök neden — eğitim verisinde parametresiz örnek yok
+
+Kalan 3 uydurmanın üçü de **aynı**: soruda hiçbir tarih ifadesi yokken
+model `tarih_ifadesi="geçen gün"` üretiyor.
+
+    "Gece taramasının sonuçlarını görebilir miyim?"  -> tarih_ifadesi="geçen gün"
+    "Gece boyunca neler birikmiş?"                   -> tarih_ifadesi="geçen gün"
+    "gece raporu"                                    -> tarih_ifadesi="geçen gün"
+
+`"geçen gün"` eğitim verisindeki dört geçerli değerin (`bugün`, `dün`,
+`bu hafta`, `geçen hafta`) **hiçbiri değil** — model kendi eğitim
+sözlüğünün dışına çıkıyor. Bu, doldurmak zorunda bırakıldığı bir slotta
+klasik davranış.
+
+Sebep, veri kapsamında:
+
+| araç | parametreli | parametresiz |
+|---|---|---|
+| `gecelik_ozet_sorgula` | 184 | **0** ⚠️ |
+| `siparis_onerisi_sorgula` | 2000 | **0** ⚠️ |
+| `kritik_stok_sorgula` | 280 | 35 ✅ |
+| `olu_stok_sorgula` | 256 | 32 ✅ |
+| `tedarikci_performansi_sorgula` | 1563 | 27 ✅ |
+| `genel_stok_durumu_sorgula` | 0 | 73 ✅ (şemaca parametresiz) |
+| `onay_kuyrugu_sorgula` | 0 | 73 ✅ (şemaca parametresiz) |
+
+Model `gecelik_ozet_sorgula`'yı **parametresiz** hiç görmedi. Parametresi
+isteğe bağlı olan üç araçta (`kritik_stok`, `olu_stok`,
+`tedarikci_performansi`) iki durum da temsil ediliyor ve oralarda uydurma
+yok — desen tutarlı.
+
+⚠️ `siparis_onerisi_sorgula` aynı boşluğu taşıyor (2000/0) ama ölçüm
+setlerinde ürünsüz bir sipariş sorusu ("ne sipariş etmeliyim?") denk
+gelmediği için henüz patlamadı. Aynı kusur, yalnızca görülmemiş.
+
+**Karar:** 4. tur eğitimi bu boşluk kapatılmadan koşulmaz — aksi hâlde
+kusur modele bir kez daha pekiştirilir.
