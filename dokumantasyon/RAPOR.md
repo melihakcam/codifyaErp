@@ -175,3 +175,34 @@ uv run pytest
 
 Kod: 55 Python modülü, 26 test dosyası, 353 test.
 Ham ölçüm sonuçları: `training/eval/*.json`
+
+---
+
+## 8. Sıradaki adım hazır: 5. tur (kapasite denemesi)
+
+4. turun bulduğu darboğazı sınamak için iki defter yazıldı ve **tek geçişte
+çalışacak şekilde** hazırlandı — hücre arama, atlama, elle düzenleme yok:
+
+| defter | ne yapar | süre |
+|---|---|---|
+| `training/tur5_colab.ipynb` | eğitim (`Run all`) | ~50 dk |
+| `training/tur5_gguf_colab.ipynb` | GGUF'a çevirme (`Run all`) | ~15 dk |
+
+**Tek değişken LoRA rank'ı:** `r=16 → 32`, `alpha=32 → 64`. Veri, örnekleme,
+adım sayısı, öğrenme oranı, tohum — hepsi 4. turla birebir aynı. Eğitilebilir
+parametre %1,18 → ~%2,3.
+
+Hipotez: kapasite darboğazıysa, gerekçe kabul oranı 20/20'ye dönerken 4.
+turun router kazancı (`gecelik_ozet` 1/10 → 5/10) korunur.
+
+Eğitim sonrası **iki ölçüm de** koşulmalı:
+
+```bash
+uv run python -m training.eval.router_taban --model codifya-router:tur5 --istem-bicimi egitilmis --etiket lora-tur5 --ek
+uv run python -m training.eval.benchmark --etiket lora-tur5
+```
+
+İkincisindeki *"N LLM'den (şablona düşmeden) kabul edildi"* satırı bu turun
+asıl sınavı. 4. turda 11/20'ydi; hipotez doğruysa 20/20'ye dönmeli.
+
+⚠️ Veri Drive'da güncel (2026-08-08 yüklemesi), yeniden yüklemeye gerek yok.
