@@ -32,6 +32,7 @@ docstring'i).
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -104,6 +105,9 @@ class KosuOzeti:
         )
 
 
+logger = logging.getLogger(__name__)
+
+
 def _stub_ureteci() -> Iterable[DecisionCandidate]:
     """`gecelik_tarama()`'nın varsayılanı — testler ve Ollama'sız ortamlar için."""
     return [decide_stub()]
@@ -126,7 +130,36 @@ def _gercek_karar_ureteci() -> Iterable[DecisionCandidate]:
         tedarikci_df=dunya["tedarikci"],
         siniflandirma=siniflandirma,
     )
-    return [ozellikten_karar_uret(o) for o in ozellikler]
+    kararlar = [ozellikten_karar_uret(o) for o in ozellikler]
+
+    # ⚠️ Faz 6: finans kararları da aynı taramaya giriyor.
+    #
+    # Ayrı bir gecelik iş açmak yerine tek taramada birleştirildi, çünkü
+    # kullanıcı sabah **tek bir liste** görmek istiyor: "bugün neye bakmam
+    # lazım?" sorusunun cevabı alan başına bölünmemeli.
+    #
+    # Sıralama zaten risk skoruna göre yapılıyor (`gecelik_tarama`), yani
+    # 200.000 TL'lik bir tahsilat riski 500 TL'lik bir sipariş önerisinin
+    # üstünde çıkıyor — alanlar arası önceliklendirme kendiliğinden doğru.
+    kararlar.extend(_finans_kararlari())
+    return kararlar
+
+
+def _finans_kararlari() -> list[DecisionCandidate]:
+    """Demo dünyasındaki tüm müşteriler için tahsilat kararları.
+
+    Hata durumunda **boş liste** dönüyor: finans tarafındaki bir sorun
+    gecelik taramanın tamamını düşürmemeli. Stok kararları kullanıcıya
+    ulaşmaya devam eder ve eksiklik log'dan görülür.
+    """
+    try:
+        from app.domain.finance.decide import _demo_ozellikleri
+        from app.domain.finance.decide import ozellikten_karar_uret as finans_karar
+
+        return [finans_karar(o) for o in _demo_ozellikleri()]
+    except Exception:  # gecelik iş hiçbir koşulda düşmemeli
+        logger.exception("Finans kararları üretilemedi; tarama stokla devam ediyor.")
+        return []
 
 
 class _EsikOnbellegi:
@@ -150,15 +183,31 @@ class _EsikOnbellegi:
 
 
 def _icgoru_basligi(aday: DecisionCandidate, politika: PolitikaKarari) -> str:
+    """Gecelik özet satırının başlığı.
+
+    ⚠️ Ad **`gorunen_ad` üzerinden** alınıyor. Faz 6'ya kadar burada doğrudan
+    `o.sku_adi` yazıyordu; finans kararı gecelik taramaya girdiği anda
+    `AttributeError` verecekti — ve bu, gecelik işin tamamını düşürürdü.
+    """
     o = aday.ozellikler
+    ad = o.gorunen_ad
+
     if aday.tip is KararTipi.STOK_SIPARIS:
-        miktar = aday.aksiyon.get("siparis_miktari")
-        return f"{o.sku_adi}: {miktar} adet sipariş önerisi"
+        return f"{ad}: {aday.aksiyon.get('siparis_miktari')} adet sipariş önerisi"
     if aday.tip is KararTipi.STOK_TASFIYE:
-        return f"{o.sku_adi}: tasfiye önerisi ({o.son_hareket_gun_once} gündür hareketsiz)"
+        return f"{ad}: tasfiye önerisi ({o.son_hareket_gun_once} gündür hareketsiz)"
     if aday.tip is KararTipi.STOK_TEDARIKCI_DEGISIM:
-        return f"{o.sku_adi}: tedarikçi değişimi önerisi"
-    return f"{o.sku_adi}: {aday.tip.value}"
+        return f"{ad}: tedarikçi değişimi önerisi"
+
+    if aday.tip is KararTipi.FINANS_TAHSILAT_TAKIBI:
+        return f"{ad}: {o.en_eski_gecikme_gun} gündür gecikmede, tahsilat takibi"
+    if aday.tip is KararTipi.FINANS_KARSILIK_AYIR:
+        oran = aday.aksiyon.get("onerilen_karsilik_orani") or 0
+        return f"{ad}: %{float(oran) * 100:.0f} karşılık önerisi"
+    if aday.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
+        return f"{ad}: kredi limiti düşürme önerisi"
+
+    return f"{ad}: {aday.tip.value}"
 
 
 def gecelik_tarama(

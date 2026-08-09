@@ -161,6 +161,16 @@ class AlanOzellikleri(BaseModel):
         """
         raise NotImplementedError
 
+    @property
+    def gorunen_ad(self) -> str:
+        """Kullanıcıya gösterilecek kısa kimlik — ürün adı, müşteri adı...
+
+        ⚠️ Alan-bağımsız katmanlar başlık kurarken bunu kullanmalı. Faz 6'da
+        `app/jobs/nightly.py::_icgoru_basligi` doğrudan `o.sku_adi` okuyordu;
+        finans kararı gecelik taramaya girdiği anda `AttributeError` verirdi.
+        """
+        raise NotImplementedError
+
     def oto_uygulama_engeli(self) -> str | None:
         """Oto-uygulamayı engelleyen alan-özel bir durum varsa gerekçe kodu.
 
@@ -246,6 +256,10 @@ class StockFeatures(AlanOzellikleri):
         return self.talep_std / self.ort_gunluk_talep
 
     # --- AlanOzellikleri sözleşmesi -------------------------------------
+
+    @property
+    def gorunen_ad(self) -> str:
+        return self.sku_adi
 
     def maskelenecek_alanlar(self) -> list[str]:
         return [self.sku_adi, self.sku_id, self.tedarikci_adi, self.tedarikci_id]
@@ -348,6 +362,10 @@ class FinansOzellikleri(AlanOzellikleri):
         return self.vadesi_gecen_tl / self.toplam_alacak_tl
 
     # --- AlanOzellikleri sözleşmesi -------------------------------------
+
+    @property
+    def gorunen_ad(self) -> str:
+        return self.musteri_adi
 
     def maskelenecek_alanlar(self) -> list[str]:
         return [self.musteri_adi, self.musteri_id]
