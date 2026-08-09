@@ -22,11 +22,26 @@ Finansta aynı formül, aynı anlam:
 bırakmalıyım?** Stokta pay adet, finansta gün cinsinden — matematik aynı,
 `scipy.stats.norm` çağrısı bile ortak.
 
-⚠️ Bunun pratik sonucu şu: `duzensiz_odeme` patolojisi (yüksek σ) olan
-müşteriyi **çok daha erken** aramak gerekiyor, çünkü emniyet payı σ ile
-büyüyor. `kronik_gecikme` (yüksek ortalama, düşük σ) ise geç ödese bile
-öngörülebilir — 40. günde arayacağını bilirsin. Ortalamaya bakan bir sistem
-bu ikisini karıştırır ve yanlış müşteriyi kovalar.
+⚠️ **Ama yön stoktakiyle TERS ve bu bilinçli.** Stokta belirsizlik erken
+davranmayı gerektirir (stok tükenmesin). Finansta eşik bir **anomali
+dedektörü**: "bu gecikme, bu müşteri için olağandışı mı?"
+
+    hep 20±2 gunde odeyen  -> 40 gun ALARM      (esik ~23 gun)
+    0-90 arasi savrulan    -> 40 gun normal     (esik ~68 gun)
+
+İkincisini erken aramak istatistiksel olarak anlamsız: o müşteride 40 gün
+gürültüden ayırt edilemez. Zaten **doğru tepki de arama değil**: düzensiz
+ödeyen müşteri `musteri_risk_skoru` üzerinden yakalanır ve
+`kredi_limiti_dusur` tetiklenir. Öngörülemezliği daha sık arayarak değil,
+**maruz kalınan riski azaltarak** yönetirsin.
+
+Yani iki patoloji iki farklı kolla ele alınıyor:
+
+    kronik_gecikme (yuksek ort, dusuk σ) -> takip esigi yakalar
+    duzensiz_odeme (orta ort, yuksek σ)  -> risk skoru yakalar
+
+Ortalamaya bakan tek eksenli bir sistem ikisini de karıştırır: kronik
+gecikeni "kötü müşteri" diye keser, düzensizi ise fark etmez.
 """
 
 from __future__ import annotations
