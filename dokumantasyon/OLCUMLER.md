@@ -2774,3 +2774,122 @@ artık hazır ve gerçek veri gelir gelmez aynı komut koşulabilir.
 | 4.4 | karşılanamayan talep + aşırı stok maliyeti | ✅ para metriğinde |
 | 4.5 | onay ekranı | ✅ `/onay` |
 | 4.6 | ERP entegrasyon sözleşmesi | ✅ `ERP-ENTEGRASYON.md` |
+
+## FAZ 6 · Finans & Tahsilat alanı tamamlandı (2026-08-09)
+
+Yol haritasının Faz 6 için öngördüğü altı adımın altısı da bitti. Asıl soru
+şuydu: **kalıp taşınıyor mu, yoksa stok varsayımları her yere mi sinmiş?**
+
+### Taşınan: sınıflandırma ve emniyet payı matematiği
+
+`ABCSinifi` ve `XYZSinifi` **yeniden yazılmadı**, yeniden kullanıldı:
+
+| eksen | stokta | finansta |
+|---|---|---|
+| ABC | ürünün ciro katkısı | müşterinin ciro katkısı |
+| XYZ | talep oynaklığı | **ödeme gecikmesi oynaklığı** |
+
+İkisi de aynı soruyu soruyor: *bu kalem tahmin edilebilir mi?* Düzenli geç
+ödeyen müşteri (hep 40 gün) rastgele ödeyenden (10-90 gün) daha az
+risklidir, ortalaması kötü olsa bile.
+
+Emniyet payı formülü de taşındı — `scipy.stats.norm` çağrısı bile ortak:
+
+    stok  : emniyet     = Z(servis_seviyesi) x sqrt(tedarik_suresi x talep_std^2 + ...)
+    finans: emniyet_gun = Z(tahsilat_hedefi) x odeme_gecikmesi_std
+
+⚠️ Ama **yön ters ve bu bilinçli.** Stokta belirsizlik erken davranmayı
+gerektirir (stok tükenmesin). Finansta eşik bir **anomali dedektörü**:
+
+    hep 20±2 gunde odeyen  -> 40 gun ALARM   (esik ~23 gun)
+    0-90 arasi savrulan    -> 40 gun normal  (esik ~68 gun)
+
+İkincisini erken aramak istatistiksel olarak anlamsız; o müşteride 40 gün
+gürültüden ayırt edilemez. Düzensiz ödeyen **başka bir kolla** yakalanıyor:
+risk skoru oynaklığı cezalandırıp `kredi_limiti_dusur` tetikliyor.
+Öngörülemezliği daha sık arayarak değil, maruz kalınan riski azaltarak
+yönetiyoruz.
+
+⚠️ Bu ayrım kodda doğruydu ama **docstring'de yanlış yazılmıştı** ("düzensiz
+ödeyeni daha erken ara"). Deneyde fark edildi ve düzeltildi.
+
+### Bulunan dört sızıntı — hepsi aynı desende
+
+Faz 1-5 boyunca alan-bağımsız katmanlar stoka özgü alanları **doğrudan**
+okuyordu. Finans eklenince her biri ayrı bir kırılma noktası oldu:
+
+| katman | sızıntı | ne olurdu | çözüm |
+|---|---|---|---|
+| `guard.py` | `sku_adi`, `tedarikci_adi` | `AttributeError` | `maskelenecek_alanlar()` |
+| `policy.py` | `ozellikler.tedarikci_onayli` | `AttributeError` | `oto_uygulama_engeli()` |
+| `policy.py` | `is KararTipi.STOK_AKSIYON_YOK` | **"aksiyon yok" kararı oto-uygulanır** | `tip.aksiyon_yok_mu` |
+| `nightly.py` | `o.sku_adi` | **gecelik işin tamamı düşer** | `gorunen_ad` |
+
+Üçüncü ve dördüncüsü sessiz felaketlerdi: biri hiçbir şey yapmayan bir
+kararı "uygulandı" diye kaydederdi, diğeri kullanıcıya sabah boş ekran
+gösterirdi.
+
+`AlanOzellikleri` taban sınıfının dört davranışı bu dört ihtiyaçtan doğdu —
+hiçbiri spekülatif değil. Üçüncü alan (satış) eklenirken bu listenin
+değişmesi beklenmiyor.
+
+### Bulunan güvenlik açığı
+
+`DAIMA_ONAY_GEREKTIREN` yalnızca stok tiplerini taşıyordu.
+`finans.karsilik_ayir` bir **muhasebe kaydıdır** (geri almak düzeltme fişi
+ister, `stok.tasfiye`nin birebir karşılığı) ama listede yoktu — tutar ve
+güven eşiklerinin altında kalırsa **sessizce oto-uygulanabilirdi**.
+`kredi_limiti_dusur` de aynı sınıfta. İkisi de eklendi.
+
+Test **karşıt kontrolüyle** yazıldı: tahsilat takibi (müşteriyi aramak,
+geri alınabilir) küçük tutarda hâlâ oto-uygulanabiliyor. Aksi hâlde "her
+şey onaya gidiyor" diye de geçerdi ve hiçbir şey kanıtlamazdı.
+
+### Tahsilat simülatörü — stok RNG'sine dokunulmadı
+
+`run.py` faturayı zaten üretiyordu (tarih, tutar, vade) ama tahsilatı hiç
+modellemiyordu. Fatura döngüsüne müşteri ataması eklemek `tedarik_rng`'den
+fazladan bir çekim demekti ve **stok tarafındaki her ölçüm değişirdi** —
+para metriği (%7,6), shadow raporu (9.908 karar), aşırı uyum testi (9/9).
+
+Bu yüzden tahsilat ayrı bir modül, kendi RNG'siyle, `run.py`'nin çıktısını
+sonradan işliyor. Bir test bu bağımsızlığı kalıcı hale getiriyor.
+
+Patoloji ayrımı ölçüldü:
+
+| patoloji | ortalama gecikme | değişim katsayısı |
+|---|---|---|
+| `kronik_gecikme` | **39,2 gün** | **0,25** — kötü ama öngörülebilir |
+| `duzensiz_odeme` | 19,6 gün | **1,39** — asıl riskli |
+| normal | 12,4 gün | 0,98 |
+
+⚠️ Segment adları ilk yazımda **uydurulmuştu** (`perakende`, `bayi`,
+`müteahhit`); gerçekte `bireysel`, `usta`, `perakendeci`, `santiye`.
+Hiçbiri eşleşmedi, her müşteri varsayılana düştü ve segment farklılaşması
+**sessizce** çalışmadı. Düzeltildi; `test_segment_adlari_profille_uyusuyor`
+bir daha açılmasını engelliyor.
+
+### Uçtan uca sonuç
+
+800 müşteri, gerçek simülasyon verisiyle:
+
+| karar | adet |
+|---|---|
+| aksiyon yok | 760 |
+| tahsilat takibi | 23 |
+| karşılık ayır | 16 |
+| kredi limiti düşür | 1 |
+
+Gecelik tarama iki alanı **tek listede** birleştiriyor (2.800 karar).
+Ayrı bir finans işi açılmadı: kullanıcı sabah "bugün neye bakmam lazım?"
+sorusunun cevabını alan başına bölünmüş görmemeli. Sıralama risk skoruna
+göre olduğu için alanlar arası önceliklendirme kendiliğinden doğru.
+
+Finans tarafında hata olursa tarama **stokla devam ediyor** — bir alanın
+sorunu diğerinin çıktısını yok etmemeli.
+
+### Kalan tek adım
+
+Router'ın finans araçlarını tanıması için eğitim. Yol haritası bunu **üç
+alan bitince tek turda** yapmayı söylüyor (`alanları ayrı modellere bölme —
+16 GB'ta gereksiz yük`), o yüzden Satış ve Üretim'den sonra.

@@ -1,6 +1,6 @@
 # Codifya Karar Motoru — Durum Raporu
 
-**Tarih:** 2026-08-08 · **Faz:** 3 sonu (SP3) · **Otonomi:** `shadow`
+**Tarih:** 2026-08-09 · **Faz:** 6 · Finans tamam · **Otonomi:** `shadow`
 **Canlı model:** `codifya-router:tur5` (Qwen2.5-1.5B-Instruct + LoRA, r=32)
 
 Bu belge sistemin **ölçülmüş** durumunu anlatır. Buradaki her sayı
@@ -323,3 +323,53 @@ gecikmeleriyle. Üstelik beklemek gerekmez — veri gelir gelmez koşar.
   sapma sıfır çıkar; o da riski yok saymak olurdu.
 
 10 regresyon testi (`tests/test_csv_erp.py`), hepsi gerçekçi kirli CSV'lerle.
+
+
+---
+
+## 11. Faz 6 — ikinci iş alanı: Finans & Tahsilat
+
+Yol haritasının en riskli iddiası buydu: *"Kalıp artık kurulu. Her yeni alan
+için aynı 5 adım."* Finans alanı bunu sınadı ve **kalıp taşındı**.
+
+### Yeniden kullanılan
+
+| bileşen | değişiklik |
+|---|---|
+| ABC/XYZ sınıflandırması | **sıfır** — ortak çekirdeğe taşındı, iki alan da aynı fonksiyonu çağırıyor |
+| Emniyet payı matematiği | aynı formül, aynı `scipy.stats.norm` |
+| Guard (sayı + dil) | **sıfır satır** finans kodu |
+| Politika / eşik tablosu | tipe göre okuyor, alan bilmiyor |
+| Onay kuyruğu, denetim, API akışı | ortak gövdeye çıkarıldı |
+
+`XYZ` ekseninin anlamı alan değiştirdi ama işlevi aynı kaldı: stokta talep
+oynaklığı, finansta **ödeme gecikmesi oynaklığı**. İkisi de "bu kalem
+tahmin edilebilir mi?" diye soruyor.
+
+### Yeni yazılan
+
+`FinansOzellikleri`, tahsilat simülatörü, finans kural motoru
+(takip eşiği / karşılık / kredi limiti), özellik hesabı, endpoint.
+**78 yeni test.**
+
+### Bu geçişte bulunan dört mimari sızıntı
+
+Alan-bağımsız katmanlar stoka özgü alanları doğrudan okuyordu. İkisi sessiz
+felaketti: politika `finans.aksiyon_yok`'u **oto-uygulamaya** sokuyordu ve
+gecelik iş finans kararı görünce **tamamen düşüyordu**. Ayrıntı ve çözümler:
+[OLCUMLER.md](OLCUMLER.md).
+
+Bunlar Faz 6 olmasa fark edilmezdi — ikinci alan, mimarinin gerçek sınavı.
+
+### Uçtan uca
+
+800 müşteri: 23 tahsilat takibi, 16 karşılık, 1 limit düşürme, 760 aksiyon
+yok. Gecelik tarama iki alanı tek listede birleştiriyor (2.800 karar) ve
+risk skoruna göre sıralıyor — 200.000 TL'lik tahsilat riski, 500 TL'lik
+sipariş önerisinin üstünde çıkıyor.
+
+### Kalan
+
+**Satış & Fiyatlama** ve **Üretim & Planlama** alanları, sonra üç alanı
+birden kapsayan **tek** bir eğitim turu (router'ın yeni araçları tanıması
+için). Yol haritası alanları ayrı modellere bölmemeyi söylüyor.

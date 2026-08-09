@@ -4,11 +4,11 @@
 > engellediğini ve ne zaman çözülmesi gerektiğini söyler. Amaç, bir eksiğin
 > "unutulmuş" ile "ertelenmiş" arasındaki farkı kaybetmemesi.
 >
-> Son güncelleme: 2026-08-08 · Faz 5 sonu
+> Son güncelleme: 2026-08-09 · Faz 6 · Finans tamam
 
 ---
 
-## 1. 🔴 Sözleşme stok'a çakılı — Faz 6'yı engelliyor
+## 1. ✅ ÇÖZÜLDÜ — Sözleşme stok'a çakılıydı
 
 ```python
 class DecisionCandidate(BaseModel):
@@ -33,14 +33,14 @@ konulamaz.
 Geri kalan 37 `StockFeatures` göndermesi `app/domain/stock/` ve
 `app/adapters/` içinde — orada olmaları **doğru**.
 
-**Ne zaman çözülecek:** Faz 6'nın ilk adımında, `FinansOzellikleri` ile
-birlikte.
+**✅ 2026-08-09'da çözüldü.** `AlanOzellikleri` taban sınıfı eklendi,
+`ozellikler` alanı birleşim oldu, dört sızıntının dördü de kapatıldı.
 
-⚠️ **Şimdi çözülmemesi bilinçli.** Tek uygulaması olan bir taban sınıf
-tasarlanamaz: `FinansOzellikleri`'nin neye benzeyeceğini bilmeden ortak
-arayüz uydurmak, büyük olasılıkla yanlış arayüzü uydurmak demek. İki gerçek
-örnek elde olunca `StockFeatures | FinansOzellikleri` birleşimi spekülasyon
-değil, gözlem olur.
+⚠️ Ertelemek doğru karardı: taban sınıfın dört davranışı
+(`maskelenecek_alanlar`, `hesaplanan_sayilar`, `oto_uygulama_engeli`,
+`gorunen_ad`) **finans yazılırken ortaya çıkan gerçek ihtiyaçlardan** doğdu.
+Önceden tasarlansaydı ya eksik ya fazla olurdu — özellikle son ikisi,
+ancak politika ve gecelik iş kırıldığında görüldü.
 
 ---
 
