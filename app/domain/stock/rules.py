@@ -15,6 +15,14 @@ import pandas as pd
 from scipy.stats import norm
 
 from app.contracts import ABCSinifi, StockFeatures, XYZSinifi
+from app.domain.siniflandirma import (
+    ABC_KESIM_A,
+    ABC_KESIM_B,
+    XYZ_KESIM_X,
+    XYZ_KESIM_Y,
+    abc_sinif_ata,
+    xyz_sinif_ata,
+)
 
 # ---------------------------------------------------------------------------
 # A2.2 — Emniyet stoğu + ROP
@@ -119,11 +127,11 @@ def siparis_miktari_hesapla(ozellik: StockFeatures) -> int:
 # A2.4 — ABC/XYZ sınıflandırma + hedef servis seviyesi matrisi
 # ---------------------------------------------------------------------------
 
-ABC_KESIM_A = 0.80
-ABC_KESIM_B = 0.95
-
-XYZ_KESIM_X = 0.5
-XYZ_KESIM_Y = 1.0
+# ⚠️ Kesimler ve sınıf atama fonksiyonları Faz 6'da `app/domain/siniflandirma.py`'ye
+# TAŞINDI — finans alanı da aynı soruyu soruyor ("bu kalem ciroya ne katıyor,
+# ne kadar düzenli?") ve iki eşdüzey alandan birinin diğerine bağlanması
+# yanlış olurdu. Buradan yeniden ihraç ediliyorlar: mevcut import'lar ve
+# testler bozulmasın diye.
 
 HEDEF_SERVIS_SEVIYESI_MATRISI: dict[tuple[ABCSinifi, XYZSinifi], float] = {
     (ABCSinifi.A, XYZSinifi.X): 0.99,
@@ -139,22 +147,6 @@ HEDEF_SERVIS_SEVIYESI_MATRISI: dict[tuple[ABCSinifi, XYZSinifi], float] = {
 """Mantık: cirosu yüksek + talebi düzenli (AX) ürünün stoğu tükenmesin — pahalıya
 gelir, kolay tahmin edilir. Cirosu düşük + talebi kaotik (CZ) üründe yüksek
 servis seviyesi tutmak boşa para bağlamaktır."""
-
-
-def abc_sinif_ata(kumulatif_ciro_orani: float) -> ABCSinifi:
-    if kumulatif_ciro_orani <= ABC_KESIM_A:
-        return ABCSinifi.A
-    if kumulatif_ciro_orani <= ABC_KESIM_B:
-        return ABCSinifi.B
-    return ABCSinifi.C
-
-
-def xyz_sinif_ata(varyasyon_katsayisi: float) -> XYZSinifi:
-    if varyasyon_katsayisi <= XYZ_KESIM_X:
-        return XYZSinifi.X
-    if varyasyon_katsayisi <= XYZ_KESIM_Y:
-        return XYZSinifi.Y
-    return XYZSinifi.Z
 
 
 def abc_xyz_siniflandir(ozellik_listesi: list[StockFeatures]) -> pd.DataFrame:
@@ -338,3 +330,33 @@ def tedarikci_skoru_hesapla(siparisler: pd.DataFrame, tedarikci_df: pd.DataFrame
         },
         index=tedarikci_df.index,
     )
+
+
+# ⚠️ Faz 6'da ABC/XYZ çekirdeği `app/domain/siniflandirma.py`'ye taşındı
+# (finans da aynı sınıflandırmayı kullanıyor, iki alan birbirine bağlanmasın
+# diye). Aşağıdakiler oradan geliyor ve buradan yeniden ihraç ediliyor —
+# `from app.domain.stock.rules import abc_sinif_ata` yazan mevcut kod ve
+# testler bozulmasın diye.
+__all__ = [
+    "ABC_KESIM_A",
+    "ABC_KESIM_B",
+    "HEDEF_SERVIS_SEVIYESI_MATRISI",
+    "OLU_STOK_GORECELI_CARPAN",
+    "OLU_STOK_MUTLAK_ESIK_GUN",
+    "VARSAYILAN_SIPARIS_MALIYETI_TL",
+    "VARSAYILAN_YILLIK_ELDE_TUTMA_ORANI",
+    "XYZ_KESIM_X",
+    "XYZ_KESIM_Y",
+    "abc_sinif_ata",
+    "abc_xyz_siniflandir",
+    "ekonomik_siparis_miktari",
+    "emniyet_stogu_hesapla",
+    "olu_stok_degerlendir",
+    "rop_ve_emniyet_stogu",
+    "siparis_miktari_hesapla",
+    "siparis_miktarini_yuvarla",
+    "tedarikci_performans_ozeti",
+    "tedarikci_skoru_hesapla",
+    "xyz_sinif_ata",
+    "yeniden_siparis_noktasi_hesapla",
+]
