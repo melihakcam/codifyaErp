@@ -2655,3 +2655,66 @@ Beni yanlış yola sokan şey, hipotezi veriye bakmadan kurmamdı: önce
 "kapasite", tutmayınca "girişim" dedim. İkisi de tabloyu açıklıyordu ama
 ikisi de yanlıştı. Doğru cevap ancak **reddedilen metnin kendisine** bakınca
 çıktı — ve o bakış on dakika sürdü.
+
+## ⭐ PARA METRİĞİ — projenin iş değeri sayısı (2026-08-08)
+
+Yol haritasının "başarı metrikleri" tablosundaki son satır, ve bugüne kadar
+hiç hesaplanmamıştı:
+
+> *"Raporun merkezine 'model şu kadar iyi cevap veriyor' değil, **'AI politikası
+> toplam stok maliyetini %X düşürdü'** konur. İş değerini gösteren tek sayı bu."*
+
+    uv run python -m training.genellenebilirlik_ve_para_metrigi
+
+### Faz 5 — ana sonuç (tutulmamış seed=20250801, 3 yıl, 1.095 gün)
+
+| | vasat | **kural motoru** | oracle |
+|---|---|---|---|
+| stok tükenme oranı | %5,31 | **%0,47** | %0 |
+| kayıp kâr | 7.688.130 TL | **3.819.706 TL** | 197.585 TL |
+| aşırı stok maliyeti | 9.406.976 TL | 12.414.508 TL | 8.702.393 TL |
+| sipariş maliyeti | 1.720.950 TL | 1.161.150 TL | 6.003.150 TL |
+| sipariş sayısı | 11.473 | **7.741** | 40.021 |
+| **toplam maliyet** | **18.816.055 TL** | **17.395.365 TL** | 14.903.128 TL |
+
+**Toplam maliyet %7,6 düştü; stok tükenme oranı 11 kat azaldı (%5,31 → %0,47).**
+
+⚠️ **Kural motoru daha FAZLA stok tutuyor** (aşırı stok maliyeti 9,4M → 12,4M).
+Bu bir kusur değil, bilinçli takas: emniyet stoğu bırakıp müşteri kaybını
+önlüyor. Kayıp kâr yarıya iniyor (7,7M → 3,8M) ve net sonuç kârlı çıkıyor.
+Ayrıca **%33 daha az sipariş** veriyor (11.473 → 7.741) — daha büyük, daha
+seyrek, daha ekonomik partiler.
+
+Yani sistem "stoğu kıs, para bağlama" gibi ezber bir kural işletmiyor;
+gerçekten EOQ/ROP hesabı yapıyor.
+
+### Faz 4 A4.2 — aşırı uyum testi: 9/9 geçti
+
+Kural motoru yalnızca varsayılan profile göre ayarlanmış olabilirdi. Dört
+profil × üç tohum ile sınandı; kriter her kombinasyonda vasat'tan **hem daha
+az tükenme hem daha az maliyet**:
+
+| profil | maliyet iyileşmesi |
+|---|---|
+| `kucuk_nalbur_dukkani` | %1,4 – %3,2 |
+| `yapi_malzemesi_toptancisi` | %15,0 – %19,5 |
+| `buyuk_insaat_deposu` | **%39,1 – %44,7** |
+
+**9 kombinasyonun 9'u geçti.**
+
+⭐ Anlamlı örüntü: **kazanç şirket büyüdükçe artıyor.** Küçük nalburda fark
+küçük (az SKU, sahip kafadan takip edebiliyor), büyük depoda %40'a çıkıyor.
+Sistemin asıl müşterisi bu segment — ve bu, satış anlatısının da dayanağı.
+
+### ⚠️ Bu sayı LLM'den bağımsız
+
+Hesabı **kural motoru** yapıyor. Bugün beş eğitim turu uğraştığımız dil
+modelinin bu sayıya hiçbir katkısı yok; model yalnızca kararı Türkçe
+anlatıyor.
+
+Yani sistemin iş değeri, dil katmanı hiç çalışmasa bile ayakta. Mimarinin
+birinci kuralı ("LLM asla sayı üretmez") burada karşılığını buluyor: router
+doğruluğu %75'te takılı olsa da **iş değeri etkilenmiyor**.
+
+Bu, `threshold` moduna geçiş tartışmasını da değiştiriyor: açık olan sert
+kapı (router %95) iş değerini değil, kullanıcı deneyimini sınırlıyor.

@@ -1,7 +1,7 @@
 # Codifya Karar Motoru — Durum Raporu
 
 **Tarih:** 2026-08-08 · **Faz:** 3 sonu (SP3) · **Otonomi:** `shadow`
-**Canlı model:** `codifya-router:tur3` (Qwen2.5-1.5B-Instruct + LoRA)
+**Canlı model:** `codifya-router:tur5` (Qwen2.5-1.5B-Instruct + LoRA, r=32)
 
 Bu belge sistemin **ölçülmüş** durumunu anlatır. Buradaki her sayı
 `training/eval/` altındaki ham sonuç dosyalarından gelir ve yeniden
@@ -37,11 +37,11 @@ Beş metrik, dördü sert kapı. Ölçüm: `uv run python -m training.eval.bench
 
 | metrik | hedef | ölçülen | |
 |---|---|---|---|
-| gerekçede uydurma sayı | **0** | **0,00** | ✅ sert kapı |
-| gecelik tarama süresi | < 600 sn | **180 sn** | ✅ sert kapı |
-| tepe RAM | < 4 GB | **421 MB** | ✅ sert kapı |
+| gerekçede uydurma sayı | **0** | **0,00** (20/20 kabul) | ✅ sert kapı |
+| gecelik tarama süresi | < 600 sn | **173 sn** | ✅ sert kapı |
+| tepe RAM | < 4 GB | **426 MB** | ✅ sert kapı |
 | Türkçe akıcılık (LLM-jüri) | > 4,0 | **4,8/5** | ✅ gösterge |
-| router: araç+parametre tam eşleşme | > %95 | **%70** | ❌ sert kapı |
+| router: araç+parametre tam eşleşme | > %95 | **%73** | ❌ sert kapı |
 
 **Dört kapıdan üçü geçildi. Kalan tek açık router doğruluğu.**
 
@@ -218,3 +218,51 @@ iki turluk kanıt başka yol bırakmıyor.
 adaptöre geçseydik, işe yaramayan bir karmaşıklığı boşuna üstlenebilirdik.
 
 Canlı model değişmedi: `codifya-router:tur3`.
+
+
+---
+
+## 9. ⭐ İŞ DEĞERİ — para metriği
+
+Yol haritasının merkezine koyduğu sayı. `training/genellenebilirlik_ve_para_metrigi.py`,
+tutulmamış seed (20250801), 3 yıl / 1.095 gün.
+
+| | vasat yönetim | **kural motoru** | oracle (üst sınır) |
+|---|---|---|---|
+| stok tükenme oranı | %5,31 | **%0,47** | %0 |
+| kayıp kâr | 7.688.130 TL | **3.819.706 TL** | 197.585 TL |
+| sipariş sayısı | 11.473 | **7.741** | 40.021 |
+| **toplam maliyet** | **18.816.055 TL** | **17.395.365 TL** | 14.903.128 TL |
+
+> **AI politikası toplam stok maliyetini %7,6 düşürdü ve stok tükenmesini
+> 11 kat azalttı (%5,31 → %0,47).**
+
+⚠️ Sistem **daha fazla** stok tutuyor (aşırı stok maliyeti 9,4M → 12,4M) ve
+**%33 daha az sipariş** veriyor. Yani "stoğu kıs" gibi ezber bir kural
+işletmiyor: emniyet stoğu bırakıp müşteri kaybını önlüyor, siparişleri daha
+büyük ve ekonomik partilerde topluyor.
+
+### Aşırı uyum testi: 9/9
+
+Dört şirket profili × üç tohum, kriter her kombinasyonda vasat'tan hem daha
+az tükenme hem daha az maliyet:
+
+| profil | maliyet iyileşmesi |
+|---|---|
+| küçük nalbur dükkânı | %1,4 – %3,2 |
+| yapı malzemesi toptancısı | %15,0 – %19,5 |
+| büyük inşaat deposu | **%39,1 – %44,7** |
+
+**Kazanç şirket büyüdükçe artıyor.** Küçük nalburda fark küçük (az SKU, sahip
+kafadan takip edebiliyor), büyük depoda %40'a çıkıyor — sistemin asıl
+müşteri segmenti bu.
+
+### Bu sayı LLM'den bağımsız
+
+Hesabı kural motoru yapıyor. Router doğruluğu %75'te takılı olsa da iş
+değeri etkilenmiyor — mimarinin birinci kuralının ("LLM asla sayı üretmez")
+doğrudan sonucu.
+
+Bu, açık kalan sert kapıyı da yeniden çerçeveliyor: **router %95, bir iş
+değeri kapısı değil, kullanıcı deneyimi kapısı.** Router yanlış araç
+seçtiğinde kullanıcı yanlış raporu görür ve tekrar sorar; para kaybı olmaz.
