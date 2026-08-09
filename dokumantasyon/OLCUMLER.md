@@ -2567,3 +2567,91 @@ yol bırakmıyor.
 "rank'ı büyütelim" fikrinin yanlış olduğunu kesin olarak gösterdi. O fikri
 sınamadan iki adaptöre geçseydik, işe yaramayan bir karmaşıklığı kalıcı
 olarak üstlenmiş olabilirdik.
+
+## ⭐ DÜZELTME: 4. ve 5. tur haksız yere geri alındı (2026-08-08)
+
+Yukarıdaki iki bölümde 4. ve 5. turun "gerekçe tarafını bozduğu" yazıyor ve
+iki ayrı sebep öne sürülüyor: önce **kapasite darboğazı**, sonra **görev
+girişimi**. **İkisi de yanlıştı.** Gerçek sebep bulundu ve düzeltildi.
+
+### Nasıl bulundu
+
+"Değerler neden azalıyor?" sorusunu tahminle değil ölçerek cevaplamaya
+çalışırken, reddedilen metinlerin ham hâline bakıldı. Şaşırtıcı şey şuydu:
+**modeli doğrudan çağırınca 20 kararın 20'si de temiz metin üretiyordu.**
+Ama benchmark aynı modelde 13'ünü şablona düşürüyordu.
+
+Fark, çağrı yolundaydı. `gerekce_uret` → `llm_ureteci` → `yapilandirilmis_uret`:
+gerekçe üretimi de **JSON şema zorlamasıyla** yapılıyordu. Benim doğrudan
+çağrım şemasızdı.
+
+### Kök neden: eğitim/çalışma zamanı biçim uyuşmazlığı
+
+    egitim hedefi (veri_hazirla) :  "Porselen Karo - Vitra urununun 97 gun..."
+    calisma zamani (GerekceCiktisi):  {"gerekce": "..."}   <- HIC GORULMEDI
+
+Model `{"gerekce": ...}` sarmalayıcısını eğitimde hiç görmedi. Ollama'nın
+grammar kısıtı onu tanımadığı bir kalıba sokuyordu. 3. tur buna dayanabildi,
+4. ve 5. tur dayanamadı.
+
+⚠️ Bu, **2. turun kök nedeniyle aynı sınıftan** bir hata: eğitimin öğrettiği
+ile çalışma zamanının istediği şeyin farklı olması. O sefer sayılarda oldu,
+bu sefer biçimde.
+
+### Kontrollü deney
+
+Aynı 20 karar, aynı istem, aynı guard zinciri, aynı model. **Tek değişken
+JSON şeması:**
+
+| model | şemalı | şemasız |
+|---|---|---|
+| `tur3` | 20/20 | 20/20 |
+| `tur4` | 11/20 | **20/20** |
+| `tur5` | 7/20 | **20/20** |
+
+Şema kaldırılınca **üçü de 20/20.** Modeller hiç bozulmamıştı; kısıt bozuktu.
+
+### Düzeltme
+
+`llm_ureteci` eğitilmiş kipte artık JSON şeması kullanmıyor, düz üretim
+yapıyor. **Taban kipte şema duruyor** — orada gerçek bir işi var (B2.1'de
+ölçüldü: taban model düz metin istendiğinde girdiyi liste hâlinde geri yazıp
+başına başlık ekliyordu).
+
+Biçim güvencesi kaybolmadı: guard metni doğruluyor (sayı + dil),
+`ilk_cumleleri_al` fazla cümleyi kırpıyor, geçmezse şablona düşülüyor. Şema
+üçüncü bir kemerdi ve eğitilmiş modelde faydadan çok zarar veriyordu.
+
+### Yol boyunca bulunan ikinci hata
+
+Testler `Ayarlar()` üzerinden `.env`'i okuyordu, yani `LLM_ISTEM_BICIMI`
+değişince test davranışı **sessizce** değişiyordu. Sınıf varsayılanı `taban`
+olduğu için bu fark uzun süre görünmemişti. Artık her test istem biçimini
+açıkça veriyor.
+
+`test_egitilmis_kipte_sema_kullanilmiyor` eklendi: isteğe `format` alanının
+eğitilmiş kipte konmadığını, taban kipte konduğunu doğruluyor — düzeltmenin
+sessizce geri alınmasını engelliyor.
+
+### Yeni karar: 5. tur canlıya alındı
+
+| model | router tam doğru | gerekçe kabul |
+|---|---|---|
+| taban | 32/48 · %66,7 | — |
+| 3. tur | 33/48 · %68,8 | 20/20 |
+| 4. tur | 35/48 · %72,9 | 20/20 |
+| **5. tur** | **36/48 · %75,0** | **20/20** |
+
+5. tur router'da dört modelin en iyisi ve artık gerekçe bedeli yok.
+`gecelik_ozet` 1/10 → 5/10 → **7/10** ile taban seviyesine tam döndü.
+
+### Ders
+
+⚠️ **Bir turu "başarısız" ilan etmeden önce ölçüm yolunu da sorgula.** İki
+tur, model kusuru sanılan bir altyapı hatası yüzünden geri alındı. İkisi de
+aslında iyileşmeydi.
+
+Beni yanlış yola sokan şey, hipotezi veriye bakmadan kurmamdı: önce
+"kapasite", tutmayınca "girişim" dedim. İkisi de tabloyu açıklıyordu ama
+ikisi de yanlıştı. Doğru cevap ancak **reddedilen metnin kendisine** bakınca
+çıktı — ve o bakış on dakika sürdü.

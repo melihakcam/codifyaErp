@@ -584,20 +584,57 @@ def llm_ureteci(
         if egitilmis and yeniden:
             etkin_sicaklik = max(YENIDEN_DENEME_SICAKLIGI, sicaklik or 0.0)
 
-        sonuc = yapilandirilmis_uret(
-            istemci,
-            GerekceCiktisi,
-            egitilmis_istem_kur(aday) if egitilmis else istem_kur(aday, onceki_red),
-            # Eğitilmiş kipte sistem promptu YOK: kurallar ve örnek ağırlıklara
-            # işlendi, eğitimde de sistem promptu kullanılmadı.
-            sistem=None if egitilmis else sistem_istemi(aday.tip),
-            max_token=GEREKCE_MAX_TOKEN,
-            sicaklik=etkin_sicaklik,
-            # Tohum da değişmeli: sıcaklık yükselse bile aynı tohum aynı
-            # örneklemeyi verir, yani yine aynı cümle çıkardı.
-            tohum=(tohum + 1) if (egitilmis and yeniden and tohum is not None) else tohum,
-        )
-        return ilk_cumleleri_al(sonuc.deger.gerekce)
+        # Tohum da değişmeli: sıcaklık yükselse bile aynı tohum aynı
+        # örneklemeyi verir, yani yine aynı cümle çıkardı.
+        etkin_tohum = (tohum + 1) if (egitilmis and yeniden and tohum is not None) else tohum
+
+        if egitilmis:
+            # ⭐ EĞİTİLMİŞ KİPTE JSON ŞEMASI KULLANILMAZ.
+            #
+            # Şema (`GerekceCiktisi`) B2.1'de TABAN model için konmuştu: düz
+            # metin istendiğinde taban model girdiyi liste hâlinde geri yazıp
+            # başına başlık ekliyordu. Orada hâlâ gerekli.
+            #
+            # Ama eğitilmiş modelde şema **zarar veriyor**, çünkü eğitim ile
+            # çalışma zamanı biçimi uyuşmuyor:
+            #
+            #     egitimde hedef  :  Porselen Karo - Vitra urununun 97 gun...
+            #     calisma zamani  :  {"gerekce": "..."}   <- HIC GORULMEDI
+            #
+            # Model `{"gerekce": ...}` sarmalayıcısını eğitimde hiç görmedi;
+            # Ollama'nın grammar kısıtı onu tanımadığı bir kalıba sokuyor.
+            #
+            # ⚠️ Ölçüldü (2026-08-08, aynı 20 karar, tek değişken şema):
+            #
+            #     tur5  semali  ->   7/20 kabul      tur3  semali  -> 20/20
+            #     tur5  semasiz -> *20/20* kabul     tur3  semasiz -> 20/20
+            #
+            # Yani şema, 4. ve 5. turun "gerekçe tarafını bozduğu" sonucunun
+            # tek sebebiydi. Model bozuk değildi, kısıt bozuktu. Kaldırmak
+            # tur5'i kurtarıyor ve tur3'e hiç dokunmuyor.
+            #
+            # Biçim güvencesi kaybolmuyor: guard metni zaten doğruluyor
+            # (sayı + dil), `ilk_cumleleri_al` fazla cümleyi kırpıyor ve
+            # geçmezse şablona düşülüyor.
+            ham = istemci.uret(
+                egitilmis_istem_kur(aday),
+                max_token=GEREKCE_MAX_TOKEN,
+                sicaklik=etkin_sicaklik,
+                tohum=etkin_tohum,
+            ).metin
+        else:
+            sonuc = yapilandirilmis_uret(
+                istemci,
+                GerekceCiktisi,
+                istem_kur(aday, onceki_red),
+                sistem=sistem_istemi(aday.tip),
+                max_token=GEREKCE_MAX_TOKEN,
+                sicaklik=etkin_sicaklik,
+                tohum=etkin_tohum,
+            )
+            ham = sonuc.deger.gerekce
+
+        return ilk_cumleleri_al(ham.strip())
 
     return uret
 

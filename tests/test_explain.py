@@ -11,6 +11,7 @@ patlarsa ne oluyor.
 
 from __future__ import annotations
 
+import contextlib
 import json
 
 import httpx
@@ -36,11 +37,22 @@ def aday() -> DecisionCandidate:
     return decide_stub()
 
 
-def _ayar() -> Ayarlar:
-    return Ayarlar(ollama_base_url="http://sahte:11434", llm_yeniden_deneme=0)
+def _ayar(bicim: str = "egitilmis") -> Ayarlar:
+    """⚠️ İstem biçimi AÇIKÇA veriliyor.
+
+    Önceden verilmiyordu ve `Ayarlar()` `.env`'i okuduğu için testler oradaki
+    `LLM_ISTEM_BICIMI` değerine göre koşuyordu — yani `.env` değişince test
+    davranışı sessizce değişiyordu. Sınıf varsayılanı `taban` olduğu için bu
+    fark uzun süre görünmedi.
+    """
+    return Ayarlar(
+        ollama_base_url="http://sahte:11434",
+        llm_yeniden_deneme=0,
+        llm_istem_bicimi=bicim,
+    )
 
 
-def _istemci(cevaplar: list[str]) -> OllamaIstemcisi:
+def _istemci(cevaplar: list[str], bicim: str = "egitilmis") -> OllamaIstemcisi:
     """Sırayla verilen metinleri döndüren sahte istemci."""
     kalan = list(cevaplar)
 
@@ -57,11 +69,23 @@ def _istemci(cevaplar: list[str]) -> OllamaIstemcisi:
             },
         )
 
-    return OllamaIstemcisi(_ayar(), transport=httpx.MockTransport(isleyici))
+    return OllamaIstemcisi(_ayar(bicim), transport=httpx.MockTransport(isleyici))
 
 
 def _cevap(metin: str) -> str:
-    """Modelin GerekceCiktisi şemasına uyan cevabı."""
+    """Eğitilmiş kipte modelin cevabı — DÜZ METİN, JSON değil.
+
+    ⚠️ Önceden `{"gerekce": "..."}` döndürüyordu, çünkü eğitilmiş kip de JSON
+    şeması kullanıyordu. O şema 2026-08-08'de kaldırıldı: eğitim hedefi düz
+    metin olduğu için şema modeli hiç görmediği bir kalıba sokuyor ve gerekçe
+    kabul oranını düşürüyordu (tur5: şemalı 7/20, şemasız 20/20).
+    Ayrıntı: `app/llm/explain.py::llm_ureteci`.
+    """
+    return metin
+
+
+def _sema_cevabi(metin: str) -> str:
+    """Taban kipte modelin cevabı — orada JSON şeması HÂLÂ kullanılıyor."""
     import json
 
     return json.dumps({"gerekce": metin}, ensure_ascii=False)
@@ -223,13 +247,60 @@ def test_model_kapaliysa_sablona_dusuyor(aday: DecisionCandidate):
     assert gerekce.metin  # boş değil, şablon cümle geldi
 
 
-def test_bozuk_json_sablona_dusuyor(aday: DecisionCandidate):
-    """Şema hatası da kararı bloke etmemeli."""
-    istemci = _istemci(["bu json degil", "hala degil", "yine degil", "olmadi"])
+def test_taban_kipte_bozuk_json_sablona_dusuyor(aday: DecisionCandidate):
+    """Şema hatası da kararı bloke etmemeli.
+
+    ⚠️ Bu test artık **taban kipe** özgü. Eğitilmiş kipte JSON şeması
+    kullanılmıyor (bkz. `_cevap`), dolayısıyla "bozuk JSON" diye bir arıza
+    da yok — oradaki metin düz metin olarak değerlendirilir ve guard'a takılır.
+    """
+    istemci = _istemci(["bu json degil", "hala degil", "yine degil", "olmadi"], bicim="taban")
 
     gerekce = gerekce_uret(aday, istemci)
 
     assert gerekce.guard_sonucu is GuardSonucu.SABLONA_DUSTU
+
+
+def test_egitilmis_kipte_sema_kullanilmiyor(aday: DecisionCandidate):
+    """⭐ 2026-08-08 düzeltmesinin kilidi.
+
+    Eğitim hedefi düz metin; çalışma zamanında JSON şeması dayatmak modeli
+    hiç görmediği bir kalıba sokuyordu. Ölçüldü: aynı model, aynı 20 karar,
+    tek değişken şema — şemalı 7/20, şemasız 20/20 kabul.
+
+    Bu test, `format` alanının eğitilmiş kipte isteğe HİÇ konmadığını
+    doğruluyor; taban kipte ise konmaya devam ettiğini.
+    """
+    import json
+
+    gonderilen: list[dict] = []
+
+    def isleyici(istek: httpx.Request) -> httpx.Response:
+        gonderilen.append(json.loads(istek.content))
+        return httpx.Response(
+            200,
+            json={
+                "model": "sahte",
+                "response": "Stok yeterli, aksiyon gerekmiyor.",
+                "eval_count": 5,
+                "eval_duration": 1_000_000_000,
+                "load_duration": 0,
+            },
+        )
+
+    for bicim, sema_beklenir in (("egitilmis", False), ("taban", True)):
+        gonderilen.clear()
+        istemci = OllamaIstemcisi(_ayar(bicim), transport=httpx.MockTransport(isleyici))
+        # Taban kipte düz metin şemaya uymaz ve hata fırlatır; bizi ilgilendiren
+        # isteğin NASIL gittiği, sonucun ne olduğu değil.
+        with contextlib.suppress(Exception):
+            llm_ureteci(istemci)(aday)
+
+        assert gonderilen, f"{bicim}: istek gitmedi"
+        var = "format" in gonderilen[0]
+        assert var is sema_beklenir, (
+            f"{bicim} kipinde format alani {'olmaliydi' if sema_beklenir else 'OLMAMALIYDI'}"
+        )
 
 
 def test_gecen_metnin_model_adi_yaziliyor(aday: DecisionCandidate):
@@ -305,12 +376,17 @@ def test_istem_bicimi_ayara_gore_seciliyor(aday: DecisionCandidate):
     gonderilen: list[str] = []
 
     def isleyici(istek: httpx.Request) -> httpx.Response:
-        gonderilen.append(json.loads(istek.content)["prompt"])
+        govde = json.loads(istek.content)
+        gonderilen.append(govde["prompt"])
+        # ⚠️ Cevap biçimi isteğe göre veriliyor: taban kip JSON şeması
+        # dayatıyor, eğitilmiş kip düz metin bekliyor. Tek biçim döndürmek
+        # iki kipten birini kaçınılmaz olarak patlatır.
+        metin = _sema_cevabi("Stok yeterli.") if "format" in govde else _cevap("Stok yeterli.")
         return httpx.Response(
             200,
             json={
                 "model": "sahte",
-                "response": _cevap("Stok yeterli."),
+                "response": metin,
                 "eval_count": 5,
                 "eval_duration": 1_000_000_000,
                 "load_duration": 0,
