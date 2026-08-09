@@ -44,6 +44,30 @@ class KararTipi(StrEnum):
     STOK_TEDARIKCI_DEGISIM = "stok.tedarikci_degisim"
     STOK_AKSIYON_YOK = "stok.aksiyon_yok"
 
+    # Faz 6 · Finans & Tahsilat
+    FINANS_TAHSILAT_TAKIBI = "finans.tahsilat_takibi"
+    FINANS_KREDI_LIMITI_DUSUR = "finans.kredi_limiti_dusur"
+    FINANS_KARSILIK_AYIR = "finans.karsilik_ayir"
+    FINANS_AKSIYON_YOK = "finans.aksiyon_yok"
+
+    @property
+    def aksiyon_yok_mu(self) -> bool:
+        """"Yapılacak bir şey yok" tipi mi?
+
+        ⚠️ Politika bu soruyu **alan bağımsız** sormalı. Önceden
+        `aday.tip is KararTipi.STOK_AKSIYON_YOK` diye yazılıydı; finans
+        eklendiğinde `finans.aksiyon_yok` sessizce oto-uygulama yoluna
+        girerdi — "yapılacak bir şey yok" kararı için onay kuyruğu açmak
+        gibi görünür ama aslında tersi: hiçbir şey yapmayan bir kararı
+        "uygulandı" diye kaydetmek olurdu.
+        """
+        return self.value.endswith(".aksiyon_yok")
+
+    @property
+    def alan(self) -> str:
+        """Tipin ait olduğu alan (`"stok.siparis"` → `"stok"`)."""
+        return self.value.split(".", 1)[0]
+
 
 class ABCSinifi(StrEnum):
     """Ciro katkısına göre sınıf. A = cironun büyük kısmını taşıyan azınlık."""
@@ -98,7 +122,59 @@ class GuardSonucu(StrEnum):
 # ---------------------------------------------------------------------------
 
 
-class StockFeatures(BaseModel):
+class AlanOzellikleri(BaseModel):
+    """Her iş alanının özellik sınıfının uyduğu taban.
+
+    ⚠️ **Bu sınıfın var olma sebebi Faz 6.** Faz 1-5 boyunca yalnızca stok
+    vardı ve alan-bağımsız katmanlar (guard, politika, gerekçe üretimi)
+    doğrudan `StockFeatures` alanlarını okuyordu — `sku_adi`,
+    `tedarikci_onayli` gibi. Finans eklenirken bu sızıntıların her biri
+    ayrı bir kırılma noktası olurdu.
+
+    Aşağıdaki üç metot, alan-bağımsız katmanların **tek ihtiyacı**. Yeni bir
+    alan eklerken cevaplanması gereken üç soru bunlar:
+
+    1. Hangi metin alanları rakam içerebilir? (guard maskelemesi)
+    2. `model_dump()`'ta görünmeyen hangi hesaplanan sayılar var?
+    3. Bu kaydın oto-uygulamayı engelleyen bir durumu var mı?
+
+    ⚠️ Taban sınıf **veri alanı tanımlamaz** (`olcum_tarihi` dâhil). Sebebi:
+    her alanın kendi zaman kavramı olabilir ve ortak alan zorlamak, olmayan
+    bir benzerliği varsaymak olurdu. Ortak olan yalnızca davranış.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    def maskelenecek_alanlar(self) -> list[str]:
+        """Rakam içerebilen ad/kod alanları — guard bunları metinden siler.
+
+        `"Kırmızı Tuğla 19x9x5"` içindeki 19, 9, 5 ölçüdür, veri değil.
+        Maskelenmezse geçerli her gerekçe reddedilir (bkz. `app/llm/guard.py`).
+        """
+        raise NotImplementedError
+
+    def hesaplanan_sayilar(self) -> dict[str, float]:
+        """`model_dump()`'ta görünmeyen, property olarak hesaplanan sayılar.
+
+        `izinli_sayilar()` bunları da kümeye katar; aksi hâlde model kendi
+        verdiğimiz bir türetilmiş sayıyı gerekçede kullanamaz.
+        """
+        raise NotImplementedError
+
+    def oto_uygulama_engeli(self) -> str | None:
+        """Oto-uygulamayı engelleyen alan-özel bir durum varsa gerekçe kodu.
+
+        Stokta "tedarikçi onaylı değil", finansta "müşterinin kredisi
+        onaysız" gibi. Yoksa `None`.
+
+        ⚠️ Politika motoru bu bilgiyi alan bilmeden sormalı. Önceden
+        `aday.ozellikler.tedarikci_onayli` diye doğrudan okunuyordu ve
+        finans özellikleri geldiğinde `AttributeError` verirdi.
+        """
+        return None
+
+
+class StockFeatures(AlanOzellikleri):
     """Bir SKU hakkında kural motorunun karar verirken gördüğü her şey.
 
     Aynı zamanda guard'ın "izinli sayılar" kümesinin ana kaynağıdır:
@@ -106,8 +182,6 @@ class StockFeatures(BaseModel):
     ya da aksiyondan gelmek zorundadır. Bu yüzden buraya alan eklemek,
     LLM'in o sayıyı kullanmasına izin vermek anlamına gelir.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     # Kimlik
     sku_id: str
@@ -171,6 +245,123 @@ class StockFeatures(BaseModel):
             return 0.0
         return self.talep_std / self.ort_gunluk_talep
 
+    # --- AlanOzellikleri sözleşmesi -------------------------------------
+
+    def maskelenecek_alanlar(self) -> list[str]:
+        return [self.sku_adi, self.sku_id, self.tedarikci_adi, self.tedarikci_id]
+
+    def hesaplanan_sayilar(self) -> dict[str, float]:
+        return {
+            "kullanilabilir_stok": float(self.kullanilabilir_stok),
+            "talep_varyasyon_katsayisi": self.talep_varyasyon_katsayisi,
+        }
+
+    def oto_uygulama_engeli(self) -> str | None:
+        return None if self.tedarikci_onayli else "TEDARIKCI_ONAYSIZ"
+
+
+class FinansOzellikleri(AlanOzellikleri):
+    """Bir müşterinin alacak/tahsilat durumu — Faz 6, Finans & Tahsilat.
+
+    `StockFeatures` ile bilinçli olarak **aynı iskelet**: kimlik, durum,
+    davranış profili (ortalama + sapma + veri günü), sınıflandırma + hedef,
+    hareketsizlik, para, karşı taraf, bağlam. Aynı iskelet, aynı kural
+    motoru kalıbını taşımayı mümkün kılıyor.
+
+    ⚠️ `ABCSinifi` ve `XYZSinifi` yeniden kullanılıyor, yenisi
+    tanımlanmıyor:
+
+    · **ABC** stokta ciro katkısıydı; burada da ciro katkısı — aynı anlam.
+    · **XYZ** stokta talep oynaklığıydı; burada **ödeme gecikmesi
+      oynaklığı**. Aynı soru: bu kalem tahmin edilebilir mi? Düzenli geç
+      ödeyen bir müşteri (hep 40 gün) rastgele ödeyenden (10-90 gün arası)
+      daha az risklidir, ortalaması kötü olsa bile.
+
+    Bu, mimarinin taşınabilirlik sınavıydı ve geçti: sınıflandırma
+    makinesi alan değiştirince yeniden yazılmadı.
+    """
+
+    # Kimlik
+    musteri_id: str
+    musteri_adi: str
+    segment: str = Field(description="Sektör/kanal — stoktaki `kategori`nin karşılığı")
+
+    # Alacak durumu
+    toplam_alacak_tl: float = Field(ge=0)
+    vadesi_gecen_tl: float = Field(ge=0, description="Vadesi dolmuş, tahsil edilmemiş")
+    en_eski_gecikme_gun: int = Field(ge=0, description="En eski açık faturanın gecikmesi")
+
+    # Ödeme davranışı profili
+    ort_odeme_gecikmesi_gun: float = Field(ge=0)
+    odeme_gecikmesi_std: float = Field(ge=0)
+    veri_gun_sayisi: int = Field(
+        ge=0, description="Kaç günlük geçmişe dayanıyor — güven skorunu besler"
+    )
+
+    # Kredi
+    kredi_limiti_tl: float = Field(ge=0)
+
+    # Sınıflandırma ve hedef
+    abc_sinifi: ABCSinifi
+    xyz_sinifi: XYZSinifi
+    hedef_tahsilat_orani: float = Field(
+        gt=0, lt=1, description="ABC/XYZ matrisinden türetilir — stoktaki servis seviyesi gibi"
+    )
+
+    # Hareketsizlik
+    son_odeme_gun_once: int = Field(ge=0)
+
+    # Geçmiş performans
+    tahsilat_orani: float = Field(ge=0, le=1, description="Geçmişte tahsil edilen / fatura edilen")
+
+    # Karşı taraf
+    musteri_kredi_onayli: bool = Field(description="Eşikli otonomi ön koşulu")
+
+    # Bağlam
+    olcum_tarihi: date
+
+    @property
+    def limit_asimi_tl(self) -> float:
+        """Kredi limitinin üstüne çıkılan tutar. Aşım yoksa 0.
+
+        `kullanilabilir_stok`'un karşılığı: ham alanlardan türeyen, kararın
+        özünü taşıyan sayı.
+        """
+        return max(0.0, self.toplam_alacak_tl - self.kredi_limiti_tl)
+
+    @property
+    def gecikme_varyasyon_katsayisi(self) -> float:
+        """σ/μ — XYZ sınıflandırmasının dayanağı. Gecikme yoksa 0.
+
+        Stoktaki `talep_varyasyon_katsayisi` ile birebir aynı formül ve
+        aynı iş: bu müşterinin ödeme davranışı tahmin edilebilir mi?
+        """
+        if self.ort_odeme_gecikmesi_gun <= 0:
+            return 0.0
+        return self.odeme_gecikmesi_std / self.ort_odeme_gecikmesi_gun
+
+    @property
+    def vadesi_gecen_orani(self) -> float:
+        """Alacağın ne kadarı gecikmede. Alacak yoksa 0."""
+        if self.toplam_alacak_tl <= 0:
+            return 0.0
+        return self.vadesi_gecen_tl / self.toplam_alacak_tl
+
+    # --- AlanOzellikleri sözleşmesi -------------------------------------
+
+    def maskelenecek_alanlar(self) -> list[str]:
+        return [self.musteri_adi, self.musteri_id]
+
+    def hesaplanan_sayilar(self) -> dict[str, float]:
+        return {
+            "limit_asimi_tl": self.limit_asimi_tl,
+            "gecikme_varyasyon_katsayisi": self.gecikme_varyasyon_katsayisi,
+            "vadesi_gecen_orani": self.vadesi_gecen_orani,
+        }
+
+    def oto_uygulama_engeli(self) -> str | None:
+        return None if self.musteri_kredi_onayli else "MUSTERI_KREDI_ONAYSIZ"
+
 
 # ---------------------------------------------------------------------------
 # Kural izleri
@@ -204,6 +395,11 @@ ORAN_ALANLARI: frozenset[str] = frozenset(
         "hedef_servis_seviyesi",
         "tedarikci_zamaninda_teslim_orani",
         "talep_varyasyon_katsayisi",
+        # Faz 6 · finans oranları — gerekçede "%38 gecikmede" diye yazılır.
+        "hedef_tahsilat_orani",
+        "tahsilat_orani",
+        "vadesi_gecen_orani",
+        "gecikme_varyasyon_katsayisi",
         # ⚠️ SÖZLEŞME DEĞİŞİKLİĞİ (2026-08-06) — Kişi A yaptı, **Kişi B onayladı**
         # (contracts.py donmuş dosya, tek taraflı değiştirilmez — bkz.
         # YOL-HARITASI.md, Rol dağılımı). B ayrıca bağımsız doğruladı ve dar
@@ -269,7 +465,13 @@ class DecisionCandidate(BaseModel):
     )
 
     tetiklenen_kurallar: list[FiredRule] = Field(default_factory=list)
-    ozellikler: StockFeatures
+    # ⚠️ Faz 6'da BİRLEŞİM oldu. Önceden `StockFeatures`'a çakılıydı ve
+    # `Alan` enum'ında FINANS/SATIS/URETIM tanımlı olmasına rağmen ikinci bir
+    # alan eklenemiyordu. Yeni alan eklerken buraya da eklenmeli.
+    #
+    # Pydantic "smart" birleşim kipinde örneğin gerçek tipi korunuyor; iki
+    # sınıfın zorunlu alanları ayrık olduğu için ayrım belirsiz değil.
+    ozellikler: StockFeatures | FinansOzellikleri
 
     model_surumleri: dict[str, str] = Field(
         default_factory=dict,
@@ -311,8 +513,12 @@ class DecisionCandidate(BaseModel):
         # Özellikler (hesaplanan property'ler dahil)
         for ad, deger in self.ozellikler.model_dump().items():
             ekle(deger, ad)
-        ekle(self.ozellikler.kullanilabilir_stok, "kullanilabilir_stok")
-        ekle(self.ozellikler.talep_varyasyon_katsayisi, "talep_varyasyon_katsayisi")
+        # ⚠️ Hesaplanan property'ler `model_dump()`'ta görünmez; alanın
+        # kendisi bildiriyor (bkz. `AlanOzellikleri.hesaplanan_sayilar`).
+        # Önceden iki stok property'si burada elle yazılıydı — finans
+        # eklendiğinde onun türetilmiş sayıları sessizce izinsiz kalırdı.
+        for ad, deger in self.ozellikler.hesaplanan_sayilar().items():
+            ekle(deger, ad)
 
         # Kuralların hesapladığı sayılar
         for kural in self.tetiklenen_kurallar:

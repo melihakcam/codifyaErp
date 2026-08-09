@@ -133,7 +133,10 @@ def _saf_politika(
     aday: DecisionCandidate, esikler: PolitikaEsikleri
 ) -> tuple[PolitikaSonucu, list[str]]:
     """Otonomi seviyesinden bağımsız hüküm: bu karar oto-uygulanabilir mi?"""
-    if aday.tip is KararTipi.STOK_AKSIYON_YOK:
+    # ⚠️ Alan bağımsız soruluyor. Önceden `is KararTipi.STOK_AKSIYON_YOK`
+    # diye yazılıydı; Faz 6'da `finans.aksiyon_yok` bu daldan geçemez ve
+    # "yapılacak bir şey yok" kararı oto-uygulama yoluna girerdi.
+    if aday.tip.aksiyon_yok_mu:
         return PolitikaSonucu.AKSIYON_YOK, ["AKSIYON_GEREKMIYOR"]
 
     if esikler.daima_onay:
@@ -144,8 +147,12 @@ def _saf_politika(
         gerekceler.append("TUTAR_ESIK_USTU")
     if aday.guven <= esikler.min_guven:
         gerekceler.append("GUVEN_ESIK_ALTI")
-    if not aday.ozellikler.tedarikci_onayli:
-        gerekceler.append("TEDARIKCI_ONAYSIZ")
+    # ⚠️ Alan-özel engel, alanın kendisi tarafından bildiriliyor. Stokta
+    # "tedarikçi onaysız", finansta "müşterinin kredisi onaysız" — politika
+    # hangisi olduğunu bilmiyor, yalnızca engel var mı diye soruyor.
+    engel = aday.ozellikler.oto_uygulama_engeli()
+    if engel:
+        gerekceler.append(engel)
 
     if gerekceler:
         return PolitikaSonucu.ONAY_KUYRUGU, gerekceler

@@ -334,9 +334,15 @@ def metni_dogrula(metin: str, *, maskelenecek: Iterable[str] = ()) -> MetinSonuc
 
 
 def maskelenecek_alanlar(aday: DecisionCandidate) -> list[str]:
-    """Bir karar adayında rakam içerebilen ad/kod alanları."""
-    o = aday.ozellikler
-    return [o.sku_adi, o.sku_id, o.tedarikci_adi, o.tedarikci_id]
+    """Bir karar adayında rakam içerebilen ad/kod alanları.
+
+    ⚠️ Hangi alanların maskeleneceğini **özellik sınıfı** bildiriyor
+    (`AlanOzellikleri.maskelenecek_alanlar`). Önceden burada
+    `o.sku_adi, o.tedarikci_adi` diye stok alanları elle yazılıydı; Faz 6'da
+    finans özellikleri geldiğinde `AttributeError` verirdi. Guard, alanların
+    ne olduğunu bilmemeli — yalnızca "bunları metinden sil" demeli.
+    """
+    return aday.ozellikler.maskelenecek_alanlar()
 
 
 def adayi_dogrula(metin: str, aday: DecisionCandidate) -> DogrulamaSonucu:
