@@ -2718,3 +2718,59 @@ doğruluğu %75'te takılı olsa da **iş değeri etkilenmiyor**.
 
 Bu, `threshold` moduna geçiş tartışmasını da değiştiriyor: açık olan sert
 kapı (router %95) iş değerini değil, kullanıcı deneyimini sınırlıyor.
+
+## Faz 4.3 — Shadow mod raporu (2026-08-08)
+
+    uv run python -m app.jobs.shadow_raporu
+
+Bu, para metriğinden **farklı bir şey** ölçüyor. Para metriği simülasyonu
+baştan koşturup üç politikayı sentetik veride karşılaştırıyor — kapsamlı ama
+sentetik. Shadow raporu ise sistemin `shadow` modda **gerçekten ürettiği** ve
+DB'ye yazdığı kararları alıp "vasat taban politika ne derdi" sorusunu
+soruyor — dar ama gerçek çalışma zamanı verisi.
+
+| | |
+|---|---|
+| toplam karar | 9.908 |
+| yön uyuşması | 8.855 · **%89,4** |
+| toplam tutar farkı | +6.752.672 TL |
+
+### ⭐ Anlaşmazlıklar TEK YÖNLÜ
+
+1.053 farklı kararın dağılımı:
+
+| durum | adet |
+|---|---|
+| sistem sipariş veriyor, vasat vermiyor | **1.053** |
+| vasat sipariş veriyor, sistem vermiyor | **0** |
+| ikisi de veriyor, miktar farklı | 0 |
+
+**Sistem hiçbir kararda vasat politikadan az sipariş önermiyor.** Fark
+tamamen, vasat politikanın kaçırdığı durumları yakalamaktan geliyor.
+
+Bu iki şeyi birden açıklıyor:
+
+1. **Para metriğindeki mekanizma.** Stok tükenmesi %5,31 → %0,47'ye bu yüzden
+   iniyor: sistem, basit kuralın "daha var" dediği ama tedarik süresi
+   belirsizliğiyle birlikte bakınca riskli olan noktaları yakalıyor. Aşırı
+   stok maliyetinin artması (9,4M → 12,4M) da aynı davranışın bedeli.
+
+2. **Benimseme riski.** Bir pilot müşteri açısından kritik cümle şu: *sistem
+   size hiçbir zaman "daha az sipariş verin" demiyor.* Mevcut pratiğe göre
+   yalnızca ekleme yapıyor. "Ya sistem yanılır da stoksuz kalırsam" endişesi
+   bu veriyle karşılanabiliyor.
+
+⚠️ Bu rapor simülatörden beslenen kararlar üzerinde koşuldu. Gerçek veride
+tekrarlanması gerekiyor (bkz. `app/adapters/csv_erp.py`) — ama ölçüm hattı
+artık hazır ve gerçek veri gelir gelmez aynı komut koşulabilir.
+
+### Faz 4 tamamlandı
+
+| # | görev | durum |
+|---|---|---|
+| 4.1 | hata yönetimi / LLM çökerse devam | ✅ `test_model_kapaliysa_sablona_dusuyor` |
+| 4.2 | 3 profille aşırı uyum testi | ✅ 9/9 |
+| 4.3 | shadow mod raporu | ✅ **bu bölüm** |
+| 4.4 | karşılanamayan talep + aşırı stok maliyeti | ✅ para metriğinde |
+| 4.5 | onay ekranı | ✅ `/onay` |
+| 4.6 | ERP entegrasyon sözleşmesi | ✅ `ERP-ENTEGRASYON.md` |
