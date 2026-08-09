@@ -121,8 +121,45 @@ def musteri_ozelliklerini_hesapla(
     )
 
     faturalanan = kesilmis.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
-    tahsil = odenmis.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
-    tahsilat_orani = (tahsil / faturalanan.replace(0.0, np.nan)).fillna(0.0).clip(0.0, 1.0)
+
+    # ⚠️ Tahsilat oranının paydası **vadesi gelmiş** faturalar — kesilmiş
+    # faturalar değil. Faz 7'de para metriği bunu ortaya çıkardı: payda tüm
+    # kesilmiş faturalar iken, 30 günlük geçmişi olan bir müşterinin
+    # faturalarının hiçbirinin vadesi dolmamış oluyor, oran 0,00 çıkıyor ve
+    # müşteri "hiç ödemeyen" gibi görünüyordu. Ölçülen sonuç: simülasyonun
+    # 30. gününde 150 müşterinin 102'sinin risk skoru eşiğin altına düşüyor
+    # ve hepsine kredi limiti düşürme kararı üretiliyordu — hiçbiri geç
+    # kalmamışken.
+    #
+    # Doğru soru "ne kadarını ödedi" değil, **"ödemesi gereken ne kadarını
+    # ödedi"**. Vadesi gelmemiş alacak bir tahsilat başarısızlığı değil,
+    # normal ticari akış.
+    vadesi_gelmis = kesilmis[kesilmis["odeme_tarihi"] <= ts]
+    vadesi_gelmis_tutar = (
+        vadesi_gelmis.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
+    )
+    vadesi_gelmis_tahsil = (
+        vadesi_gelmis[vadesi_gelmis["gercek_odeme_tarihi"].notna()
+                      & (vadesi_gelmis["gercek_odeme_tarihi"] <= ts)]
+        .groupby("musteri_id")["tutar_tl"]
+        .sum()
+        .reindex(musteri_ids)
+        .fillna(0.0)
+    )
+    # Hiç vadesi gelmemiş müşteride oran tanımsız. 0 yazmak "hiç ödemedi"
+    # demek olurdu (yukarıdaki kusurun ta kendisi); 1 yazmak kanıtsız
+    # güvenmek. Portföy ortalamasına düşülüyor — `_odeme_profili`'nin az
+    # gözlemli müşteride katalog sapmasına düşmesiyle aynı gerekçe.
+    portfoy_orani = (
+        float(vadesi_gelmis_tahsil.sum() / vadesi_gelmis_tutar.sum())
+        if vadesi_gelmis_tutar.sum() > 0
+        else 1.0
+    )
+    tahsilat_orani = (
+        (vadesi_gelmis_tahsil / vadesi_gelmis_tutar.replace(0.0, np.nan))
+        .fillna(portfoy_orani)
+        .clip(0.0, 1.0)
+    )
 
     son_odeme = odenmis.groupby("musteri_id")["gercek_odeme_tarihi"].max().reindex(musteri_ids)
     son_odeme_gun_once = (ts - son_odeme).dt.days

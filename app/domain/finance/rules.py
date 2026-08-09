@@ -135,6 +135,10 @@ KARSILIK_MUTLAK_ESIK_GUN = 180
 # ödeyen bir segmentte haksızlık eder.
 KARSILIK_GORECELI_CARPAN = 4.0
 
+# Göreceli eşiğin inebileceği taban. `KARSILIK_KADEMELERI`'nde anlamlı
+# karşılığın (%20) başladığı gün — bkz. `_karsilik_esigi`.
+KARSILIK_TABAN_ESIK_GUN = 90
+
 # Yaşlandırma kademeleri: (gecikme_gun_alt_siniri, karsilik_orani).
 # Sondan başa doğru okunur; ilk eşleşen kademe uygulanır.
 KARSILIK_KADEMELERI: tuple[tuple[int, float], ...] = (
@@ -148,16 +152,34 @@ tam karşılık: bir yıldır ödenmemiş alacak pratikte tahsil edilmiyor."""
 
 
 def _karsilik_esigi(ort_odeme_gecikmesi_gun: float) -> float:
-    """Mutlak ve göreceli eşiğin küçüğü.
+    """Karşılık ayırma eşiği — göreceli, ama bir tabanın altına inmez.
 
-    Stoktaki `_olu_stok_esigi` ile aynı mantık: hızlı ödeyen bir müşteride
-    60 günlük gecikme zaten alarm; çok yavaş ödeyen bir segmentte 60 gün
-    normal olabilir.
+    ⚠️ Faz 7'de düzeltildi. Önceden `min(180, ort_gecikme x 4)` idi ve
+    stoktaki `_olu_stok_esigi`'nin birebir kopyasıydı. Stokta doğru:
+    hızlı dönen bir SKU 40 gün hareketsizse gerçekten ölüdür.
+
+    **Alacakta aynı mantık tutmuyor** ve iki nedenle:
+
+    1. **Muhasebe.** Ortalama 10 günde ödeyen bir müşterinin 40 günlük
+       alacağı için şüpheli alacak karşılığı ayrılmaz. Modülün kendi
+       `KARSILIK_KADEMELERI` tablosu bunu zaten söylüyor: 30 günde %5,
+       anlamlı karşılık 90 günde başlıyor.
+    2. **Karar önceliği.** `decide.py`'de karşılık, takibin ÜSTÜNDE. Eşik
+       40 güne inince müşteri hiç aranmadan doğrudan zarar yazılıyordu —
+       tahsil edilebilecek alacak, tahsil edilmeye çalışılmadan
+       kaybediliyordu.
+
+    Faz 7 para metriğinde ölçüldü: kural motoru 12 ayda **hiçbir** batık
+    alacağı kurtaramıyordu (vasat politika 141 tanesini kurtardı), çünkü
+    kovalaması gereken müşterilere daha 40. günde karşılık ayırmıştı.
+
+    Göreceli çarpan yine de duruyor — ama artık yalnızca eşiği **yukarı**
+    taşıyabiliyor: çok yavaş ödeyen bir segmentte 90 gün normal olabilir.
     """
     if ort_odeme_gecikmesi_gun <= 0:
         return float(KARSILIK_MUTLAK_ESIK_GUN)
     goreceli = ort_odeme_gecikmesi_gun * KARSILIK_GORECELI_CARPAN
-    return float(min(KARSILIK_MUTLAK_ESIK_GUN, goreceli))
+    return float(min(KARSILIK_MUTLAK_ESIK_GUN, max(KARSILIK_TABAN_ESIK_GUN, goreceli)))
 
 
 def karsilik_orani_hesapla(gecikme_gun: int) -> float:
@@ -201,6 +223,22 @@ RISK_AGIRLIK_GECIKME = 0.4
 # Bu skorun altındaki müşteride limit düşürme önerilir (0-100 ölçeği).
 LIMIT_DUSURME_SKOR_ESIGI = 45.0
 
+# Limit en fazla bu oranda kısılır (skor 0 olsa bile).
+#
+# ⚠️ Faz 7'de eklendi ve bir tasarım kusurunu kapatıyor. Önceden öneri
+# doğrudan `limit x skor/100` idi: skoru 44 olan müşteri — eşiğin bir puan
+# altında — limitinin %56'sını kaybediyordu. Eşik böylece bir kademe değil
+# uçurum oluyordu.
+#
+# Ölçülen sonucu: para metriğinde 12 aylık koşuda 3.762 fatura iptal edildi,
+# 258 bin TL marj kaybı yazıldı — kural motorunu vasat politikanın %49
+# gerisine düşüren tek kalem buydu. Kesinti artık skorun eşiğe uzaklığıyla
+# orantılı: eşikte sıfır, skor sıfırken bu tavan.
+#
+# Stok tarafındaki emniyet stoğu mantığıyla aynı: tepki belirsizlikle
+# ORANTILI büyür, eşiği geçince bir anda maksimuma çıkmaz.
+MAKS_LIMIT_KESINTI_ORANI = 0.5
+
 
 def musteri_risk_skoru(ozellik: FinansOzellikleri) -> float:
     """0-100 arası risk skoru — yüksek = güvenilir.
@@ -222,15 +260,27 @@ def musteri_risk_skoru(ozellik: FinansOzellikleri) -> float:
     return float(round(skor * 100, 2))
 
 
+def kesinti_orani_hesapla(skor: float) -> float:
+    """Risk skorundan limit kesinti oranı — eşikte 0, skor 0'da tavan.
+
+    Ayrı fonksiyon olması bilinçli: kademenin şekli tek satırda görülebilsin
+    ve doğrudan test edilebilsin. Süreklilik önemli — eşiğin iki yanındaki
+    iki müşteriye çok farklı davranan bir kural, skorun ölçüm gürültüsünü
+    iş kararına çevirir.
+    """
+    if skor >= LIMIT_DUSURME_SKOR_ESIGI:
+        return 0.0
+    sertlik = (LIMIT_DUSURME_SKOR_ESIGI - skor) / LIMIT_DUSURME_SKOR_ESIGI
+    return MAKS_LIMIT_KESINTI_ORANI * max(0.0, min(1.0, sertlik))
+
+
 def limit_degerlendir(ozellik: FinansOzellikleri) -> dict:
     """Kredi limiti düşürülmeli mi, ne kadara?"""
     skor = musteri_risk_skoru(ozellik)
     asim = ozellik.limit_asimi_tl
 
-    # Riskli müşteride limit, skorla orantılı olarak kısılır.
-    onerilen = ozellik.kredi_limiti_tl * (skor / 100.0) if skor < LIMIT_DUSURME_SKOR_ESIGI else (
-        ozellik.kredi_limiti_tl
-    )
+    # Riskli müşteride limit, skorun eşiğe uzaklığıyla ORANTILI kısılır.
+    onerilen = ozellik.kredi_limiti_tl * (1.0 - kesinti_orani_hesapla(skor))
 
     return {
         "musteri_risk_skoru": skor,
@@ -245,13 +295,16 @@ __all__ = [
     "KARSILIK_GORECELI_CARPAN",
     "KARSILIK_KADEMELERI",
     "KARSILIK_MUTLAK_ESIK_GUN",
+    "KARSILIK_TABAN_ESIK_GUN",
     "LIMIT_DUSURME_SKOR_ESIGI",
+    "MAKS_LIMIT_KESINTI_ORANI",
     "RISK_AGIRLIK_GECIKME",
     "RISK_AGIRLIK_TAHSILAT",
     "emniyet_gunu_hesapla",
     "esik_ve_emniyet_gunu",
     "karsilik_degerlendir",
     "karsilik_orani_hesapla",
+    "kesinti_orani_hesapla",
     "limit_degerlendir",
     "musteri_risk_skoru",
     "takip_esigi_hesapla",

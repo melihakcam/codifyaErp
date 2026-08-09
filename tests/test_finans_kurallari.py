@@ -100,13 +100,29 @@ def test_karsilik_orani_yaslandikca_artiyor():
 
 
 def test_karsilik_esigi_musteriye_gore_degisiyor():
-    """Hızlı ödeyende 60 gün alarm; yavaş ödeyen segmentte olağan olabilir."""
-    hizli = karsilik_degerlendir(oz(ort_odeme_gecikmesi_gun=5.0, en_eski_gecikme_gun=60))
-    yavas = karsilik_degerlendir(oz(ort_odeme_gecikmesi_gun=40.0, en_eski_gecikme_gun=60))
+    """Yavaş ödeyen segmentte eşik yukarı kayar; aşağı kaymaz.
+
+    ⚠️ Bu test Faz 7'de değişti. Önceden hızlı ödeyende eşik 20 güne kadar
+    inebiliyordu ve 60 günlük alacak için karşılık isteniyordu. Göreceli
+    çarpan artık yalnızca eşiği yükseltiyor, `KARSILIK_TABAN_ESIK_GUN`'ün
+    altına indiremiyor — gerekçesi `rules._karsilik_esigi` docstring'inde.
+    """
+    hizli = karsilik_degerlendir(oz(ort_odeme_gecikmesi_gun=5.0, en_eski_gecikme_gun=120))
+    yavas = karsilik_degerlendir(oz(ort_odeme_gecikmesi_gun=40.0, en_eski_gecikme_gun=120))
 
     assert hizli["karsilik_esigi_gun"] < yavas["karsilik_esigi_gun"]
     assert hizli["karsilik_gerekli"]
     assert not yavas["karsilik_gerekli"]
+
+
+def test_karsilik_esigi_taban_altina_inmiyor():
+    """Ortalama 5 günde ödeyen müşterinin 40 günlük alacağına karşılık
+    ayrılmaz — hem muhasebe pratiği hem de karar önceliği yüzünden: karşılık
+    kararı tahsilat takibini susturuyor."""
+    d = karsilik_degerlendir(oz(ort_odeme_gecikmesi_gun=5.0, en_eski_gecikme_gun=40))
+
+    assert d["karsilik_esigi_gun"] == 90
+    assert not d["karsilik_gerekli"]
 
 
 def test_karsilik_tutari_vadesi_gecenden_hesaplaniyor():

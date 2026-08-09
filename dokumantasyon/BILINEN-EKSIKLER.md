@@ -4,7 +4,7 @@
 > engellediğini ve ne zaman çözülmesi gerektiğini söyler. Amaç, bir eksiğin
 > "unutulmuş" ile "ertelenmiş" arasındaki farkı kaybetmemesi.
 >
-> Son güncelleme: 2026-08-09 · Faz 6 · Finans tamam
+> Son güncelleme: 2026-08-09 · Faz 7 · Kimlik doğrulama + finans para metriği
 
 ---
 
@@ -44,13 +44,20 @@ ancak politika ve gecelik iş kırıldığında görüldü.
 
 ---
 
-## 2. 🔴 Kimlik doğrulama yok — üretimi engelliyor
+## 2. ✅ ÇÖZÜLDÜ — Kimlik doğrulama yok
 
-Hiçbir uç kimlik doğrulaması istemiyor (bkz. `ERP-ENTEGRASYON.md` §2).
-Servis dış ağa **asla** açılmamalı; yalnızca ERP ile aynı iç ağda,
-firewall arkasında çalıştırılmalı.
+**✅ 2026-08-09'da çözüldü (Faz 7).** `app/core/auth.py`: API anahtarı, üç
+taşıyıcı (`X-API-Key`, `Bearer`, çerez). Tüm `/v1` uçları ve onay ekranı
+korumalı; `/health` bilinçli olarak açık (yük dengeleyici için, iş verisi
+içermiyor). Anahtar tanımlı değilse doğrulama kapalı çalışır — ama
+`ortam=uretim` iken hem açılış hem her istek reddedilir.
 
-**Ne zaman çözülecek:** ilk gerçek kurulumdan önce. Faz 6'yı engellemiyor.
+⚠️ **Geriye kalan sınır:** anahtar **sistemi** doğruluyor, kişiyi değil.
+Denetim kaydındaki `kullanici` hâlâ çağıranın beyanı. Kişi bazlı yetki
+(kim neyi onaylayabilir) ayrı bir iş.
+
+`tests/test_auth.py::test_tum_v1_uclari_korumali` rota tablosunu gezerek
+korumasız uç arıyor — yeni bir uç eklenip kimlik unutulursa test kırılır.
 
 ---
 
@@ -110,3 +117,47 @@ yanlış sonuç üretmiyor.
 Çoğu ERP bunu ayrı tutmuyor. Sıfır varsaymak güvenli taraf (fazladan
 sipariş önerir, tersi stok tükenmesine yol açardı). Müşteride alan varsa
 `app/adapters/csv_erp.py::envanter_tablosu` genişletilmeli.
+
+---
+
+## 8. 🔴 Finansın iş değeri ÖLÇÜLDÜ ve ÇIKMADI
+
+Faz 7'de `app/domain/finance/para_metrigi.py` yazıldı: stoktaki para
+metriğinin finanstaki karşılığı. Sonuç, stoktakinin aksine **olumsuz**.
+
+`kucuk_nalbur_dukkani`, 1 yıl, aylık inceleme:
+
+| politika | toplam maliyet | batak zararı | takip maliyeti | marj kaybı |
+|---|---|---|---|---|
+| taban (hiçbir şey yapma) | 228.696 TL | 197.945 | 0 | 0 |
+| vasat (30 günü geçeni ara) | 232.413 TL | 186.745 | 18.300 | 0 |
+| kural_motoru | 255.725 TL | 195.328 | 11.550 | 21.699 |
+
+İki cümlelik özet: **kural motoru vasat politikadan %10 pahalı, vasat
+politika ise hiçbir şey yapmamaktan %1,6 pahalı.** Yani bu etki modelinde
+tahsilat çabası kendini zar zor çıkarıyor, seçici olmak ise marj kaybı
+üretiyor.
+
+**Bu sonuç neden yine de değerli:** ölçüm dört gerçek kusur buldurdu
+(tahsilat oranının paydası, karşılık eşiğinin tabanı, limit kesintisinin
+kademesizliği, limitin geri açılmaması). Dördü de düzeltildikten SONRAKİ
+sayı bu.
+
+⚠️ **Sonucun en zayıf yeri etki modelinin kendisi.** Stok simülasyonunda
+politikanın sonucu fizikle belirlenir; tahsilatta "müşteriyi aradın, ne
+oldu?" sorusunun cevabı varsayım. Parametreler
+`para_metrigi.py`'nin başında tek yerde ve `duyarlilik_analizi_calistir`
+sonucun `TAKIP_MALIYETI_TL`'ye bağımlılığını gösteriyor.
+
+**Ne yapılmalı:** üç seçenek var ve karar verilmedi.
+
+1. Etki modeli sahadan kalibre edilmeli (gerçek tahsilat kayıtları) —
+   şu anki sayılar makul kabuller, ölçüm değil.
+2. Kural motorunun finanstaki değeri maliyet düşürmek değil **iş gücü
+   tasarrufu** olabilir: 122 arama yerine 77 arama, üstelik hangi
+   müşterinin aranacağı gerekçesiyle. Bu ayrı bir metrik ister.
+3. Kurallar gerçekten zayıf olabilir. Limit düşürme kolu, marj kaybı
+   ürettiği için net zararlı çıkıyor — kaldırılıp yeniden ölçülmeli.
+
+**Engellediği:** finans için "%7,6" gibi bir satış cümlesi YOK. Stok
+tarafındaki iddia yerinde duruyor, finansa taşınamaz.

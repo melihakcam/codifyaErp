@@ -134,6 +134,18 @@ class Decision(Base):
             }
         )
 
+    @property
+    def gorunen_ad(self) -> str:
+        """Kararın konusu olan kalemin adı — SKU adı, müşteri adı...
+
+        ⚠️ `self.ozellikler["sku_adi"]` yazmak cazip ve YANLIŞ: o anahtar
+        finans kararlarında yok. Sözleşmedeki `AlanOzellikleri.gorunen_ad`
+        tam olarak bu soruyu alan bilmeden cevaplamak için var
+        (bkz. `app/contracts.py`). Bedeli satır başına bir pydantic
+        doğrulaması; kuyruk sayfa başına 50 satır olduğu için önemsiz.
+        """
+        return self.adaya_cevir().ozellikler.gorunen_ad
+
     def politikaya_cevir(self) -> PolitikaKarari:
         """DB satırından `PolitikaKarari`'yi yeniden kurar."""
         return PolitikaKarari(

@@ -35,6 +35,21 @@ class Ayarlar(BaseSettings):
     # Postgres'e geçiş yalnızca bu satırın değişmesi demek.
     database_url: str = f"sqlite:///{PROJE_KOKU / 'data' / 'codifya.db'}"
 
+    # --- Kimlik doğrulama (Faz 7) ---
+    # Virgülle ayrılmış API anahtarları. Boşsa kimlik doğrulama KAPALI —
+    # ama `ortam=uretim` iken boş bırakmak açılışı engeller
+    # (bkz. `app/core/auth.py::kimlik_yapilandirmasini_dogrula`).
+    #
+    # Liste olması bilinçli: anahtar döndürmek (rotation) yeni anahtarı
+    # ekleyip ERP'yi geçirdikten sonra eskisini silmek demek. Tek anahtarlı
+    # bir alan, döndürme anında kesinti zorunlu kılardı.
+    api_anahtarlari: str = ""
+
+    # Çerez `Secure` bayrağı — TLS arkasında ZORUNLU olarak True yapılmalı.
+    # Varsayılan False, çünkü geliştirme `http://127.0.0.1` üzerinden gidiyor
+    # ve `Secure` çerezi tarayıcı hiç göndermez; ekran sessizce çalışmaz.
+    cerez_guvenli: bool = False
+
     # --- Otonomi ---
     # ⚠️ shadow modda ölçülmüş doğruluk raporu olmadan threshold'a geçilmez.
     autonomy_level: OtonomiSeviyesi = OtonomiSeviyesi.SHADOW
@@ -103,6 +118,16 @@ class Ayarlar(BaseSettings):
 
     # --- Simülasyon verisi ---
     sim_veri_koku: Path = PROJE_KOKU / "data" / "sim"
+
+    @property
+    def api_anahtar_kumesi(self) -> frozenset[str]:
+        """`api_anahtarlari` metnini kümeye çevirir.
+
+        Boş parçalar ayıklanıyor: `"a,,b"` ya da sonda kalan virgül, boş
+        string'i geçerli bir anahtar hâline getirirdi — anahtarsız her istek
+        kabul edilirdi.
+        """
+        return frozenset(p.strip() for p in self.api_anahtarlari.split(",") if p.strip())
 
 
 @lru_cache

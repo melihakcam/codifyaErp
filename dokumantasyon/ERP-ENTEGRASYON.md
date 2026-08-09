@@ -127,3 +127,38 @@ Tüm uçlar `/v1/` altında. Sözleşmede geriye dönük uyumsuz bir değişikli
 gerekirse `/v2/` açılır, `/v1/` bir geçiş süresi boyunca yaşamaya devam
 eder. Şu an tek tüketici bu repo içindeki testler/demo olduğu için henüz
 `/v2/` gerekmedi.
+
+---
+
+## Kimlik doğrulama (Faz 7)
+
+Servis artık API anahtarı istiyor. Anahtarlar `.env` içinde, virgülle ayrılmış:
+
+```
+API_ANAHTARLARI=erp-uretim-anahtari,ikinci-anahtar
+ORTAM=uretim
+CEREZ_GUVENLI=true
+```
+
+ERP tarafı her isteğe başlığı ekler:
+
+```
+X-API-Key: erp-uretim-anahtari
+```
+
+`Authorization: Bearer <anahtar>` de kabul edilir.
+
+**Anahtar döndürme:** yeni anahtarı listeye ekleyin, ERP'yi geçirin, eskisini
+silin. Liste olmasının tek sebebi bu — kesintisiz döndürme.
+
+**Muaf uçlar:** yalnızca `/health` ve `/health/db`. Yük dengeleyici anahtar
+taşımadan sağlık sorabilsin diye; ikisi de iş verisi döndürmüyor.
+
+⚠️ `ORTAM=uretim` iken `API_ANAHTARLARI` boşsa servis **açılmaz**. Bu
+bilinçli: korumasız bir üretim kurulumu sessizce ayakta kalmamalı.
+
+⚠️ Anahtar **sistemi** doğrular, kişiyi değil. Onay kuyruğundaki `kullanici`
+alanı hâlâ çağıranın beyanı.
+
+**İnsan kullanıcılar** (onay ekranı) `/onay/giris` sayfasından anahtarı bir
+kez girer; anahtar HttpOnly çerezde 12 saat tutulur.

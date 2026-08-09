@@ -26,7 +26,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 
-from app.contracts import GuardSonucu, KararTipi, PolitikaSonucu
+from app.contracts import Alan, GuardSonucu, KararTipi, PolitikaSonucu
 from app.core.db import OturumDep
 from app.models import Approval, Decision, Feedback, GeriBildirimTuru, OnayDurumu
 
@@ -55,9 +55,17 @@ class KuyrukKalemi(BaseModel):
 
     karar_id: UUID
     durum: OnayDurumu
+    alan: Alan
     tip: KararTipi
+    # ⚠️ Faz 7'de eklendi. Kuyrukta yalnızca tip ve aksiyon vardı; finans
+    # kararları girdiğinde operatör "finans.tahsilat_takibi · 41.200 TL"
+    # satırını görüp **hangi müşteri** olduğunu bilemiyordu. Stokta aynı
+    # eksik daha az göze batıyordu çünkü tek alan vardı ve aksiyon sözlüğü
+    # SKU'yu ima ediyordu; iki alanla birlikte kalemin adı zorunlu hâle geldi.
+    kalem_adi: str
     aksiyon: dict[str, Any]
     tahmini_tutar_tl: float
+    geri_alinabilir: bool
     guven: float
     risk_skoru: float
     politika_sonucu: PolitikaSonucu
@@ -124,9 +132,12 @@ def kuyrugu_listele(
         KuyrukKalemi(
             karar_id=onay.karar_id,
             durum=onay.durum,
+            alan=karar.alan,
             tip=karar.tip,
+            kalem_adi=karar.gorunen_ad,
             aksiyon=karar.aksiyon,
             tahmini_tutar_tl=karar.tahmini_tutar_tl,
+            geri_alinabilir=karar.geri_alinabilir,
             guven=karar.guven,
             risk_skoru=karar.risk_skoru,
             politika_sonucu=karar.politika_sonucu,
