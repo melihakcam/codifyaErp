@@ -23,6 +23,7 @@ Ters sırada işletilseydi batık bir müşteriye "hadi ödeyin" mesajı giderdi
 from __future__ import annotations
 
 from app.contracts import Alan, DecisionCandidate, FinansOzellikleri, FiredRule, KararTipi
+from app.domain.finance.features import musteri_ozelliklerini_hesapla
 from app.domain.finance.rules import (
     esik_ve_emniyet_gunu,
     karsilik_degerlendir,
@@ -181,4 +182,84 @@ def ozellikten_karar_uret(ozellik: FinansOzellikleri) -> DecisionCandidate:
     )
 
 
-__all__ = ["TABAN_GUVEN", "TAM_GUVEN_ICIN_GUN", "ozellikten_karar_uret"]
+# ---------------------------------------------------------------------------
+# Demo dünyası — API ve gecelik iş için giriş noktası
+# ---------------------------------------------------------------------------
+#
+# `app/domain/stock/decide.py::stok_karari_uret`'in karşılığı. Simülasyonu
+# bir kez koşturup process-içi önbellekte tutar; gerçek veriye geçince
+# `app/adapters/csv_erp.py`'nin finans karşılığı buranın yerini alacak.
+
+VARSAYILAN_SEED = 42
+VARSAYILAN_YIL_SAYISI = 2
+TAHSILAT_SEED = 101
+
+_ONBELLEK: dict[int, list[FinansOzellikleri]] = {}
+
+
+def _demo_ozellikleri(seed: int = VARSAYILAN_SEED) -> list[FinansOzellikleri]:
+    """Simülasyon + tahsilat + özellik hattını bir kez koşturur, önbelleğe alır.
+
+    ⚠️ Patolojiler AÇIK. Kapalı bir dünyada her müşteri tam vadesinde öder,
+    hiçbir karar üretilmez ve endpoint boş döner — demo hiçbir şey göstermez.
+    """
+    if seed not in _ONBELLEK:
+        import pandas as pd
+
+        from simulator.company import yapi_malzemesi_toptancisi
+        from simulator.run import simulasyon_calistir
+        from simulator.tahsilat import TahsilatPatolojisi, tahsilat_uret
+
+        dunya = simulasyon_calistir(
+            profile=yapi_malzemesi_toptancisi(), seed=seed, yil_sayisi=VARSAYILAN_YIL_SAYISI
+        )
+        tahsilat = tahsilat_uret(
+            dunya["faturalar"],
+            dunya["musteri"],
+            seed=TAHSILAT_SEED,
+            patoloji=TahsilatPatolojisi(
+                kronik_gecikme_aktif=True,
+                duzensiz_odeme_aktif=True,
+                sezonluk_tikanma_aktif=True,
+                batak_aktif=True,
+            ),
+        )
+        olcum = pd.to_datetime(tahsilat.faturalar["tarih"]).max().date()
+        _ONBELLEK[seed] = musteri_ozelliklerini_hesapla(
+            tahsilat.faturalar, dunya["musteri"], olcum
+        )
+    return _ONBELLEK[seed]
+
+
+def finans_karari_uret(
+    musteri_id: str | None = None, seed: int = VARSAYILAN_SEED
+) -> DecisionCandidate:
+    """Demo dünyasından bir müşteri için tahsilat kararı üretir.
+
+    `musteri_id` verilmezse **aksiyon gerektiren** ilk müşteri seçilir —
+    `stok_karari_uret`'in "sipariş kararını tetikleyen ilk SKU" davranışıyla
+    aynı. Hiç aksiyon yoksa ilk müşteri döner (karar `aksiyon_yok` olur).
+    """
+    ozellikler = _demo_ozellikleri(seed)
+    if not ozellikler:
+        raise ValueError("Demo dünyasında hiç müşteri yok.")
+
+    if musteri_id is not None:
+        secilen = next((o for o in ozellikler if o.musteri_id == musteri_id), None)
+        if secilen is None:
+            raise KeyError(f"Müşteri bulunamadı: {musteri_id}")
+        return ozellikten_karar_uret(secilen)
+
+    for ozellik in ozellikler:
+        karar = ozellikten_karar_uret(ozellik)
+        if not karar.tip.aksiyon_yok_mu:
+            return karar
+    return ozellikten_karar_uret(ozellikler[0])
+
+
+__all__ = [
+    "TABAN_GUVEN",
+    "TAM_GUVEN_ICIN_GUN",
+    "finans_karari_uret",
+    "ozellikten_karar_uret",
+]

@@ -39,7 +39,22 @@ GERI_ALINAMAZ_KATSAYISI = 3.0
 # kolonu; bu küme yalnızca o satır yoksa kullanılır. Yeni bir karar tipi
 # eklerken buraya değil tabloya satır ekleyin (migration ile).
 DAIMA_ONAY_GEREKTIREN: frozenset[KararTipi] = frozenset(
-    {KararTipi.STOK_TASFIYE, KararTipi.STOK_TEDARIKCI_DEGISIM}
+    {
+        KararTipi.STOK_TASFIYE,
+        KararTipi.STOK_TEDARIKCI_DEGISIM,
+        # ⚠️ Faz 6'da eklendi. Liste yalnızca stok tiplerini taşıyordu ve
+        # finans kararları eklenince ikisi de eşik altında kalırsa SESSİZCE
+        # oto-uygulanabilir hâle geliyordu.
+        #
+        # `karsilik_ayir` bir muhasebe kaydıdır — geri almak düzeltme fişi
+        # gerektirir. `stok.tasfiye`nin birebir karşılığı.
+        #
+        # `kredi_limiti_dusur` müşteri ilişkisini etkiler: limiti kısılan
+        # müşteri bunu hisseder ve ticari sonucu olur. `tedarikci_degisim`
+        # ile aynı sınıf.
+        KararTipi.FINANS_KARSILIK_AYIR,
+        KararTipi.FINANS_KREDI_LIMITI_DUSUR,
+    }
 )
 
 

@@ -283,3 +283,60 @@ def test_finans_stoka_bagimli_degil():
         assert not any(m.startswith("app.domain.stock") for m in ithal), (
             f"{modul.__name__} stok alanına bağımlı: {ithal}"
         )
+
+
+# --- Politika güvenliği -------------------------------------------------------
+
+
+def test_geri_alinamaz_finans_kararlari_daima_onay_istiyor():
+    """⚠️ Faz 6'da bulunan güvenlik açığı.
+
+    `DAIMA_ONAY_GEREKTIREN` yalnızca stok tiplerini taşıyordu. Finans
+    kararları eklenince `karsilik_ayir` ve `kredi_limiti_dusur`, tutar ve
+    güven eşiklerinin altında kalırlarsa **sessizce oto-uygulanabilir**
+    hâle geliyordu.
+
+    Karşılık bir muhasebe kaydıdır; limit kısmak müşteri ilişkisini etkiler.
+    İkisi de insan onayı olmadan uygulanmamalı.
+    """
+    from app.core.policy import DAIMA_ONAY_GEREKTIREN
+
+    assert KararTipi.FINANS_KARSILIK_AYIR in DAIMA_ONAY_GEREKTIREN
+    assert KararTipi.FINANS_KREDI_LIMITI_DUSUR in DAIMA_ONAY_GEREKTIREN
+
+
+def test_karsilik_karari_kucuk_tutarda_bile_onaya_gidiyor():
+    """Eşik altında kalan bir karşılık kararı da onay kuyruğuna girmeli."""
+    from app.contracts import PolitikaSonucu
+    from app.core.config import Ayarlar
+    from app.core.policy import politika_uygula
+
+    karar = ozellikten_karar_uret(
+        oz(en_eski_gecikme_gun=400, vadesi_gecen_tl=50.0, veri_gun_sayisi=1000)
+    )
+    sonuc = politika_uygula(karar, Ayarlar(ollama_base_url="http://sahte:11434"))
+
+    assert karar.tip is KararTipi.FINANS_KARSILIK_AYIR
+    assert sonuc.sonuc is PolitikaSonucu.ONAY_KUYRUGU
+    assert "TIP_DAIMA_ONAY" in sonuc.gerekce_kodlari
+
+
+def test_takip_karari_esik_altinda_oto_uygulanabiliyor():
+    """Karşıt kontrol: her finans kararı onay istemiyor.
+
+    Tahsilat takibi geri alınabilir bir eylem (müşteriyi aramak) — küçük
+    tutarda ve yüksek güvende oto-uygulanabilmeli. Aksi hâlde yukarıdaki
+    test "her şey onaya gidiyor" diye de geçerdi ve hiçbir şey kanıtlamazdı.
+    """
+    from app.contracts import PolitikaSonucu
+    from app.core.config import Ayarlar
+    from app.core.policy import politika_uygula
+
+    karar = ozellikten_karar_uret(
+        oz(en_eski_gecikme_gun=62, vadesi_gecen_tl=100.0, veri_gun_sayisi=1000,
+           odeme_gecikmesi_std=2.0, tahsilat_orani=0.97)
+    )
+    sonuc = politika_uygula(karar, Ayarlar(ollama_base_url="http://sahte:11434"))
+
+    assert karar.tip is KararTipi.FINANS_TAHSILAT_TAKIBI
+    assert sonuc.sonuc is PolitikaSonucu.OTO_UYGULA

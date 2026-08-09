@@ -11,6 +11,11 @@ düşer, karar yolu bundan etkilenmez (bkz. `app/llm/guard.py`).
 
 B1.5'te eklenen: karar artık DB'ye yazılıyor ve `ONAY_KUYRUGU` alan kararlar
 onay kuyruğuna giriyor. Eşikler `policy` tablosundan okunuyor (B1.4).
+
+Faz 6'da finans ucu eklendi. İki ucun gövdesi **aynı** — yalnızca karar
+üreteci farklı — bu yüzden ortak akış `_karari_isle`'ye çıkarıldı. Kopyalansaydı
+commit sıralamasındaki kritik kural (önce karar, sonra gerekçe) iki yerde
+yaşar ve zamanla ayrışırdı.
 """
 
 from __future__ import annotations
@@ -19,11 +24,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.contracts import KararSonucu, OtonomiSeviyesi, PolitikaSonucu
+from app.contracts import (
+    DecisionCandidate,
+    KararSonucu,
+    OtonomiSeviyesi,
+    PolitikaSonucu,
+)
 from app.core.audit import denetim_yaz, karari_kaydet
 from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
 from app.core.policy import esikleri_yukle, politika_uygula
+from app.domain.finance.decide import finans_karari_uret
 from app.domain.stock.decide import stok_karari_uret
 from app.llm.client import OllamaIstemcisi
 from app.llm.explain import gerekce_uret
@@ -56,14 +67,29 @@ def stok_siparis_degerlendir(
     kararını tetikleyen ilk SKU'yu otomatik seçer (sabit `seed=42`, dolayısıyla
     çağrıdan çağrıya tutarlı).
     """
+    _kapali_mi(ayar)
+    return _karari_isle(stok_karari_uret(), ayar, oturum, gerekce)
+
+
+def _kapali_mi(ayar: Ayarlar) -> None:
+    """Kill switch — `AUTONOMY_LEVEL=off` ise hiç karar üretilmez."""
     if ayar.autonomy_level is OtonomiSeviyesi.OFF:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Karar motoru kapalı (AUTONOMY_LEVEL=off).",
         )
 
-    aday = stok_karari_uret()
 
+def _karari_isle(
+    aday: DecisionCandidate, ayar: Ayarlar, oturum: OturumDep, gerekce: bool
+) -> KararSonucu:
+    """Politika → kayıt → (istenirse) gerekçe. Alan bilmez.
+
+    ⚠️ Bu fonksiyon Faz 6'da stok ucundan **çıkarıldı**, kopyalanmadı.
+    İçindeki commit sıralaması (önce karar, sonra gerekçe) mimarinin ikinci
+    kuralının veri katmanındaki karşılığı; iki yerde yaşasaydı biri
+    güncellenip diğeri unutulurdu.
+    """
     # Eşikler config'den değil `policy` tablosundan (B1.4). Satır yoksa
     # config'e düşer ve gerekçe kodlarında `ESIK_VARSAYILANA_DUSTU` görünür.
     esikler = esikleri_yukle(oturum, aday.tip, ayar)
@@ -106,3 +132,42 @@ def stok_siparis_degerlendir(
         oturum.commit()
 
     return KararSonucu(aday=aday, politika=politika, gerekce=uretilen_gerekce)
+
+
+@router.post(
+    "/finance/collection-review",
+    response_model=KararSonucu,
+    summary="Tahsilat / alacak değerlendirmesi",
+)
+def finans_tahsilat_degerlendir(
+    ayar: AyarDep,
+    oturum: OturumDep,
+    musteri_id: Annotated[
+        str | None,
+        Query(description="Belirli bir müşteri. Verilmezse aksiyon gerektiren ilk müşteri."),
+    ] = None,
+    gerekce: Annotated[
+        bool,
+        Query(
+            description="Türkçe gerekçe metni de üretilsin mi? "
+            "Varsayılan False — karar yolu LLM'i beklemesin diye."
+        ),
+    ] = False,
+) -> KararSonucu:
+    """Bir müşteri için tahsilat kararı üretir, kaydeder ve gerekiyorsa kuyruğa alır.
+
+    Dört karardan biri çıkar: karşılık ayır, kredi limitini düşür, tahsilat
+    takibi, aksiyon yok. Öncelik sırası `app/domain/finance/decide.py`'de.
+
+    ⚠️ `karsilik_ayir` ve `kredi_limiti_dusur` **daima onay** gerektirir
+    (`DAIMA_ONAY_GEREKTIREN`): ilki muhasebe kaydı, ikincisi müşteri
+    ilişkisini etkileyen ticari karar.
+    """
+    _kapali_mi(ayar)
+    try:
+        aday = finans_karari_uret(musteri_id)
+    except KeyError as hata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(hata)
+        ) from hata
+    return _karari_isle(aday, ayar, oturum, gerekce)
