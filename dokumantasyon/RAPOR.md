@@ -266,3 +266,60 @@ doğrudan sonucu.
 Bu, açık kalan sert kapıyı da yeniden çerçeveliyor: **router %95, bir iş
 değeri kapısı değil, kullanıcı deneyimi kapısı.** Router yanlış araç
 seçtiğinde kullanıcı yanlış raporu görür ve tekrar sorar; para kaybı olmaz.
+
+---
+
+## 10. Gerçek veriye geçiş — pilot müşteriden istenecekler
+
+Buraya kadarki her sayı **simülasyon** verisinde ölçüldü. Gerçek bir şirkette
+çalıştırmak için `app/adapters/csv_erp.py` yazıldı.
+
+### İstenecek üç dosya
+
+Her ERP'de (hatta Excel'le çalışan bir depoda bile) hazır duruyorlar:
+
+| dosya | içindekiler |
+|---|---|
+| **urunler.csv** | stok kodu, ad, kategori, alış fiyatı, satış fiyatı, tedarikçi, mevcut stok |
+| **hareketler.csv** | tarih, stok kodu, miktar (giriş/çıkış) — **en az 6-12 aylık** |
+| **siparisler.csv** | tedarikçi, sipariş tarihi, teslim tarihi |
+
+Gerisini sistem hesaplıyor: günlük ortalama talep ve sapması, ABC/XYZ sınıfı,
+son hareket tarihi, tedarik süresi ortalaması/sapması, tedarikçi güvenilirliği.
+
+⚠️ **Kolon adları esnek.** `Stok Kodu`, `Ürün Kodu`, `SKU`, `item_code` — hepsi
+tanınıyor, Türkçe karakterler dâhil. Tanınmayan ad gelirse hata mesajı hangi
+adların kabul edildiğini yazıyor; müşterinin muhasebecisi de anlayabilsin diye.
+
+⚠️ **`siparisler.csv` "isteğe bağlı" görünüyor ama vazgeçilmez.** Tedarik
+süresi **belirsizliği** oradan çıkıyor ve emniyet stoğu hesabının temeli o.
+Dosya yoksa sapma sıfır varsayılır — sistemin en değerli hesabı körleşir.
+
+### Bir hafta beklemeye gerek yok: geriye dönük test
+
+Faz 4 "`shadow` modda bir hafta koş" diyor. Ama elde **geçmiş 12 aylık**
+hareket varsa çok daha güçlüsü yapılabilir: sistemi geçen yılın verisiyle
+gün gün çalıştırıp *"o gün ne karar verirdi"* sorusunu sormak, sonra gerçekte
+ne olduğuna bakmak.
+
+Bir haftalık canlı gözlem ~7 gün ve birkaç yüz karar üretir; bir yıllık geriye
+dönük test **binlerce** karar, gerçek talep dalgalanması ve gerçek tedarikçi
+gecikmeleriyle. Üstelik beklemek gerekmez — veri gelir gelmez koşar.
+
+**Pilot müşteri ikna etmenin en hızlı yolu bu:** üç dosyayı al, aynı gün
+*"sizin deponuzda geçen yıl şu kadar kazandırırdı"* raporunu geri ver.
+
+### Adaptörün bilinçli kabulleri
+
+- **`yoldaki_stok` = 0.** Çoğu ERP bunu ayrı tutmuyor. Sıfır varsaymak güvenli
+  taraf: sistem yoldaki malı görmezse fazladan sipariş önerir; tersi (olmayan
+  malı var sanmak) stok tükenmesine yol açardı.
+- **Hiç hareketi olmayan ürün ölçüme alınmaz.** Hiç satılmamış bir ürün için
+  "günlük ortalama talep" anlamsız; sistem onu ölü stok sanırdı.
+- **Hareketsiz günler sıfırla doldurulur.** Yalnızca satış olan günler
+  sayılsaydı, ayda bir satılan ürün "günde 1 adet" gibi görünür ve sistem
+  sürekli sipariş verirdi.
+- **Tek siparişi olan tedarikçide katalog sapması kullanılır.** Tek gözlemden
+  sapma sıfır çıkar; o da riski yok saymak olurdu.
+
+10 regresyon testi (`tests/test_csv_erp.py`), hepsi gerçekçi kirli CSV'lerle.
