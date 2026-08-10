@@ -580,7 +580,11 @@ uv run ruff format .
 | `app/adapters/**` | `app/core/**` |
 | `simulator/**` | `app/llm/**` |
 | `app/contracts.py` *(bu tur A'da)* | `app/jobs/**` |
-| `training/build_dataset.py` | `training/eval/**`, `training/veri_*` |
+| — | `training/**` (veri üretimi dâhil) |
+
+⚠️ `training/**` tamamen **B'de** — `build_dataset.py` dâhil. B5 (model
+finansı hiç görmedi) o dosyayı genişletmek zorunda; A'nın listesinde ona
+dokunan iş yok. Eğitim verisi üreten kod, eğitimi yapanın elinde olsun.
 
 ⚠️ `app/contracts.py` bu tur **A'nın sahasında**. B'nin listesinde
 sözleşmeye dokunan iş yok; bu yüzden A tek taraflı değiştirebilir — ama

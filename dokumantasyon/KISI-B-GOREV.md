@@ -618,7 +618,7 @@ uv run pytest && uv run ruff check .
 | `app/core/**` | `app/adapters/**` |
 | `app/llm/**` | `simulator/**` |
 | `app/jobs/**` | `app/contracts.py` *(bu tur A'da)* |
-| `training/eval/**`, `training/veri_*` | `training/build_dataset.py` |
+| `training/**` (veri üretimi dâhil) | — |
 
 ⚠️ Bu turda B'nin **sözleşmeye dokunan işi yok**. `app/contracts.py`'de bir
 şey gerekiyorsa dur ve A ile konuş — tek taraflı değiştirme.
@@ -695,8 +695,20 @@ Canlıda finans kararı geldiğinde model tanımadığı bir girdi görüyor —
 7'de bulunan "eğitim/çalışma zamanı biçim uyuşmazlığı" ile aynı risk.
 
 **Yapılacak (tam dikey, A'ya bağımlı değil):**
-1. Finans kararlarından gerekçe eğitim verisi üret — `app/domain/finance`
-   fonksiyonlarını **çağırarak**, değiştirmeden.
+1. Finans kararlarından gerekçe eğitim verisi üret. `training/build_dataset.py`
+   şu an yalnızca `app.domain.stock`'tan import ediyor; finans için
+   genişlet — `app/domain/finance` fonksiyonlarını **çağırarak**,
+   değiştirmeden. Dosya bu tur senin sahanda.
+
+   ⚠️ **Önce ölç, sonra eğit.** `data/egitim/` altında sıfır finans örneği
+   var (doğrulandı), ama bu "eğitim turu şart" demek değil: gerekçe üretimi
+   büyük ölçüde "istemdeki sayıyı kopyala" işi ve stok için öğrenilen
+   davranış finansa taşınmış olabilir. Mevcut tur5 modeliyle finans
+   gerekçesi ürettirip **guard reddedilme oranını ölç**; düşükse yeni bir
+   LoRA turu hiç gerekmeyebilir.
+
+   Faz 7'de iki eğitim turu "modeli bozuyor" diye haksız yere geri alındı —
+   bozuk olan ölçüm yoluydu. Eğitim turu pahalı; ölçüm ucuz.
 2. Guard'ı finans sayılarıyla sına (`ORAN_ALANLARI`'na Faz 6'da finans
    oranları eklenmişti, doğrulanmadı).
 3. Golden set'e finans örnekleri ekle, benchmark'ı yeniden koştur.
