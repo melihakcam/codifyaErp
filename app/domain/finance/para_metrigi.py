@@ -512,6 +512,72 @@ def duyarlilik_analizi_calistir(
     return pd.DataFrame(satirlar)
 
 
+def limit_kolu_taramasi_calistir(
+    esikler: tuple[float, ...] = (0.0, 20.0, 30.0, 45.0, 60.0),
+    kesinti_oranlari: tuple[float, ...] = (0.25, 0.5, 0.75),
+    **kwargs: object,
+) -> pd.DataFrame:
+    """A7.1: limit kolunun hangi ayarda (varsa) değer ürettiğini tarar.
+
+    `LIMIT_DUSURME_SKOR_ESIGI` = 0 satırı **kolun tamamen kapalı** hâli:
+    hiçbir müşterinin skoru 0'ın altına inemez, kol hiç tetiklenmez. Bu
+    satır taramanın kontrol grubu — "kolu kaldırmak" seçeneğinin sayısı.
+
+    ⚠️ **Bu bir arama değil, bir ölçüm.** Çıktının tamamı raporlanmalı,
+    yalnızca en iyi hücre değil. Kazanan bir hücre bulup diğerlerini
+    saklamak, parametreyi veriye uydurup "sistem kazandı" demektir —
+    `duyarlilik_analizi_calistir`'ın docstring'indeki aynı uyarı.
+
+    Vasat taban bir kez koşuluyor: limit ayarı vasat politikayı etkilemiyor,
+    her hücrede yeniden hesaplamak yalnızca süre harcardı.
+    """
+    from app.domain.finance import rules
+
+    taban_df = tahsilat_politikasi_karsilastir(politikalar=("vasat",), **kwargs)  # type: ignore[arg-type]
+    vasat_maliyet = float(taban_df.loc["vasat", "toplam_maliyet_tl"])
+
+    orijinal_esik = rules.LIMIT_DUSURME_SKOR_ESIGI
+    orijinal_kesinti = rules.MAKS_LIMIT_KESINTI_ORANI
+    orijinal_aktif = rules.LIMIT_KOLU_AKTIF
+    # Kol varsayılan olarak KAPALI (ölçülmüş karar, bkz. `rules.LIMIT_KOLU_AKTIF`).
+    # Tarama onu ölçmek için var, o yüzden burada açılıyor; `esik=0` satırı
+    # zaten "kol hiç tetiklenmiyor" durumunu temsil ediyor.
+    rules.LIMIT_KOLU_AKTIF = True
+
+    satirlar = []
+    try:
+        for esik in esikler:
+            for kesinti in kesinti_oranlari:
+                rules.LIMIT_DUSURME_SKOR_ESIGI = esik
+                rules.MAKS_LIMIT_KESINTI_ORANI = kesinti
+                df = tahsilat_politikasi_karsilastir(
+                    politikalar=("kural_motoru",), **kwargs  # type: ignore[arg-type]
+                )
+                s = df.loc["kural_motoru"]
+                satirlar.append(
+                    {
+                        "esik": esik,
+                        "maks_kesinti": kesinti,
+                        "toplam_maliyet_tl": s["toplam_maliyet_tl"],
+                        "batak_zarari_tl": s["batak_zarari_tl"],
+                        "kaybedilen_marj_tl": s["kaybedilen_marj_tl"],
+                        "takip_sayisi": s["takip_sayisi"],
+                        "limit_karari": s["limit_karari"],
+                        "vasata_gore": 1 - s["toplam_maliyet_tl"] / vasat_maliyet,
+                    }
+                )
+                if esik == 0.0:
+                    # Kol kapalıyken `maks_kesinti` hiçbir şeyi değiştirmez;
+                    # aynı koşuyu üç kez yapmanın anlamı yok.
+                    break
+    finally:
+        rules.LIMIT_DUSURME_SKOR_ESIGI = orijinal_esik
+        rules.MAKS_LIMIT_KESINTI_ORANI = orijinal_kesinti
+        rules.LIMIT_KOLU_AKTIF = orijinal_aktif
+
+    return pd.DataFrame(satirlar)
+
+
 __all__ = [
     "BATAK_KURTARMA_OLASILIGI",
     "BATAK_KURTARMA_YARILANMA_GUN",
@@ -522,5 +588,6 @@ __all__ = [
     "VASAT_TAKIP_ESIGI_GUN",
     "YILLIK_FINANSMAN_ORANI",
     "duyarlilik_analizi_calistir",
+    "limit_kolu_taramasi_calistir",
     "tahsilat_politikasi_karsilastir",
 ]

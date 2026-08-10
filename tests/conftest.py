@@ -84,3 +84,20 @@ def istemci(api_motoru: Engine) -> Iterator[TestClient]:
     finally:
         # Sızdırılırsa sonraki testler gerçek veritabanına yazar.
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def limit_kolu_acik(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Kredi limiti düşürme kolunu geçici olarak açar.
+
+    ⚠️ Kol üretimde **kapalı** (`rules.LIMIT_KOLU_AKTIF = False`) ve bu
+    ölçülmüş bir karar — bkz. o sabitin docstring'i, A7.1 taraması.
+
+    Kolu isteyen testler bunu açıkça istemeli. Varsayılanı açık yapmak,
+    testlerin üretimde olmayan bir davranışı doğrulaması demek olurdu:
+    yeşil bir takım, canlıda hiç çalışmayan bir kolu koruyordu diye
+    yanıltıcı güven verir.
+    """
+    from app.domain.finance import rules
+
+    monkeypatch.setattr(rules, "LIMIT_KOLU_AKTIF", True)

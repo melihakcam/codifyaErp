@@ -266,10 +266,10 @@ def test_toplam_maliyet_kalemlerin_toplami(karsilastirma: pd.DataFrame):
         assert s["toplam_maliyet_tl"] == pytest.approx(beklenen)
 
 
-def test_kural_motoru_uc_karar_tipini_de_uretir(karsilastirma: pd.DataFrame):
+def test_kural_motoru_uc_karar_tipini_de_uretir(karsilastirma_limitli: pd.DataFrame):
     """Karşılık ve limit kararları hiç üretilmiyorsa ölçüm yalnızca takibi
     ölçüyor demektir — karşılaştırma eksik olur."""
-    kural = karsilastirma.loc["kural_motoru"]
+    kural = karsilastirma_limitli.loc["kural_motoru"]
     assert kural["takip_sayisi"] > 0
     assert kural["karsilik_karari"] > 0
     assert kural["limit_karari"] > 0
@@ -298,7 +298,7 @@ def test_duyarlilik_analizi_sabiti_geri_yukler():
 # ---------------------------------------------------------------------------
 
 
-def test_ablasyon_limit_kolunu_kapatabiliyor():
+def test_ablasyon_limit_kolunu_kapatabiliyor(limit_kolu_acik):
     """`kural_motoru_limitsiz` hiç fatura iptal etmemeli.
 
     Ablasyonun tek işi bu kolu izole etmek; kol kapalıyken marj kaybı
@@ -326,3 +326,23 @@ def test_ablasyonda_takip_kolu_yine_calisiyor():
         politikalar=("kural_motoru_limitsiz",),
     )
     assert df.loc["kural_motoru_limitsiz", "takip_sayisi"] > 0
+
+
+@pytest.fixture(scope="module")
+def karsilastirma_limitli() -> pd.DataFrame:
+    """Limit kolu AÇIK karşılaştırma — üç kolun da karar ürettiği koşu.
+
+    `monkeypatch` fonksiyon kapsamlı olduğu için burada elle açılıp
+    kapatılıyor; modül kapsamlı fixture pahalı bir simülasyonu bir kez
+    koşturmak için gerekli.
+    """
+    from app.domain.finance import rules
+
+    orijinal = rules.LIMIT_KOLU_AKTIF
+    rules.LIMIT_KOLU_AKTIF = True
+    try:
+        return pm.tahsilat_politikasi_karsilastir(
+            profile=kucuk_nalbur_dukkani(), yil_sayisi=1
+        )
+    finally:
+        rules.LIMIT_KOLU_AKTIF = orijinal

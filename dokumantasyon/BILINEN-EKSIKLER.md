@@ -254,3 +254,37 @@ Yani §8 hâlâ açık: finansın iş değeri ölçüldü, çıkmadı. Ama artı
 maliyeti, tahsilat kolunun kazancından büyük. Sıradaki adım limit kolunun
 eşiğini (`LIMIT_DUSURME_SKOR_ESIGI = 45`) düşürmek olabilir — daha az
 müşteriye, daha emin olduğunda dokunmak.
+
+---
+
+## 10. ✅ A7.1 ÇÖZÜLDÜ — Limit kolu kapatıldı (ölçüldü)
+
+`limit_kolu_taramasi_calistir` iki profilde, beş eşik × üç kesinti oranında
+taradı. Sonuç **tek yönlü**: kol ne kadar tetiklenirse o kadar zarar.
+
+`kucuk_nalbur_dukkani` (vasata göre toplam maliyet):
+
+| eşik | limit kararı | marj kaybı | vasata göre |
+|---|---|---|---|
+| kapalı | 0 | 0 | **%-2,4** |
+| 30 | 12 | 1.748 | %-3,1 |
+| 45 (eskisi) | 165 | 24.215 | %-6,1 |
+| 60 | 305 | 50.048 | %-16,0 |
+
+`yapi_malzemesi_toptancisi`: kapalı %-0,3 · 45 → %-4,9 · 60 → %-9,3.
+
+⭐ Kol **işini yapıyor** — batak zararını gerçekten düşürüyor (büyük
+profilde 4,73M → 4,35M). Ama önlediği riskten üç kat fazla marj yakıyor
+(1,03M). Sorun kolun bozukluğu değil, korumanın fiyatı.
+
+**Karar:** `rules.LIMIT_KOLU_AKTIF = False`. Kod silinmedi, kapatıldı —
+ölçüm varsayımsal bir etki modeline dayanıyor ve simülasyonda batak oranı
+%2 / ufuk 1 yıl; kredi limitinin asıl işi nadir ama büyük çöküşü
+engellemek, bu ufukta temsil edilmiyor. A7.2 kalibrasyonundan sonra
+bayrak `True` yapılarak geri açılabilir.
+
+**§8'in güncel hâli:** kural motoru artık vasatın %2,4 gerisinde (%6,1
+değil), büyük profilde %0,3. Yani **başa baş**. Tahsilat kolu 81 fatura
+kurtarıyor (vasat 74) ve 117 aramayla yapıyor (vasat 122). Hâlâ "maliyeti
+%X düşürdü" denecek bir sayı yok — ama "aynı işi daha az aramayla yapıyor"
+denebilir. İş gücü metriği (§8 seçenek 2) artık gerçekçi bir iddia.

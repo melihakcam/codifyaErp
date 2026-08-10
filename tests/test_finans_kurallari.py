@@ -156,7 +156,7 @@ def test_risk_skoru_ortalamaya_degil_OYNAKLIGA_bakiyor():
     )
 
 
-def test_riskli_musteride_limit_dusuruluyor():
+def test_riskli_musteride_limit_dusuruluyor(limit_kolu_acik):
     riskli = oz(tahsilat_orani=0.30, ort_odeme_gecikmesi_gun=20.0, odeme_gecikmesi_std=45.0)
 
     d = limit_degerlendir(riskli)
@@ -164,6 +164,24 @@ def test_riskli_musteride_limit_dusuruluyor():
     assert d["limit_dusurulmeli"]
     assert d["musteri_risk_skoru"] < LIMIT_DUSURME_SKOR_ESIGI
     assert d["onerilen_kredi_limiti_tl"] < riskli.kredi_limiti_tl
+
+
+def test_limit_kolu_varsayilan_kapali():
+    """⭐ A7.1'in sonucu: kol varsayılan olarak kapalı ve bu ölçülmüş bir karar.
+
+    İki şirket profilinde, beş eşik x üç kesinti oranında tarandı; kol ne
+    kadar tetiklenirse toplam maliyet o kadar arttı. Gerekçesi ve tam tablo:
+    `rules.LIMIT_KOLU_AKTIF` docstring'i.
+
+    Bu test bir davranışı değil bir **kararı** koruyor: kol sessizce
+    açılırsa ölçülmemiş bir maliyet geri gelir.
+    """
+    riskli = oz(tahsilat_orani=0.30, ort_odeme_gecikmesi_gun=20.0, odeme_gecikmesi_std=45.0)
+    d = limit_degerlendir(riskli)
+
+    assert not d["limit_dusurulmeli"]
+    # Risk skoru YİNE hesaplanıyor — riski görmeyi bırakmıyoruz.
+    assert d["musteri_risk_skoru"] < LIMIT_DUSURME_SKOR_ESIGI
 
 
 def test_saglam_musteride_limit_korunuyor():
@@ -202,7 +220,7 @@ def test_cok_eski_alacakta_karsilik_birincil_karar():
     assert not karar.geri_alinabilir, "karşılık muhasebe kaydı — geri alınamaz sayılmalı"
 
 
-def test_riskli_musteride_limit_birincil_karar():
+def test_riskli_musteride_limit_birincil_karar(limit_kolu_acik):
     """Riskli müşteride birincil karar limit düşürme.
 
     Takip kararı da üretilebilir; ikisi ayrı sorulara cevap veriyor —

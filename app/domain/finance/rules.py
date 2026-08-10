@@ -220,6 +220,41 @@ LIMIT_CIRO_CARPANI = 2.0
 RISK_AGIRLIK_TAHSILAT = 0.6
 RISK_AGIRLIK_GECIKME = 0.4
 
+LIMIT_KOLU_AKTIF = False
+"""Kredi limiti düşürme kolu açık mı? **Varsayılan KAPALI** ve bu ölçülmüş
+bir karar (A7.1), bir eksiklik değil.
+
+`app/domain/finance/para_metrigi.py::limit_kolu_taramasi_calistir` iki
+şirket profilinde, beş eşik × üç kesinti oranında taradı. Sonuç tek yönlü:
+**kol ne kadar çok tetiklenirse o kadar zarar.**
+
+`kucuk_nalbur_dukkani`, 1 yıl (vasat politikaya göre toplam maliyet):
+
+| eşik | limit kararı | marj kaybı | vasata göre |
+|---|---|---|---|
+| kapalı | 0 | 0 | **%-2,4** |
+| 30 | 12 | 1.748 | %-3,1 |
+| 45 | 165 | 24.215 | %-6,1 |
+| 60 | 305 | 50.048 | %-16,0 |
+
+`yapi_malzemesi_toptancisi` aynı deseni doğruladı: kapalı %-0,3 · 45 → %-4,9
+· 60 → %-9,3.
+
+⭐ Kol **işini yapıyor**: batak zararını gerçekten düşürüyor (büyük profilde
+4,73M → 4,35M). Ama önlediği riskten **üç kat fazla** marj yakıyor (1,03M).
+Yani sorun kolun bozuk olması değil, satın aldığı korumanın fiyatı.
+
+⚠️ **Kod silinmedi, kapatıldı.** İki sebeple:
+
+1. Ölçüm bu etki modeline dayanıyor ve model varsayım (bkz. `para_metrigi`
+   modül docstring'i). İptal edilen faturanın marjı burada **tamamen**
+   kayıp sayılıyor; gerçekte müşteri sonra ödeyip yeniden sipariş verebilir.
+2. Simülasyonda batak oranı %2 ve ufuk 1 yıl. Kredi limitinin asıl işi
+   nadir ama büyük çöküşü engellemek — bu ufukta temsil edilmiyor.
+
+Saha verisiyle kalibrasyondan sonra (A7.2) yeniden açılabilir. Açmak için
+bu bayrağı `True` yapmak yeterli; kural, testleri ve ölçüm hattı duruyor."""
+
 # Bu skorun altındaki müşteride limit düşürme önerilir (0-100 ölçeği).
 LIMIT_DUSURME_SKOR_ESIGI = 45.0
 
@@ -282,11 +317,15 @@ def limit_degerlendir(ozellik: FinansOzellikleri) -> dict:
     # Riskli müşteride limit, skorun eşiğe uzaklığıyla ORANTILI kısılır.
     onerilen = ozellik.kredi_limiti_tl * (1.0 - kesinti_orani_hesapla(skor))
 
+    # ⚠️ Kol kapalıyken skor ve öneri YİNE hesaplanıyor, yalnızca
+    # `limit_dusurulmeli` bastırılıyor. Sebebi: `musteri_risk_skoru` gerekçe
+    # metninde ve insight'larda kullanılıyor — riski görmeyi bırakmıyoruz,
+    # yalnızca otomatik aksiyon üretmiyoruz.
     return {
         "musteri_risk_skoru": skor,
         "limit_asimi_tl": asim,
         "onerilen_kredi_limiti_tl": round(onerilen, 2),
-        "limit_dusurulmeli": bool(skor < LIMIT_DUSURME_SKOR_ESIGI),
+        "limit_dusurulmeli": bool(LIMIT_KOLU_AKTIF and skor < LIMIT_DUSURME_SKOR_ESIGI),
     }
 
 
@@ -297,6 +336,7 @@ __all__ = [
     "KARSILIK_MUTLAK_ESIK_GUN",
     "KARSILIK_TABAN_ESIK_GUN",
     "LIMIT_DUSURME_SKOR_ESIGI",
+    "LIMIT_KOLU_AKTIF",
     "MAKS_LIMIT_KESINTI_ORANI",
     "RISK_AGIRLIK_GECIKME",
     "RISK_AGIRLIK_TAHSILAT",

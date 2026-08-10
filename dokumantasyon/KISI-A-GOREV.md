@@ -572,7 +572,13 @@ uv run ruff format .
 > geçilmemeli, çünkü A7.1'in cevabı ikinci bir alan eklemenin değerini
 > belirliyor.
 
-## A7.1 — Limit kolu kararı 🔴 ÖNCE BU
+## A7.1 — Limit kolu kararı ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> **Sonuç: kol kapatıldı.** İki profilde tarandı, her ayarda zararlı çıktı.
+> Tam tablo ve gerekçe: `BILINEN-EKSIKLER.md` §10 ve
+> `rules.LIMIT_KOLU_AKTIF` docstring'i. Sıradaki: **A7.2**.
+
+<details><summary>Özgün görev tanımı</summary>
 
 `BILINEN-EKSIKLER.md` §8: finansın iş değeri ölçüldü ve **çıkmadı**. Kural
 motoru vasat politikanın %6,1 gerisinde. Sebep tek bir kalemde:
@@ -598,7 +604,9 @@ maliyeti vasatın altına inen bir ayar var mı?
 ⚠️ **Tuzak:** kazanana kadar parametre denemek ölçümü ölçüm olmaktan
 çıkarır. Taramanın tamamını raporla, yalnızca kazanan hücreyi değil.
 
-## A7.2 — Etki modelini kalibre et 🟡
+</details>
+
+## A7.2 — Etki modelini kalibre et 🔴 ŞİMDİ BU
 
 `app/domain/finance/para_metrigi.py`'nin başındaki beş sabit
 (`TAKIP_HIZLANDIRMA_ORANI`, `BATAK_KURTARMA_OLASILIGI`,
