@@ -153,10 +153,13 @@ def _finans_kararlari() -> list[DecisionCandidate]:
     ulaşmaya devam eder ve eksiklik log'dan görülür.
     """
     try:
-        from app.domain.finance.decide import _demo_ozellikleri
-        from app.domain.finance.decide import ozellikten_karar_uret as finans_karar
+        from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret
 
-        return [finans_karar(o) for o in _demo_ozellikleri()]
+        # ⚠️ Çoğul: bir müşteri aynı anda hem karşılık hem takip
+        # gerektirebilir (bkz. `finance/decide.py` modül docstring'i).
+        # Tekil sürüm kullanılsaydı batık müşterinin takip kararı kuyruğa
+        # hiç girmezdi.
+        return [k for o in _demo_ozellikleri() for k in ozellikten_kararlar_uret(o)]
     except Exception:  # gecelik iş hiçbir koşulda düşmemeli
         logger.exception("Finans kararları üretilemedi; tarama stokla devam ediyor.")
         return []

@@ -117,8 +117,7 @@ def test_karsilik_esigi_musteriye_gore_degisiyor():
 
 def test_karsilik_esigi_taban_altina_inmiyor():
     """Ortalama 5 günde ödeyen müşterinin 40 günlük alacağına karşılık
-    ayrılmaz — hem muhasebe pratiği hem de karar önceliği yüzünden: karşılık
-    kararı tahsilat takibini susturuyor."""
+    ayrılmaz — muhasebe pratiği 90 günden önce anlamlı karşılık tanımıyor."""
     d = karsilik_degerlendir(oz(ort_odeme_gecikmesi_gun=5.0, en_eski_gecikme_gun=40))
 
     assert d["karsilik_esigi_gun"] == 90
@@ -173,7 +172,7 @@ def test_saglam_musteride_limit_korunuyor():
     assert not d["limit_dusurulmeli"]
 
 
-# --- Karar üretimi: öncelik sırası --------------------------------------------
+# --- Karar üretimi: kollar ve birincil karar --------------------------------------------
 
 
 def test_esik_altinda_aksiyon_yok():
@@ -190,16 +189,25 @@ def test_esik_asilinca_takip():
     assert karar.tahmini_tutar_tl == 95_000.0
 
 
-def test_cok_eski_alacakta_karsilik_takibi_eziyor():
-    """⭐ Öncelik sırası: batık bir müşteriye "hadi ödeyin" mesajı gitmemeli."""
+def test_cok_eski_alacakta_karsilik_birincil_karar():
+    """Çok eski alacakta birincil karar karşılık.
+
+    ⚠️ Faz 7'de anlamı değişti: karşılık artık takibi EZMİYOR, yalnızca
+    listenin başında duruyor. Aynı müşteri için takip kararı da üretiliyor —
+    `test_batak_musteri_hem_karsilik_hem_takip_aliyor` onu doğruluyor.
+    """
     karar = ozellikten_karar_uret(oz(en_eski_gecikme_gun=400))
 
     assert karar.tip is KararTipi.FINANS_KARSILIK_AYIR
     assert not karar.geri_alinabilir, "karşılık muhasebe kaydı — geri alınamaz sayılmalı"
 
 
-def test_riskli_musteride_limit_takibi_eziyor():
-    """Önce yeni satışı durdur, eski alacağı kovalamak ikinci iş."""
+def test_riskli_musteride_limit_birincil_karar():
+    """Riskli müşteride birincil karar limit düşürme.
+
+    Takip kararı da üretilebilir; ikisi ayrı sorulara cevap veriyor —
+    limit geleceği, takip bugünkü nakdi ilgilendirir.
+    """
     karar = ozellikten_karar_uret(
         oz(en_eski_gecikme_gun=62, tahsilat_orani=0.30, odeme_gecikmesi_std=45.0)
     )
@@ -356,3 +364,64 @@ def test_takip_karari_esik_altinda_oto_uygulanabiliyor():
 
     assert karar.tip is KararTipi.FINANS_TAHSILAT_TAKIBI
     assert sonuc.sonuc is PolitikaSonucu.OTO_UYGULA
+
+
+# --- Karar kolları ortogonal mi (Faz 7) --------------------------------------
+
+
+def test_batak_musteri_hem_karsilik_hem_takip_aliyor():
+    """⭐ Faz 7'nin ana düzeltmesi. Bu test kırılırsa kusur geri gelmiştir.
+
+    Önceden `karşılık → limit → takip` bir `elif` zinciriydi: karşılık
+    gereken müşteri hiçbir zaman takibe girmiyordu. Ölçüldüğünde sonuç şuydu
+    — kural motoru 12 ayda hiçbir batık alacağı kurtaramıyor, batak zararı
+    hiçbir şey yapmayan taban politikayla birebir aynı çıkıyordu.
+
+    Ayrıntı: `app/domain/finance/decide.py` modül docstring'i,
+    `dokumantasyon/BILINEN-EKSIKLER.md` §9.
+    """
+    from app.domain.finance.decide import ozellikten_kararlar_uret
+
+    # Çok eski alacağı olan ama normalde hızlı ödeyen müşteri:
+    # karşılık eşiğini de takip eşiğini de aşıyor.
+    batak = oz(
+        ort_odeme_gecikmesi_gun=10.0,
+        odeme_gecikmesi_std=3.0,
+        en_eski_gecikme_gun=250,
+        vadesi_gecen_tl=80_000.0,
+    )
+    tipler = {k.tip for k in ozellikten_kararlar_uret(batak)}
+
+    assert KararTipi.FINANS_KARSILIK_AYIR in tipler
+    assert KararTipi.FINANS_TAHSILAT_TAKIBI in tipler, (
+        "karşılık ayrılan müşteri tahsilat takibinden düşmemeli — "
+        "muhasebe kaydı, tahsilat çabasını durdurmaz"
+    )
+
+
+def test_hicbir_kosul_saglanmazsa_tek_aksiyon_yok_karari():
+    """Boş liste dönmemeli: "baktım, bir şey yok" ile "hiç bakmadım" farklı."""
+    from app.domain.finance.decide import ozellikten_kararlar_uret
+
+    sakin = oz(
+        ort_odeme_gecikmesi_gun=10.0,
+        odeme_gecikmesi_std=3.0,
+        en_eski_gecikme_gun=0,
+        vadesi_gecen_tl=0.0,
+        tahsilat_orani=0.98,
+    )
+    kararlar = ozellikten_kararlar_uret(sakin)
+
+    assert len(kararlar) == 1
+    assert kararlar[0].tip is KararTipi.FINANS_AKSIYON_YOK
+
+
+def test_tekil_surum_birincil_karari_donduruyor():
+    """`ozellikten_karar_uret` hâlâ çalışmalı — HTTP ucu tek karar döndürüyor."""
+    from app.domain.finance.decide import ozellikten_karar_uret, ozellikten_kararlar_uret
+
+    ornek = oz(en_eski_gecikme_gun=250, vadesi_gecen_tl=80_000.0)
+    # Nesne eşitliği aranmıyor: `karar_id` her çağrıda yeni bir UUID.
+    tekil, ilk = ozellikten_karar_uret(ornek), ozellikten_kararlar_uret(ornek)[0]
+    assert tekil.tip is ilk.tip
+    assert tekil.aksiyon == ilk.aksiyon

@@ -21,7 +21,7 @@ modeli** var ve bu model varsayım:
     arama → kalan gecikmenin bir kısmı kapanır      (TAKIP_HIZLANDIRMA_ORANI)
     arama → batık alacak bir olasılıkla kurtarılır  (yaşla azalan)
     limit düşürme → gelecek satış engellenir        (marj kaybı, risk kazancı)
-    karşılık → nakit etkisi YOK                     (yalnızca kovalamayı kesmesi)
+    karşılık → nakit etkisi YOK                     (muhasebe kaydı)
 
 Bu sayılar sahadan ölçülmedi; makul kabul edilen değerler. Bu yüzden:
 
@@ -45,8 +45,12 @@ karşı — eşiği müşterinin **kendi** ödeme davranışından türetmek.
 İki ucun arasındaki fark üç yerden gelir:
 
 · hep zamanında ödeyen müşteri 31. günde aranmaz (gereksiz arama maliyeti)
-· düzensiz ödeyene arama yerine limit düşürülür (maruz kalınan risk azalır)
-· batık müşteri kovalanmaz, karşılık ayrılır (sonsuza kadar arama bedeli yok)
+· düzensiz ödeyene ayrıca limit düşürülür (maruz kalınan gelecek risk azalır)
+· eşik müşterinin kendi davranışından türer, tek bir 30 gün değil
+
+⚠️ Üçüncü bir fark **yoktu ve olması gerekiyordu**: ilk ölçümde batık
+müşteri karşılık koluna düşüp hiç aranmıyordu. Bu, `decide.py`'de düzeltilen
+gerçek bir kusurdu — bkz. `dokumantasyon/BILINEN-EKSIKLER.md` §9.
 """
 
 from __future__ import annotations
@@ -57,7 +61,7 @@ import numpy as np
 import pandas as pd
 
 from app.contracts import KararTipi
-from app.domain.finance.decide import ozellikten_karar_uret
+from app.domain.finance.decide import ozellikten_kararlar_uret
 from app.domain.finance.features import musteri_ozelliklerini_hesapla
 from simulator.company import CompanyProfile, yapi_malzemesi_toptancisi
 from simulator.run import simulasyon_calistir
@@ -262,7 +266,7 @@ def _kural_motoru_adim(
     pencere_sonu: pd.Timestamp,
     limit_kolu: bool = True,
 ) -> None:
-    """Gerçek karar hattı: özellik hesabı → `ozellikten_karar_uret` → eylem.
+    """Gerçek karar hattı: özellik hesabı → `ozellikten_kararlar_uret` → eylem.
 
     ⚠️ Burada kuralların bir kopyası DEĞİL, üretimde çalışan fonksiyonun
     kendisi çağrılıyor. Kopyalansaydı ölçüm, kodun ölçtüğünü sandığımız
@@ -280,27 +284,27 @@ def _kural_motoru_adim(
     durum.aktif_limitler = {}
 
     for ozellik in ozellikler:
-        karar = ozellikten_karar_uret(ozellik)
+        # ⚠️ Çoğul. İlk ölçümde tekil sürüm kullanılıyordu ve batık müşteri
+        # karşılık kolunda takılıp hiç aranmıyordu — ölçümün bulduğu ve
+        # `decide.py`'de düzeltilen kusur tam olarak buydu.
+        for karar in ozellikten_kararlar_uret(ozellik):
+            if karar.tip is KararTipi.FINANS_TAHSILAT_TAKIBI:
+                _takip_uygula(durum, ozellik.musteri_id, bugun)
 
-        if karar.tip is KararTipi.FINANS_TAHSILAT_TAKIBI:
-            _takip_uygula(durum, ozellik.musteri_id, bugun)
+            elif karar.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
+                if not limit_kolu:
+                    # Ablasyon: karar üretiliyor ama uygulanmıyor.
+                    continue
+                durum.limit_karari += 1
+                limit = float(karar.aksiyon["onerilen_kredi_limiti_tl"])
+                durum.aktif_limitler[ozellik.musteri_id] = limit
+                _limit_uygula(durum, ozellik.musteri_id, limit, bugun, pencere_sonu)
 
-        elif karar.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
-            if not limit_kolu:
-                # Ablasyon: karar üretiliyor ama uygulanmıyor. Müşteri
-                # aranmıyor da — karar önceliği aynen korunuyor, yalnızca
-                # limitin satışa etkisi kaldırılıyor.
-                continue
-            durum.limit_karari += 1
-            limit = float(karar.aksiyon["onerilen_kredi_limiti_tl"])
-            durum.aktif_limitler[ozellik.musteri_id] = limit
-            _limit_uygula(durum, ozellik.musteri_id, limit, bugun, pencere_sonu)
-
-        elif karar.tip is KararTipi.FINANS_KARSILIK_AYIR:
-            # ⭐ Nakit etkisi yok ve olay da bu: karşılık ayrılan müşteri
-            # ARANMIYOR. Vasat politika aynı müşteriyi her ay aramaya devam
-            # ediyor ve her seferinde bedelini ödüyor.
-            durum.karsilik_karari += 1
+            elif karar.tip is KararTipi.FINANS_KARSILIK_AYIR:
+                # Nakit etkisi yok — muhasebe kaydı. Artık takibi de
+                # SUSTURMUYOR: aynı müşteri için takip kararı ayrıca üretilip
+                # bu döngüde ayrıca uygulanıyor.
+                durum.karsilik_karari += 1
 
 
 # ---------------------------------------------------------------------------

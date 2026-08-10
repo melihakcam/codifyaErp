@@ -3,21 +3,42 @@
 `app/domain/stock/decide.py`'nin karşılığı ve aynı iskelet: özellikleri al,
 kuralları koştur, tek bir `DecisionCandidate` üret.
 
-## Karar önceliği
+## ⚠️ Karar önceliği kaldırıldı — üç kol ORTOGONAL
 
-Stokta sıra `tasfiye → sipariş → aksiyon yok` idi: ölü stok tespiti sipariş
-önerisini ezer, çünkü hareketsiz bir ürüne sipariş vermek anlamsızdır.
+Bu modül önce stok kalıbını birebir taşımıştı: müşteri başına **tek** karar,
+öncelik `karşılık → limit → takip → aksiyon yok`. Gerekçesi şuydu: *"her
+adım bir öncekinin anlamsız kıldığı durumu eliyor; ters sırada işletilseydi
+batık bir müşteriye 'hadi ödeyin' mesajı giderdi."*
 
-Finansta aynı mantıkla `karşılık → limit → takip → aksiyon yok`:
+**Faz 7 para metriği bunun yanlış olduğunu ölçtü.**
+`app/domain/finance/para_metrigi.py` ablasyonunda, kural motorunun batak
+zararı hiçbir şey yapmayan taban politikayla **ondalığına kadar aynı**
+çıktı (197.944,685531). 75 tahsilat eylemi yapılmış, kurtarılan alacak
+sıfırdı.
 
-1. **Karşılık** — alacak tahsil edilemeyecek kadar eskiyse, o müşteriyi
-   aramak değil zararı yazmak gerekir.
-2. **Limit** — müşteri riskliyse, önce yeni satışı durdur; eski alacağı
-   kovalamak ikinci iş.
-3. **Takip** — normal gecikme eşiği aşılmışsa ara.
+Sebebi: batık müşteri her zaman karşılık koluna gidiyor ve bir daha
+takibe **hiç** girmiyordu. Yani parasını gerçekten alamayacağın müşteri,
+tahsilat kolunun hiç dokunmadığı tek gruptu.
 
-⚠️ Sıra keyfi değil: her adım bir öncekinin anlamsız kıldığı durumu eliyor.
-Ters sırada işletilseydi batık bir müşteriye "hadi ödeyin" mesajı giderdi.
+Kusur mantık hatası değil, modelleme hatasıydı. Üç kol birbirini dışlar
+varsayılmıştı; oysa ayrı sorulara cevap veriyorlar:
+
+| kol | sorusu | zaman ekseni |
+|---|---|---|
+| karşılık | bu alacağı defterde nasıl gösteriyorum? | geçmiş, muhasebe |
+| limit | bu müşteriye daha ne kadar mal veririm? | gelecek, risk |
+| takip | bu parayı nasıl tahsil ederim? | şimdi, nakit |
+
+Karşılık ayırmak bir muhasebe işlemidir, tahsilat çabasını durdurmaz.
+Doğru davranış: batık müşteriye hem karşılık ayır, hem aramaya devam et.
+
+Bu yüzden `ozellikten_kararlar_uret` bir **liste** döndürüyor: hangi kolun
+koşulu sağlanıyorsa o karar üretilir, biri diğerini bastırmaz.
+
+⚠️ **Stok tarafı bilinçli olarak tekil kaldı.** Oradaki `tasfiye → sipariş`
+dışlaması gerçekten doğru: hareketsiz bir ürüne sipariş vermek anlamsız,
+iki karar aynı anda uygulanamaz. İki alanın burada ayrışması, kalıbın
+körlemesine taşınmadığının işareti — finansın kendi gerçeği farklı çıktı.
 """
 
 from __future__ import annotations
@@ -50,125 +71,36 @@ def _guven_skoru_hesapla(ozellik: FinansOzellikleri) -> float:
     return round(min(0.99, ham), 3)
 
 
-def ozellikten_karar_uret(ozellik: FinansOzellikleri) -> DecisionCandidate:
-    """`FinansOzellikleri` → `DecisionCandidate`. Saf fonksiyon, yan etkisiz.
+def _taban_kural(ozellik: FinansOzellikleri, esik: float, emniyet_gunu: float) -> FiredRule:
+    """Her karara eşlik eden bağlam kuralı.
 
-    `app/domain/stock/decide.py::ozellikten_karar_uret` ile aynı imza ve
-    aynı sözleşme — eğitim verisi üreticisi ikisini de aynı şekilde
-    çağırabilsin diye.
+    Üretilen her karara konuyor, yalnızca takibe değil: `izinli_sayilar()`
+    bu kuralın değerlerini de kümeye katıyor ve gerekçe metni "bu müşteri
+    için beklenen eşik şu" cümlesini her karar tipinde kurabilmeli.
     """
-    kurallar: list[FiredRule] = []
-    esik, emniyet_gunu = esik_ve_emniyet_gunu(ozellik)
-
-    kurallar.append(
-        FiredRule(
-            kod="TAKIP_ESIGI_HESAPLANDI",
-            aciklama=(
-                f"Hedef %{ozellik.hedef_tahsilat_orani * 100:.0f} tahsilat oranı için "
-                f"takip eşiği hesaplandı."
-            ),
-            degerler={
-                "takip_esigi_gun": round(esik, 2),
-                "emniyet_gunu": round(emniyet_gunu, 2),
-                "hedef_tahsilat_orani": ozellik.hedef_tahsilat_orani,
-            },
-        )
+    return FiredRule(
+        kod="TAKIP_ESIGI_HESAPLANDI",
+        aciklama=(
+            f"Hedef %{ozellik.hedef_tahsilat_orani * 100:.0f} tahsilat oranı için "
+            f"takip eşiği hesaplandı."
+        ),
+        degerler={
+            "takip_esigi_gun": round(esik, 2),
+            "emniyet_gunu": round(emniyet_gunu, 2),
+            "hedef_tahsilat_orani": ozellik.hedef_tahsilat_orani,
+        },
     )
 
-    karsilik = karsilik_degerlendir(ozellik)
-    limit = limit_degerlendir(ozellik)
 
-    if karsilik["karsilik_gerekli"]:
-        tip = KararTipi.FINANS_KARSILIK_AYIR
-        oran = karsilik["onerilen_karsilik_orani"]
-        aksiyon: dict[str, float | int | str | None] = {
-            "onerilen_karsilik_orani": oran,
-            "vadesi_gecen_tl": round(ozellik.vadesi_gecen_tl, 2),
-        }
-        tahmini_tutar_tl = karsilik["karsilik_tutari_tl"]
-        # ⚠️ Karşılık ayırmak muhasebe kaydıdır; geri almak düzeltme fişi
-        # gerektirir. Stoktaki tasfiye gibi geri alınamaz sayılıyor.
-        geri_alinabilir = False
-        kurallar.append(
-            FiredRule(
-                kod="KARSILIK_GEREKLI",
-                aciklama=(
-                    f"En eski alacak {ozellik.en_eski_gecikme_gun} gündür gecikmede; "
-                    f"%{oran * 100:.0f} karşılık önerilir."
-                ),
-                degerler={
-                    "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
-                    "karsilik_esigi_gun": round(karsilik["karsilik_esigi_gun"], 2),
-                    "onerilen_karsilik_orani": oran,
-                    "karsilik_tutari_tl": round(karsilik["karsilik_tutari_tl"], 2),
-                },
-            )
-        )
-
-    elif limit["limit_dusurulmeli"]:
-        tip = KararTipi.FINANS_KREDI_LIMITI_DUSUR
-        aksiyon = {
-            "onerilen_kredi_limiti_tl": limit["onerilen_kredi_limiti_tl"],
-            "mevcut_kredi_limiti_tl": round(ozellik.kredi_limiti_tl, 2),
-        }
-        # Etki, kısılan limit kadar: bağlanmayan risk.
-        tahmini_tutar_tl = max(
-            0.0, ozellik.kredi_limiti_tl - limit["onerilen_kredi_limiti_tl"]
-        )
-        geri_alinabilir = True
-        kurallar.append(
-            FiredRule(
-                kod="MUSTERI_RISKI_YUKSEK",
-                aciklama=(
-                    f"Risk skoru {limit['musteri_risk_skoru']:.0f}; kredi limitinin "
-                    f"düşürülmesi önerilir."
-                ),
-                degerler={
-                    "musteri_risk_skoru": limit["musteri_risk_skoru"],
-                    "tahsilat_orani": ozellik.tahsilat_orani,
-                    "onerilen_kredi_limiti_tl": limit["onerilen_kredi_limiti_tl"],
-                },
-            )
-        )
-
-    elif ozellik.en_eski_gecikme_gun > esik and ozellik.vadesi_gecen_tl > 0:
-        tip = KararTipi.FINANS_TAHSILAT_TAKIBI
-        aksiyon = {
-            "takip_edilecek_tutar_tl": round(ozellik.vadesi_gecen_tl, 2),
-            "gecikme_gun": ozellik.en_eski_gecikme_gun,
-        }
-        tahmini_tutar_tl = ozellik.vadesi_gecen_tl
-        geri_alinabilir = True
-        kurallar.append(
-            FiredRule(
-                kod="TAKIP_ESIGI_ASILDI",
-                aciklama=(
-                    "Gecikme, müşterinin kendi ödeme davranışından beklenen eşiği aştı."
-                ),
-                degerler={
-                    "takip_esigi_gun": round(esik, 2),
-                    "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
-                    "vadesi_gecen_tl": round(ozellik.vadesi_gecen_tl, 2),
-                },
-            )
-        )
-
-    else:
-        tip = KararTipi.FINANS_AKSIYON_YOK
-        aksiyon = {}
-        tahmini_tutar_tl = 0.0
-        geri_alinabilir = True
-        kurallar.append(
-            FiredRule(
-                kod="ESIK_ALTINDA",
-                aciklama="Gecikme, bu müşteri için beklenen aralıkta.",
-                degerler={
-                    "takip_esigi_gun": round(esik, 2),
-                    "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
-                },
-            )
-        )
-
+def _aday(
+    ozellik: FinansOzellikleri,
+    tip: KararTipi,
+    aksiyon: dict[str, float | int | str | None],
+    tahmini_tutar_tl: float,
+    geri_alinabilir: bool,
+    kurallar: list[FiredRule],
+) -> DecisionCandidate:
+    """Ortak `DecisionCandidate` kurulumu — üç kol da buradan geçiyor."""
     return DecisionCandidate(
         alan=Alan.FINANS,
         tip=tip,
@@ -178,8 +110,161 @@ def ozellikten_karar_uret(ozellik: FinansOzellikleri) -> DecisionCandidate:
         guven=_guven_skoru_hesapla(ozellik),
         tetiklenen_kurallar=kurallar,
         ozellikler=ozellik,
-        model_surumleri={"rules": "0.1-finans"},
+        model_surumleri={"rules": "0.2-finans"},
     )
+
+
+def ozellikten_kararlar_uret(ozellik: FinansOzellikleri) -> list[DecisionCandidate]:
+    """`FinansOzellikleri` → koşulu sağlanan **tüm** kararlar. Saf fonksiyon.
+
+    Liste sırası önem sırasıdır (karşılık → limit → takip) ama artık bu bir
+    **eleme** değil yalnızca sunum sırası: üçü de aynı anda üretilebilir.
+    Gerekçesi modül docstring'inde — ölçümle bulunmuş bir kusurun düzeltmesi.
+
+    Hiçbir kolun koşulu sağlanmıyorsa tek elemanlı `aksiyon_yok` listesi
+    döner. Boş liste DÖNMÜYOR: "bu müşteriye baktım, yapılacak bir şey yok"
+    ile "bu müşteriye hiç bakmadım" farklı şeyler ve shadow raporu ikisini
+    ayırabilmeli.
+    """
+    esik, emniyet_gunu = esik_ve_emniyet_gunu(ozellik)
+    taban = _taban_kural(ozellik, esik, emniyet_gunu)
+
+    karsilik = karsilik_degerlendir(ozellik)
+    limit = limit_degerlendir(ozellik)
+    kararlar: list[DecisionCandidate] = []
+
+    if karsilik["karsilik_gerekli"]:
+        oran = karsilik["onerilen_karsilik_orani"]
+        kararlar.append(
+            _aday(
+                ozellik,
+                KararTipi.FINANS_KARSILIK_AYIR,
+                {
+                    "onerilen_karsilik_orani": oran,
+                    "vadesi_gecen_tl": round(ozellik.vadesi_gecen_tl, 2),
+                },
+                karsilik["karsilik_tutari_tl"],
+                # ⚠️ Karşılık ayırmak muhasebe kaydıdır; geri almak düzeltme
+                # fişi gerektirir. Stoktaki tasfiye gibi geri alınamaz.
+                geri_alinabilir=False,
+                kurallar=[
+                    taban,
+                    FiredRule(
+                        kod="KARSILIK_GEREKLI",
+                        aciklama=(
+                            f"En eski alacak {ozellik.en_eski_gecikme_gun} gündür "
+                            f"gecikmede; %{oran * 100:.0f} karşılık önerilir."
+                        ),
+                        degerler={
+                            "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
+                            "karsilik_esigi_gun": round(karsilik["karsilik_esigi_gun"], 2),
+                            "onerilen_karsilik_orani": oran,
+                            "karsilik_tutari_tl": round(karsilik["karsilik_tutari_tl"], 2),
+                        },
+                    ),
+                ],
+            )
+        )
+
+    if limit["limit_dusurulmeli"]:
+        kararlar.append(
+            _aday(
+                ozellik,
+                KararTipi.FINANS_KREDI_LIMITI_DUSUR,
+                {
+                    "onerilen_kredi_limiti_tl": limit["onerilen_kredi_limiti_tl"],
+                    "mevcut_kredi_limiti_tl": round(ozellik.kredi_limiti_tl, 2),
+                },
+                # Etki, kısılan limit kadar: bağlanmayan risk.
+                max(0.0, ozellik.kredi_limiti_tl - limit["onerilen_kredi_limiti_tl"]),
+                geri_alinabilir=True,
+                kurallar=[
+                    taban,
+                    FiredRule(
+                        kod="MUSTERI_RISKI_YUKSEK",
+                        aciklama=(
+                            f"Risk skoru {limit['musteri_risk_skoru']:.0f}; kredi "
+                            f"limitinin düşürülmesi önerilir."
+                        ),
+                        degerler={
+                            "musteri_risk_skoru": limit["musteri_risk_skoru"],
+                            "tahsilat_orani": ozellik.tahsilat_orani,
+                            "onerilen_kredi_limiti_tl": limit["onerilen_kredi_limiti_tl"],
+                        },
+                    ),
+                ],
+            )
+        )
+
+    if ozellik.en_eski_gecikme_gun > esik and ozellik.vadesi_gecen_tl > 0:
+        # ⭐ Bu koşul artık karşılık/limit kollarından BAĞIMSIZ. Faz 7 öncesi
+        # `elif` idi ve batık müşteri hiçbir zaman buraya ulaşmıyordu.
+        kararlar.append(
+            _aday(
+                ozellik,
+                KararTipi.FINANS_TAHSILAT_TAKIBI,
+                {
+                    "takip_edilecek_tutar_tl": round(ozellik.vadesi_gecen_tl, 2),
+                    "gecikme_gun": ozellik.en_eski_gecikme_gun,
+                },
+                ozellik.vadesi_gecen_tl,
+                geri_alinabilir=True,
+                kurallar=[
+                    taban,
+                    FiredRule(
+                        kod="TAKIP_ESIGI_ASILDI",
+                        aciklama=(
+                            "Gecikme, müşterinin kendi ödeme davranışından beklenen "
+                            "eşiği aştı."
+                        ),
+                        degerler={
+                            "takip_esigi_gun": round(esik, 2),
+                            "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
+                            "vadesi_gecen_tl": round(ozellik.vadesi_gecen_tl, 2),
+                        },
+                    ),
+                ],
+            )
+        )
+
+    if not kararlar:
+        kararlar.append(
+            _aday(
+                ozellik,
+                KararTipi.FINANS_AKSIYON_YOK,
+                {},
+                0.0,
+                geri_alinabilir=True,
+                kurallar=[
+                    taban,
+                    FiredRule(
+                        kod="ESIK_ALTINDA",
+                        aciklama="Gecikme, bu müşteri için beklenen aralıkta.",
+                        degerler={
+                            "takip_esigi_gun": round(esik, 2),
+                            "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
+                        },
+                    ),
+                ],
+            )
+        )
+
+    return kararlar
+
+
+def ozellikten_karar_uret(ozellik: FinansOzellikleri) -> DecisionCandidate:
+    """Tek karar isteyen çağıranlar için **birincil** karar.
+
+    ⚠️ Bu fonksiyon artık tam resmi vermiyor: bir müşteri aynı anda hem
+    karşılık hem takip gerektirebilir ve burada yalnızca birincisi döner.
+    Karar üreten her yol (`gecelik_tarama`, para metriği)
+    `ozellikten_kararlar_uret` kullanmalı.
+
+    Yaşamaya devam etmesinin tek sebebi tekil cevap zorunluluğu olan
+    `GET /v1/decisions/finance/...`: HTTP ucu tek bir `KararSonucu`
+    döndürüyor ve sözleşmeyi değiştirmek ERP tarafını kırar.
+    """
+    return ozellikten_kararlar_uret(ozellik)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -262,4 +347,5 @@ __all__ = [
     "TAM_GUVEN_ICIN_GUN",
     "finans_karari_uret",
     "ozellikten_karar_uret",
+    "ozellikten_kararlar_uret",
 ]

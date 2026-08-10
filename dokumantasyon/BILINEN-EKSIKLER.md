@@ -164,7 +164,7 @@ tarafındaki iddia yerinde duruyor, finansa taşınamaz.
 
 ---
 
-## 9. 🔴 Karar önceliği, sorunlu müşteriyi tahsilatın DIŞINA atıyor
+## 9. ✅ ÇÖZÜLDÜ — Karar önceliği sorunlu müşteriyi tahsilatın dışına atıyordu
 
 Faz 7 ablasyon koşusunun bulduğu şey ve §8'deki olumsuz sonucun asıl kök
 nedeni bu.
@@ -217,3 +217,40 @@ eğitim verisi üreticisi, shadow raporu.
 `tasfiye → sipariş` önceliği orada gerçekten dışlayıcı (ölü ürüne sipariş
 vermek anlamsız). Yine de finans bunu ortaya çıkarana kadar kimse
 sormamıştı; stok önceliği de aynı gözle bir kez incelenmeli.
+
+### ✅ Düzeltildi (aynı gün)
+
+`ozellikten_kararlar_uret` eklendi: müşteri başına **liste** döndürüyor,
+koşulu sağlanan her kol kendi kararını üretiyor. `elif` zinciri kalktı.
+Sözleşme değişmedi — `DecisionCandidate` aynı, yalnızca bir müşteri birden
+çok aday üretebiliyor. `ozellikten_karar_uret` tekil sürüm olarak duruyor
+(HTTP ucu tek karar döndürmek zorunda) ama artık "birincil karar" demek.
+
+Çağıranlar güncellendi: gecelik tarama ve para metriği çoğul sürümü
+kullanıyor. Regresyon kilidi:
+`test_batak_musteri_hem_karsilik_hem_takip_aliyor`.
+
+**Düzeltme sonrası ölçüm:**
+
+| | taban | vasat | kural_motoru | limitsiz |
+|---|---|---|---|---|
+| toplam maliyet | 228.696 | 232.413 | **246.592** | 238.049 |
+| batak zararı | 197.945 | 186.745 | **178.415** | 191.416 |
+| kurtarılan fatura | 0 | 74 | 26 | **81** |
+| takip sayısı | 0 | 122 | 121 | 117 |
+
+Takip kolu artık **çalışıyor**: kural motorunun batak zararı üç politikanın
+en düşüğü (178.415 — vasattan 8.330 TL iyi). Limitsiz koşu 81 fatura
+kurtarıyor, vasatın 74'ünden fazla.
+
+⚠️ **Ama toplam sonuç hâlâ vasatın gerisinde (%-6,1).** İki sebep:
+
+1. Limit kolu 24.215 TL marj kaybı yazıyor ve tahsilat kazancını yiyor.
+2. Takip sayısı 121'e çıktı (vasat 122) — "daha az arama" avantajı kalmadı.
+   Kollar ortogonal olunca sistem de neredeyse herkesi arıyor.
+
+Yani §8 hâlâ açık: finansın iş değeri ölçüldü, çıkmadı. Ama artık
+**sebebini biliyoruz** ve sebep bir kod kusuru değil: limit kolunun marj
+maliyeti, tahsilat kolunun kazancından büyük. Sıradaki adım limit kolunun
+eşiğini (`LIMIT_DUSURME_SKOR_ESIGI = 45`) düşürmek olabilir — daha az
+müşteriye, daha emin olduğunda dokunmak.
