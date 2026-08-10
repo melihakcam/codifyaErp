@@ -2670,3 +2670,57 @@ müşterinin hiçbirinde çıkmıyor. Görev tanımı "üç kararlı müşteri" 
 ama demo dünyada azami **iki** karar var. Testi sabit sayı yerine dünyadan
 okunan azami sayıyla yazdık, o tip canlanınca kendiliğinden kapsayacak.
 `BILINEN-EKSIKLER.md` §14'e yazıldı — kural motoru Melih'in sahası.
+
+---
+
+## Kimlik anahtarı sessizce kısalıyormuş
+
+B2 ve B3'ü Melih yaptı (ben araştırma aşamasındaydım, kod yazmamıştım —
+çakışma olmadı). İnceledim; kimlik doğrulama tarafı sağlam çıktı: şifre
+karşılaştırması sabit zamanlı, üretimde anahtarsız açılış engelli, yanlış
+anahtarla eksik anahtar aynı cevabı alıyor.
+
+Ama bir tuzak buldum.
+
+### Sorun
+
+Anahtar biçimi şöyle: `anahtar:kullanıcı:rol`. İki nokta ayraç.
+
+Peki ya anahtarın **kendisinde** iki nokta varsa?
+
+```
+ayarlanan : "Xy9:aBcD3fGh1jKlMnOpQrStUvWxYz0123"   34 karakter
+etkin     : "Xy9"                                    3 karakter
+kullanici : "aBcD3fGh1jKlMnOpQrStUvWxYz0123"
+```
+
+Anahtar sessizce kırpılıyor, gerisi kullanıcı adı oluyor. **Hiçbir uyarı
+çıkmıyor.** Yönetici 34 karakterlik bir anahtar koyduğunu sanırken servis üç
+karakterle açılıyor — kaba kuvvetle saniyeler içinde bulunur.
+
+Rol yükseltme riski **yok** (kontrol ettim): anahtar kümesi yalnızca iki
+noktadan önceki kısmı tutuyor, yani `anahtar:ad:yonetici` göndermek
+eşleşmiyor. Sorun yetki değil, anahtarın gücü.
+
+### Çözüm
+
+Üretimde açılışta kontrol: her anahtar en az 16 karakter olmalı. Değilse
+servis açılmıyor ve hata mesajı sebebi söylüyor ("büyük ihtimalle anahtarda
+`:` var").
+
+Geliştirmede kısıt yok — orada "test" gibi anahtarlar yaygın ve zararsız,
+zorlamak günlük akışı kilitlerdi.
+
+⚠️ Hata mesajına anahtarın kendisi **yazılmıyor**. Süreç günlüğüne kimlik
+bilgisi düşürmek, çözmeye çalıştığımız sorunun başka bir hâli olurdu.
+
+### Ayrıca: gruplama anahtarı
+
+Melih kuyruğu `(alan, kalem_adi)` ile gruplamış — yani **görünen ada** göre.
+İki farklı müşteri aynı adı taşırsa tek başlık altında birleşirler.
+
+Ölçtüm: 800 müşteri, 800 özgün ad, **0 çakışma**. Yani bugün güvenli.
+
+Ama bunu garanti eden bir şey yok. Doğru çözüm kaleme kimlik alanı eklemek,
+o da `contracts.py` değişikliği demek — bu tur bana yasak. Melih'e bildirdim,
+kararı birlikte vereceğiz.

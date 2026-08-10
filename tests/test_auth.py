@@ -75,7 +75,7 @@ def test_anahtar_tanimsizsa_istek_gecer(istemci: TestClient):
 
 
 def test_health_kimlik_kapaliyi_bildirir(istemci: TestClient):
-    """"Anahtar tanımlamayı unuttuk" durumu sessiz kalmamalı.
+    """ "Anahtar tanımlamayı unuttuk" durumu sessiz kalmamalı.
 
     ⚠️ İki istemci fixture'ı aynı `app.dependency_overrides` sözlüğünü
     paylaşıyor; tek testte ikisini birden istemek ayarları birbirine
@@ -141,9 +141,7 @@ def test_tum_v1_uclari_korumali():
     for rota in app.routes:
         if not isinstance(rota, APIRoute) or not rota.path.startswith("/v1"):
             continue
-        bagimliliklar = {
-            b.call for b in rota.dependant.dependencies if b.call is not None
-        }
+        bagimliliklar = {b.call for b in rota.dependant.dependencies if b.call is not None}
         if kimlik_dogrula not in bagimliliklar:
             korumasiz.append(f"{sorted(rota.methods)} {rota.path}")
 
@@ -158,9 +156,7 @@ def test_onay_ekrani_uclari_korumali():
             continue
         if rota.path in ("/onay/giris", "/onay/cikis"):
             continue
-        bagimliliklar = {
-            b.call for b in rota.dependant.dependencies if b.call is not None
-        }
+        bagimliliklar = {b.call for b in rota.dependant.dependencies if b.call is not None}
         if kimlik_dogrula_ui not in bagimliliklar:
             korumasiz.append(f"{sorted(rota.methods)} {rota.path}")
 
@@ -396,3 +392,52 @@ def test_kimlik_kapaliyken_kisit_yok(istemci: TestClient):
         f"/v1/approvals/{karar_id}", json={"eylem": "onayla", "kullanici": "melih"}
     )
     assert sonuc.status_code == 200
+
+
+def test_uretimde_kisa_anahtar_acilisi_engelliyor():
+    """⭐ İçinde ':' geçen anahtar SESSİZCE kırpılıyordu.
+
+    `api_kimlikleri` anahtar metnini `anahtar:ad:rol` diye bölüyor. Rastgele
+    üretilmiş bir anahtarda ':' varsa geriye yalnızca ilk parça kalıyor,
+    gerisi "kullanıcı adı" oluyor ve **hiçbir uyarı çıkmıyordu**:
+
+        API_ANAHTARLARI="Xy9:aBcD3fGh1jKlMnOpQrStUvWxYz0123"
+        etkin anahtar  : "Xy9"     <- uc karakter
+
+    Yönetici 34 karakterlik anahtar koyduğunu sanırken servis üç karakterle
+    açılıyordu. Rol yükseltme riski yok (küme yalnızca ':'ten önceki kısmı
+    tutar) ama kaba kuvvete karşı koruma tamamen kalkıyordu.
+    """
+    import pytest
+
+    from app.core.auth import ASGARI_ANAHTAR_UZUNLUGU, kimlik_yapilandirmasini_dogrula
+    from app.core.config import Ayarlar
+
+    kirpilan = "Xy9:aBcD3fGh1jKlMnOpQrStUvWxYz0123"
+    ayar = Ayarlar(ortam="uretim", api_anahtarlari=kirpilan)
+
+    # Once kusurun hala orada oldugunu gosterelim: anahtar gercekten kirpiliyor.
+    assert ayar.api_anahtar_kumesi == frozenset({"Xy9"})
+
+    with pytest.raises(RuntimeError) as hata:
+        kimlik_yapilandirmasini_dogrula(ayar)
+    assert "':'" in str(hata.value), "hata mesaji sebebi soylemeli"
+    # ⚠️ Anahtarin kendisi hata metnine sizmamali.
+    assert kirpilan not in str(hata.value)
+    assert "Xy9" not in str(hata.value)
+
+    # Yeterince uzun, ':' icermeyen anahtar sorunsuz gecmeli.
+    saglam = "a" * ASGARI_ANAHTAR_UZUNLUGU
+    kimlik_yapilandirmasini_dogrula(Ayarlar(ortam="uretim", api_anahtarlari=saglam))
+
+
+def test_gelistirmede_kisa_anahtar_serbest():
+    """Kısıt yalnızca üretimde — geliştirmede "test" gibi anahtarlar yaygın.
+
+    Her ortamda zorlamak günlük akışı kilitlerdi ve kimse üretimde de
+    olmayan bir korumadan fayda görmezdi.
+    """
+    from app.core.auth import kimlik_yapilandirmasini_dogrula
+    from app.core.config import Ayarlar
+
+    kimlik_yapilandirmasini_dogrula(Ayarlar(ortam="gelistirme", api_anahtarlari="kisa"))

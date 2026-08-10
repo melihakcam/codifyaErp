@@ -59,6 +59,26 @@ CEREZ_ADI = "codifya_anahtar"
 
 URETIM_ORTAMI = "uretim"
 
+# ⚠️ Üretimde bir anahtarın taşıması gereken asgari uzunluk.
+#
+# Sebebi kural gereği "uzun anahtar iyidir" değil, **sessiz kısalma**:
+# `api_kimlikleri` anahtar metnini `:` ile bölüyor (`anahtar:ad:rol` biçimi).
+# İçinde `:` geçen rastgele bir anahtar sessizce kırpılıyor ve gerisi
+# "kullanıcı adı" oluyor:
+#
+#     API_ANAHTARLARI="Xy9:aBcD3fGh1jKlMnOpQrStUvWxYz0123"   34 karakter sanılır
+#     etkin anahtar  : "Xy9"                                  3 karakter
+#     kullanici adi  : "aBcD3fGh1jKlMnOpQrStUvWxYz0123"
+#
+# Hiçbir uyarı çıkmıyordu; yönetici güçlü bir anahtar koyduğunu sanırken
+# servis üç karakterle açılıyordu. Rol yükseltme riski yok (anahtar kümesi
+# yalnızca `:`'ten önceki kısmı içerir, `anahtar:ad:yonetici` göndermek
+# eşleşmez) ama kaba kuvvete karşı koruma tamamen kalkıyordu.
+#
+# Kontrol açılışta ve YALNIZCA üretimde: geliştirmede kısa anahtar ("test")
+# yaygın ve zararsız, orada zorlamak günlük akışı kilitlerdi.
+ASGARI_ANAHTAR_UZUNLUGU = 16
+
 
 @dataclass(frozen=True)
 class Kimlik:
@@ -130,12 +150,31 @@ def anahtar_gecerli_mi(sunulan: str, gecerli_anahtarlar: frozenset[str]) -> bool
 
 
 def kimlik_yapilandirmasini_dogrula(ayar: Ayarlar) -> None:
-    """Üretim ortamında anahtarsız açılışı engeller. `app/main.py` çağırır."""
-    if ayar.ortam == URETIM_ORTAMI and not _anahtar_kumesi(ayar):
+    """Üretimde anahtarsız ve kısa-anahtarlı açılışı engeller. `app/main.py` çağırır."""
+    if ayar.ortam != URETIM_ORTAMI:
+        return
+
+    anahtarlar = _anahtar_kumesi(ayar)
+    if not anahtarlar:
         raise RuntimeError(
             "ortam=uretim iken API_ANAHTARLARI boş olamaz. "
             "En az bir anahtar tanımlayın (virgülle ayrılmış), yoksa servis "
             "kimlik doğrulamasız açılırdı."
+        )
+
+    kisa = sorted(a for a in anahtarlar if len(a) < ASGARI_ANAHTAR_UZUNLUGU)
+    if kisa:
+        # ⚠️ Anahtarın kendisi hata metnine YAZILMAZ — süreç günlüklerine
+        # kimlik bilgisi düşürmek, düzeltmeye çalıştığımız sorunun başka bir
+        # biçimi olurdu. Uzunluk ve olası sebep yeterli bilgi.
+        ayrinti = ", ".join(f"{len(a)} karakter" for a in kisa)
+        raise RuntimeError(
+            f"ortam=uretim iken her API anahtarı en az {ASGARI_ANAHTAR_UZUNLUGU} "
+            f"karakter olmalı; {len(kisa)} anahtar kısa ({ayrinti}). "
+            "En sık sebep: anahtarın içinde ':' geçmesi. O karakter "
+            "'anahtar:kullanici:rol' biçiminde ayraç olduğu için anahtar "
+            "sessizce kırpılır ve gerisi kullanıcı adı sayılır — ':' "
+            "içermeyen bir anahtar üretin."
         )
 
 
