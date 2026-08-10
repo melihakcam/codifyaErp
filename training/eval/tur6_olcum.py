@@ -269,14 +269,34 @@ def _karsilastir(yeni: dict, eski: dict) -> None:
             f"({fark * 100:+5.1f} puan)  {isaret}"
         )
 
+    # ⚠️ Hüküm ÜÇ metriğe birden bakıyor. İlk sürüm yalnızca sızıntıya
+    # bakıyordu ve tur6 için "ONE GECTI" dedi — oysa sızıntı sıfırlanırken
+    # şablona düşme %0'dan %28'e fırlamıştı. Modelin susmayı öğrenmesi
+    # düzelmek değildir. Bugünün altıncı "tek metrik yalan söyler" vakası,
+    # bu sefer ölçüm aracının kendisinde.
     print()
+    sizinti_dusru = y["sizinti_orani"] < e["sizinti_orani"] - 0.05
+    sizinti_artti = y["sizinti_orani"] > e["sizinti_orani"] + 0.05
+    sablon_firladi = y["sablona_dusme_orani"] > e["sablona_dusme_orani"] + 0.10
+
     print("KARAR: ", end="")
-    if y["sizinti_orani"] < e["sizinti_orani"] - 0.05:
-        print("tur6 ONE GECTI — istem sizintisi belirgin dustu.")
-    elif y["sizinti_orani"] > e["sizinti_orani"] + 0.05:
-        print("tur6 GERI ALINMALI — istem sizintisi arttı.")
+    if sizinti_artti:
+        print("GERI ALINMALI — istem sizintisi arttı.")
+    elif sizinti_dusru and not sablon_firladi:
+        print("ONE GECTI — sizinti dustu, sablona dusme artmadi.")
+    elif sizinti_dusru and sablon_firladi:
+        print("KISMI — sizinti dustu AMA sablona dusme firladi.")
+        print("       Model bazi karar tiplerinde susmayi ogrenmis olabilir;")
+        print("       asagidaki tip kiriliminda guard %0 olan tiplere bak.")
     else:
         print("BELIRSIZ — sizintida anlamli degisim yok, tip kirilimina bak.")
+
+    kotu_tipler = [
+        t for t, s in yeni["tip_kirilimi"].items() if s["sablona_dusme_orani"] > 0.5
+    ]
+    if kotu_tipler:
+        print()
+        print(f"⚠️ Yarisindan fazlasi sablona dusen tipler: {', '.join(kotu_tipler)}")
 
 
 def _cli() -> None:

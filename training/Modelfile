@@ -8,7 +8,7 @@
 # ⚠️ Her turda bu satır güncellenir. Önceki turların Modelfile'ı git
 # geçmişinde duruyor; eski bir turu yeniden kurman gerekirse oradan al.
 
-FROM ./codifya-tur5-q8_0.gguf
+FROM ./codifya-tur6-q8_0.gguf
 
 # ⚠️ EN KRİTİK AYAR.
 #
