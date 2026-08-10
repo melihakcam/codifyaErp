@@ -626,6 +626,33 @@ uv run pytest && uv run ruff check .
 ⚠️ Kural motorunun davranışı bu tur **sabit**. B'nin tüm işleri mevcut
 karar çıktısını tüketiyor, üretmiyor.
 
+## ⚠️ Colab çalışmıyorsa bloke DEĞİLSİN
+
+Depoda Colab'a bağlı tek dosya `training/b34_gguf_colab.ipynb` — yani
+**yeni bir LoRA turu + GGUF dışa aktarımı**. Başka hiçbir iş ona bağlı
+değil:
+
+| iş | Colab gerekir mi |
+|---|---|
+| B1 finans API çoğul karar | hayır |
+| B2 onay kuyruğu gruplama | hayır |
+| B3 kişi bazlı yetki | hayır |
+| B4 üretim sertleştirmesi | hayır |
+| B5 **ölçüm yarısı** (guard reddedilme oranı) | **hayır** |
+| B5 **eğitim yarısı** (tur6) | evet |
+| B6 gecelik iş + benchmark | hayır |
+
+`training/codifya-tur2..tur5-q8_0.gguf` zaten diskte; canlı model (tur5)
+etkilenmiyor, Ollama yerelde çalışıyor.
+
+**Sıra önerisi:** B5'in ölçüm yarısını önce koştur. Sonuç "guard finans
+gerekçelerini kabul ediyor" çıkarsa **tur6 hiç gerekmez** ve Colab sorunu
+konu dışı kalır. Ölçüm ucuz, eğitim turu pahalı.
+
+Colab kalıcı olarak çözülmezse ve tur6 gerçekten gerekliyse, `training/**`
+sahipliği komple A'ya devredilir — **yarısı sende yarısı onda kalmaz**, iki
+paketin bağımsızlığı buna bağlı. Devir kararını Melih verecek.
+
 ---
 
 ## B1 — Finans API'si çoklu kararı yansıtmıyor 🔴
