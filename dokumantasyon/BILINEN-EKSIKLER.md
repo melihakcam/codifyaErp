@@ -663,3 +663,69 @@ vakası.
 
 ⚠️ 59 saniyenin tamamı **demo simülasyonu**, karar mantığı değil. Gerçek
 veride onun yerini CSV okuma alacak ve süre büyük olasılıkla düşecek.
+
+
+---
+
+## 18. 🔴 B5: model finansı görmüyordu — ama sebebi eğitim değildi
+
+Görev tanımı şuydu: "gerekçe modeli yalnızca stok kararlarıyla eğitildi,
+finans için hiç ölçülmedi." Doğruydu. **Sebebi yanlış tahmin edilmişti.**
+
+Ölçüm koşturulunca üç kusur çıktı ve üçü de `app/llm/explain.py`'de —
+yani alan-bağımsız olduğu varsayılan katmanda. `BILINEN-EKSIKLER.md` §1'de
+dört sızıntı kapatılmıştı; bunlar **beşinci, altıncı ve yedincisi**.
+
+| # | kusur | sonucu |
+|---|---|---|
+| 1 | `sablon_gerekce` → `o.sku_adi` | finans kararında `AttributeError` |
+| 2 | `egitilmis_istem_govdesi` → `urun: {o.sku_adi}` | istem hiç kurulamıyor |
+| 3 | `_TIPE_GORE_ALANLAR`'da finans tipi yok | `anlatilacak_sayi_var_mi` hep False |
+
+Üçünün birleşik etkisi: **her finans kararı 0 saniyede şablona düşüyordu.**
+Model çağrılmıyordu bile. "Model finansı hiç görmedi" tespiti doğruydu ama
+eğitim eksikliğinden değil, **sorunun hiç sorulmamasından**.
+
+⚠️ Gecelik iş bunu yutuyordu: `_finans_kararlari` geniş bir `try/except`
+ile sarılı ve hata log'a düşüp finans kararları sessizce kuyruğa hiç
+girmiyordu. Faz 6'da "gecelik iş finans kararı görünce düşüyor" diye
+bulunan kusurun kardeşi.
+
+### Düzeltme sonrası ölçüm
+
+| | |
+|---|---|
+| karar | 20 finans (`tahsilat_takibi`) |
+| model | `codifya-router:tur5`, eğitilmiş kip |
+| süre | 117 sn (**5,9 sn/karar**) |
+| guard | **20/20 geçti** — reddedilen sayı yok |
+
+### ⚠️ %0 reddetme oranı iyi haber DEĞİL
+
+Guard yalnızca **sayıları** denetliyor. Model istemdeki sayıları kopyalayıp
+etrafına anlamsız Türkçe diziyor; hiçbir sayı uydurulmadığı için guard
+sessiz kalıyor. Örnekler:
+
+```
+"...gecikme durumunuz 21 gün ve bu durumdurunda 5,95 gün öne çıkar.
+ Bu ürünlerin top..."
+"Gerekce: Kayseri Bireysel Müşterisi 9 için finans.tahsilat_takibi
+ raporu vardır ve bu rapor 143,79 tl seviyesi..."
+```
+
+Dördün birinde istem satırları (`karar:`, `Gerekce:`) doğrudan çıktıya
+sızıyor. Metinler **kullanılamaz**; guard'ın ölçtüğü şey bu değil.
+
+⭐ Bugünün beşinci "metrik tek başına yalan söyler" vakası. Guard reddetme
+oranı finans için anlamlı bir kalite ölçüsü **değil** — çünkü guard sayı
+uydurmaya karşı tasarlandı, saçmalamaya karşı değil.
+
+**Şimdi eğitim turu gerçekten gerekli** ve gerekçesi netleşti: model finans
+gerekçesi biçimini hiç görmedi. `training/build_dataset.py` finansı
+kapsamıyor (B'nin sahasında). Eğitim öncesi ölçüm yapılmalıydı ve yapıldı —
+ama ölçtüğü şey "eğitim gerekli mi" değil, "hat çalışıyor mu" oldu. Cevap:
+çalışmıyordu, artık çalışıyor.
+
+**Bir sonraki tur için kapı:** guard reddetme oranı değil, **istem sızıntısı
+oranı** (`karar:` / `Gerekce:` / `VERILER` içeren çıktı yüzdesi) ve insan
+okunabilirliği. Sayı doğruluğu zaten guard'ın işi.

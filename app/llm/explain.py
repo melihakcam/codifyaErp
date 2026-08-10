@@ -19,7 +19,15 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from app.contracts import ORAN_ALANLARI, DecisionCandidate, Gerekce, GuardSonucu, KararTipi
+from app.contracts import (
+    ORAN_ALANLARI,
+    Alan,
+    DecisionCandidate,
+    FinansOzellikleri,
+    Gerekce,
+    GuardSonucu,
+    KararTipi,
+)
 from app.llm.client import OllamaIstemcisi
 from app.llm.guard import GerekceUreteci, gerekceyi_guvenceye_al
 from app.llm.schemas import GerekceCiktisi, yapilandirilmis_uret
@@ -37,6 +45,16 @@ def sablon_gerekce(aday: DecisionCandidate) -> str:
 
     Yalnızca `aday` içindeki sayıları kullanır, dolayısıyla guard'dan her
     zaman geçer. Akıcılığı LLM kadar iyi değil ama asla yanlış değil.
+
+    ⚠️ **Faz 8 / B5'te bulunan kusur.** Bu fonksiyon alan-bağımsız bir
+    katmanda duruyor ama stok alanlarını doğrudan okuyordu (`o.sku_adi`).
+    Finans kararı buraya düştüğü anda `AttributeError` — ve buraya düşmek
+    istisna değil, normal akış: anlatacak sayısı olmayan her karar ve
+    guard'ın reddettiği her gerekçe şablona geliyor.
+
+    Gecelik iş bunu yakalayıp yutuyor (`_finans_kararlari` try/except) ama
+    o zaman da finans kararları sessizce kuyruğa hiç girmiyordu.
+    `BILINEN-EKSIKLER.md` §1'in gözden kaçmış beşinci sızıntısı.
     """
     o = aday.ozellikler
 
@@ -65,7 +83,41 @@ def sablon_gerekce(aday: DecisionCandidate) -> str:
             f"üzerinde."
         )
 
-    return f"{o.sku_adi} için {aday.tip.value} kararı üretildi."
+    if isinstance(o, FinansOzellikleri):
+        if aday.tip is KararTipi.FINANS_TAHSILAT_TAKIBI:
+            return (
+                f"{o.musteri_adi} için {_tr_sayi(o.vadesi_gecen_tl)} TL vadesi geçmiş "
+                f"alacak var ve en eski fatura {_tr_sayi(o.en_eski_gecikme_gun)} gündür "
+                f"gecikmede. Bu müşteri ortalama {_tr_sayi(o.ort_odeme_gecikmesi_gun)} "
+                f"gün gecikmeyle ödüyor; tahsilat takibi öneriliyor."
+            )
+        if aday.tip is KararTipi.FINANS_KARSILIK_AYIR:
+            oran = aday.aksiyon.get("onerilen_karsilik_orani")
+            return (
+                f"{o.musteri_adi} alacağının en eskisi {_tr_sayi(o.en_eski_gecikme_gun)} "
+                f"gündür tahsil edilemiyor. {_tr_sayi(o.vadesi_gecen_tl)} TL vadesi geçen "
+                f"tutar için "
+                f"{_tr_sayi(float(oran) * 100) if oran is not None else '—'}% karşılık "
+                f"ayrılması öneriliyor."
+            )
+        if aday.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
+            yeni = aday.aksiyon.get("onerilen_kredi_limiti_tl")
+            return (
+                f"{o.musteri_adi} tahsilat oranı {_tr_sayi(o.tahsilat_orani * 100)}% ve "
+                f"ödeme davranışı öngörülemez. Kredi limitinin "
+                f"{_tr_sayi(o.kredi_limiti_tl)} TL'den "
+                f"{_tr_sayi(float(yeni)) if yeni is not None else '—'} TL'ye "
+                f"düşürülmesi öneriliyor."
+            )
+        return (
+            f"{o.musteri_adi} için aksiyon gerekmiyor: gecikme bu müşterinin "
+            f"olağan aralığında."
+        )
+
+    # ⚠️ Son çare, alan-bağımsız: `gorunen_ad` sözleşmenin bu soruya cevabı.
+    # Doğrudan `o.sku_adi` yazmak, yeni bir alan eklendiğinde burayı yeniden
+    # kırardı (bkz. yukarıdaki uyarı).
+    return f"{o.gorunen_ad} için {aday.tip.value} kararı üretildi."
 
 
 def explain_stub(aday: DecisionCandidate) -> Gerekce:
@@ -221,6 +273,37 @@ _TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
         "ort_gunluk_talep",
         "rop",
     ),
+    # ⚠️ Faz 8 / B5'te eklendi. Finans tipleri bu sözlükte YOKTU ve sonucu
+    # sessizdi: `sayi_etiketleri` boş liste döndürüyor, dolayısıyla
+    # `anlatilacak_sayi_var_mi` her finans kararında False oluyor ve
+    # **model hiç çağrılmıyordu**. Her finans gerekçesi şablona düşüyordu.
+    #
+    # Yani "model finansı hiç görmedi" tespiti doğruydu ama sebebi eğitim
+    # eksikliği değil, sorunun hiç sorulmamasıydı. Ölçüm bunu ancak
+    # koşturunca ortaya çıkardı — 25 kararın 25'i 0 saniyede şablona düştü.
+    KararTipi.FINANS_TAHSILAT_TAKIBI: (
+        "vadesi_gecen_tl",
+        "en_eski_gecikme_gun",
+        "ort_odeme_gecikmesi_gun",
+        "takip_esigi_gun",
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR: (
+        "en_eski_gecikme_gun",
+        "vadesi_gecen_tl",
+        "onerilen_karsilik_orani",
+        "karsilik_tutari_tl",
+    ),
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR: (
+        "musteri_risk_skoru",
+        "tahsilat_orani",
+        "kredi_limiti_tl",
+        "onerilen_kredi_limiti_tl",
+    ),
+    KararTipi.FINANS_AKSIYON_YOK: (
+        "en_eski_gecikme_gun",
+        "takip_esigi_gun",
+        "ort_odeme_gecikmesi_gun",
+    ),
 }
 
 _ETIKETLER: dict[str, str] = {
@@ -234,6 +317,17 @@ _ETIKETLER: dict[str, str] = {
     "siparis_miktari": "önerilen sipariş miktarı (adet)",
     "rop": "yeniden sipariş noktası (adet)",
     "hedef_servis_seviyesi": "hedef servis seviyesi",
+    # Finans (B5)
+    "vadesi_gecen_tl": "vadesi geçmiş alacak (TL)",
+    "en_eski_gecikme_gun": "en eski faturanın gecikmesi (gün)",
+    "ort_odeme_gecikmesi_gun": "müşterinin ortalama ödeme gecikmesi (gün)",
+    "takip_esigi_gun": "takip eşiği (gün)",
+    "onerilen_karsilik_orani": "önerilen karşılık oranı",
+    "karsilik_tutari_tl": "karşılık tutarı (TL)",
+    "musteri_risk_skoru": "müşteri risk skoru (0-100)",
+    "tahsilat_orani": "tahsilat oranı",
+    "kredi_limiti_tl": "mevcut kredi limiti (TL)",
+    "onerilen_kredi_limiti_tl": "önerilen kredi limiti (TL)",
 }
 
 
@@ -250,6 +344,14 @@ _DURUM_IFADELERI: dict[KararTipi, str] = {
     KararTipi.STOK_SIPARIS: "kullanılabilir stok yeniden sipariş noktasının ALTINA düştü",
     KararTipi.STOK_AKSIYON_YOK: "kullanılabilir stok yeniden sipariş noktasının ÜZERİNDE",
     KararTipi.STOK_TASFIYE: "ürün uzun süredir hiç hareket görmedi",
+    # Finans (B5) — yön yine söyleniyor, hesaplatılmıyor.
+    KararTipi.FINANS_TAHSILAT_TAKIBI: (
+        "gecikme, bu müşterinin kendi olağan aralığının ÜSTÜNDE ya da alacak "
+        "takip maliyetini karşılayacak kadar BÜYÜK"
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR: "alacak, karşılık ayrılacak kadar ESKİ",
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR: "müşterinin risk skoru eşiğin ALTINDA",
+    KararTipi.FINANS_AKSIYON_YOK: "gecikme, bu müşteri için OLAĞAN aralıkta",
 }
 
 
@@ -371,6 +473,37 @@ _EGITILMIS_TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
         "ort_gunluk_talep",
         "rop",
     ),
+    # ⚠️ Faz 8 / B5'te eklendi. Finans tipleri bu sözlükte YOKTU ve sonucu
+    # sessizdi: `sayi_etiketleri` boş liste döndürüyor, dolayısıyla
+    # `anlatilacak_sayi_var_mi` her finans kararında False oluyor ve
+    # **model hiç çağrılmıyordu**. Her finans gerekçesi şablona düşüyordu.
+    #
+    # Yani "model finansı hiç görmedi" tespiti doğruydu ama sebebi eğitim
+    # eksikliği değil, sorunun hiç sorulmamasıydı. Ölçüm bunu ancak
+    # koşturunca ortaya çıkardı — 25 kararın 25'i 0 saniyede şablona düştü.
+    KararTipi.FINANS_TAHSILAT_TAKIBI: (
+        "vadesi_gecen_tl",
+        "en_eski_gecikme_gun",
+        "ort_odeme_gecikmesi_gun",
+        "takip_esigi_gun",
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR: (
+        "en_eski_gecikme_gun",
+        "vadesi_gecen_tl",
+        "onerilen_karsilik_orani",
+        "karsilik_tutari_tl",
+    ),
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR: (
+        "musteri_risk_skoru",
+        "tahsilat_orani",
+        "kredi_limiti_tl",
+        "onerilen_kredi_limiti_tl",
+    ),
+    KararTipi.FINANS_AKSIYON_YOK: (
+        "en_eski_gecikme_gun",
+        "takip_esigi_gun",
+        "ort_odeme_gecikmesi_gun",
+    ),
 }
 
 # Türkçe karakter YOK ("gunluk", "suresi") — eğitim verisi böyle üretiliyor,
@@ -420,9 +553,20 @@ def egitilmis_istem_govdesi(aday: DecisionCandidate) -> str:
     ikisini birleştiriyor. Tek kaynak burası olduğu sürece üçü de tutar.
     """
     o = aday.ozellikler
+    # ⚠️ Kalem etiketi alana göre değişiyor (Faz 8 / B5). Önceden
+    # `f"urun: {o.sku_adi}"` yazılıydı ve finans kararı geldiği anda
+    # `AttributeError` veriyordu — istem hiç kurulamıyor, gerekçe şablona
+    # düşüyordu. Model finansı görmemesinin sebebi eğitim değil, buydu.
+    #
+    # ⚠️ Stok tarafında etiket **birebir korunuyor** (`urun:`). Eğitilmiş
+    # kipin istemi eğitimdekiyle aynı olmak zorunda; bir kelime değişse
+    # model tanımadığı bir girdi görür (bkz. modül üstündeki uyarı ve
+    # `OLCUMLER.md`'deki 4./5. tur vakası). Finans için `musteri:`
+    # kullanmak yeni bir biçim değil, olmayan bir biçimin ilki.
+    etiket = "musteri" if aday.alan is Alan.FINANS else "urun"
     satirlar = [
         "VERILER:",
-        f"urun: {o.sku_adi}",
+        f"{etiket}: {o.gorunen_ad}",
         f"karar: {aday.tip.value}",
     ]
 

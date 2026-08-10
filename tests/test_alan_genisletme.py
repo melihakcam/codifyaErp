@@ -441,3 +441,85 @@ def test_siparis_sayisi_bilinmiyorsa_vekil_olcuye_dusuluyor():
     tipler = {k.tip for k in ozellikten_kararlar_uret(bilinmiyor)}
 
     assert KararTipi.STOK_TEDARIKCI_DEGISIM in tipler
+
+
+# ---------------------------------------------------------------------------
+# B5 — Gerekçe katmanı finans kararını taşıyor mu
+# ---------------------------------------------------------------------------
+
+
+def _finans_adayi_ornek() -> DecisionCandidate:
+    from app.domain.finance.decide import ozellikten_kararlar_uret
+
+    ozellik = FinansOzellikleri(
+        musteri_id="M-0042",
+        musteri_adi="Yılmaz İnşaat Ltd.",
+        segment="santiye",
+        toplam_alacak_tl=250_000.0,
+        vadesi_gecen_tl=95_000.0,
+        en_eski_gecikme_gun=62,
+        ort_odeme_gecikmesi_gun=18.5,
+        odeme_gecikmesi_std=7.4,
+        veri_gun_sayisi=540,
+        kredi_limiti_tl=200_000.0,
+        abc_sinifi=ABCSinifi.A,
+        xyz_sinifi=XYZSinifi.Y,
+        hedef_tahsilat_orani=0.95,
+        son_odeme_gun_once=41,
+        tahsilat_orani=0.88,
+        musteri_kredi_onayli=True,
+        olcum_tarihi=dt.date(2026, 8, 10),
+    )
+    return ozellikten_kararlar_uret(ozellik)[0]
+
+
+def test_sablon_gerekce_finansta_cokmuyor():
+    """🔴 B5'in bulduğu kusur: şablon `o.sku_adi` okuyordu.
+
+    Şablona düşmek istisna değil normal akış — anlatacak sayısı olmayan her
+    karar ve guard'ın reddettiği her gerekçe buraya geliyor. Finans kararı
+    geldiğinde `AttributeError` veriyordu.
+    """
+    from app.llm.explain import sablon_gerekce
+
+    metin = sablon_gerekce(_finans_adayi_ornek())
+
+    assert "Yılmaz İnşaat" in metin
+    assert "95.000" in metin or "95000" in metin.replace(".", "")
+
+
+def test_egitilmis_istem_finansta_kurulabiliyor():
+    """🔴 İkinci kusur: eğitilmiş istem `urun: {sku_adi}` yazıyordu.
+
+    İstem kurulamadığı için model **hiç çağrılmıyordu** — "model finansı
+    görmedi" tespitinin gerçek sebebi eğitim eksikliği değil, buydu.
+    """
+    from app.llm.explain import egitilmis_istem_govdesi
+
+    govde = egitilmis_istem_govdesi(_finans_adayi_ornek())
+
+    assert "musteri: Yılmaz İnşaat Ltd." in govde
+    assert "urun:" not in govde
+
+
+def test_stok_istem_bicimi_korunuyor():
+    """⚠️ Stok etiketi BİREBİR aynı kalmalı: eğitilmiş kipin istemi
+    eğitimdekiyle aynı olmak zorunda. Bir kelime kayarsa model tanımadığı
+    bir girdi görür (OLCUMLER.md, 4./5. tur vakası)."""
+    from app.domain.stock.decide import ozellikten_karar_uret
+    from app.llm.explain import egitilmis_istem_govdesi
+
+    govde = egitilmis_istem_govdesi(ozellikten_karar_uret(_stok_ozelligi(eldeki_stok=5)))
+
+    assert govde.splitlines()[1].startswith("urun: ")
+
+
+def test_finans_kararinda_anlatilacak_sayi_var():
+    """`_TIPE_GORE_ALANLAR`'da finans tipleri yoktu; `anlatilacak_sayi_var_mi`
+    her finans kararında False dönüyor ve LLM atlanıyordu."""
+    from app.llm.explain import anlatilacak_sayi_var_mi, sayi_etiketleri
+
+    aday = _finans_adayi_ornek()
+
+    assert sayi_etiketleri(aday), "finans kararı için istem sayıları boş kalmamalı"
+    assert anlatilacak_sayi_var_mi(aday)
