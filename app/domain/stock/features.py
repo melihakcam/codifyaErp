@@ -163,11 +163,16 @@ def katalog_ozelliklerini_hesapla(
             xyz_sinifi = sinif_satiri["xyz_sinifi"]
             hedef_servis_seviyesi = float(sinif_satiri["hedef_servis_seviyesi"])
             tedarikci_skoru = float(sinif_satiri["tedarikci_skoru"])
+            # Tedarikçi hakkındaki kanıtın miktarı. `tedarikci_skoru_hesapla`
+            # bu sayıyı zaten üretiyor; buraya kadar taşınmıyordu ve kural
+            # motoru vekil bir ölçüye (talep geçmişi uzunluğu) mecburdu.
+            siparis_sayisi = int(sinif_satiri.get("siparis_sayisi", 0) or 0)
         else:
             abc_sinifi = VARSAYILAN_ABC_SINIFI
             xyz_sinifi = VARSAYILAN_XYZ_SINIFI
             hedef_servis_seviyesi = VARSAYILAN_HEDEF_SERVIS_SEVIYESI
             tedarikci_skoru = float(tedarikci_satiri["guvenilirlik"]) * 100.0
+            siparis_sayisi = 0  # bilinmiyor
 
         raf_omru = sku_satiri["raf_omru_gun"]
 
@@ -196,6 +201,7 @@ def katalog_ozelliklerini_hesapla(
                 tedarikci_skoru=tedarikci_skoru,
                 tedarikci_zamaninda_teslim_orani=float(tedarikci_satiri["guvenilirlik"]),
                 tedarikci_onayli=tedarikci_skoru >= TEDARIKCI_ONAY_ESIGI,
+                tedarikci_siparis_sayisi=siparis_sayisi,
                 moq=int(sku_satiri["moq"]),
                 paket_adedi=int(sku_satiri["paket_adedi"]),
                 olcum_tarihi=olcum_tarihi,

@@ -235,6 +235,14 @@ class StockFeatures(AlanOzellikleri):
     tedarikci_skoru: float = Field(ge=0, le=100)
     tedarikci_zamaninda_teslim_orani: float = Field(ge=0, le=1)
     tedarikci_onayli: bool = Field(description="Eşikli otonomi ön koşulu")
+    tedarikci_siparis_sayisi: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Bu tedarikçiye verilmiş sipariş sayısı — tedarikçi hakkındaki "
+            "kanıtın miktarı. 0 = bilinmiyor."
+        ),
+    )
 
     # Sipariş kısıtları
     moq: int = Field(ge=0, description="Minimum sipariş adedi")

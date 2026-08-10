@@ -311,11 +311,23 @@ müşterinin 102'sinde yanlış tetikleniyordu (`BILINEN-EKSIKLER.md` §8).
 Karşı taraf hakkında karar veren her kural, kanıt yeterliliğine bakmak
 zorunda.
 
-⚠️ **Bu bir vekil ölçü.** Doğru kapı "bu tedarikçiye kaç sipariş verildi"
-olurdu; `StockFeatures` o alanı taşımıyor ve eklemek sözleşme değişikliği
-demek. `veri_gun_sayisi` talep geçmişinin uzunluğu — tedarikçi geçmişiyle
-korele ama aynı şey değil. Sözleşme bir sonraki turda açılırsa
-`tedarikci_siparis_sayisi` eklenmeli."""
+⚠️ **Bu artık YEDEK kapı.** Asıl kapı `TEDARIKCI_DEGISIM_ASGARI_SIPARIS`:
+"bu tedarikçiye kaç sipariş verildi". Sözleşmeye `tedarikci_siparis_sayisi`
+eklendiğinde vekil ölçü gerçeğiyle değişti. Alan 0 ise (veri kaynağı sipariş
+sayısını vermiyor) buraya düşülüyor — talep geçmişinin uzunluğu tedarikçi
+geçmişiyle korele ama aynı şey değil."""
+
+TEDARIKCI_DEGISIM_ASGARI_SIPARIS = 5
+"""Tedarikçi hakkında karar vermek için asgari sipariş sayısı.
+
+⭐ **Asıl kanıt kapısı bu.** Tedarikçi skoru teslim performansından
+hesaplanıyor; iki siparişten hesaplanan bir skor gürültüdür. Beş sipariş,
+ortalama ve sapmanın anlam kazandığı en küçük makul sayı — `csv_erp`'deki
+`ASGARI_SIPARIS_SAYISI` ile aynı gerekçe.
+
+⚠️ Alan 0 ise (veri kaynağı sipariş sayısını taşımıyor) kural
+`TEDARIKCI_DEGISIM_ASGARI_VERI_GUN` vekiline düşüyor — kanıt kapısı hiç
+olmamasındansa zayıf bir kapı."""
 
 
 def _tedarikci_id_indeksli(tedarikci_df: pd.DataFrame) -> pd.DataFrame:
@@ -376,7 +388,11 @@ def tedarikci_degisim_degerlendir(ozellik: StockFeatures) -> dict:
     aciliyettedir.
     """
     skor = ozellik.tedarikci_skoru
-    yeterli_veri = ozellik.veri_gun_sayisi >= TEDARIKCI_DEGISIM_ASGARI_VERI_GUN
+    if ozellik.tedarikci_siparis_sayisi > 0:
+        yeterli_veri = ozellik.tedarikci_siparis_sayisi >= TEDARIKCI_DEGISIM_ASGARI_SIPARIS
+    else:
+        # Sipariş sayısı bilinmiyor → vekil ölçüye düş.
+        yeterli_veri = ozellik.veri_gun_sayisi >= TEDARIKCI_DEGISIM_ASGARI_VERI_GUN
     maruz_kalinan = (
         ozellik.ort_gunluk_talep * ozellik.tedarik_suresi_gun * ozellik.birim_maliyet_tl
     )

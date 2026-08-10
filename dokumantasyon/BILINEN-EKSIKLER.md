@@ -117,7 +117,10 @@ Politika tablosunda ve `KararTipi`'nde tanımlı ama ölü.
 ⚠️ **Bilinen sınır:** kanıt kapısı `veri_gun_sayisi` üzerinden, yani bir
 **vekil ölçü**. Doğru kapı "bu tedarikçiye kaç sipariş verildi" olurdu ama
 `StockFeatures` o alanı taşımıyor ve eklemek sözleşme değişikliği demek.
-Sözleşme açıldığında `tedarikci_siparis_sayisi` eklenmeli.
+**✅ Aynı gün eklendi.** `StockFeatures.tedarikci_siparis_sayisi` sözleşmeye
+girdi; asıl kapı artık `TEDARIKCI_DEGISIM_ASGARI_SIPARIS = 5`. Veri kaynağı
+sipariş sayısını taşımıyorsa (alan 0) eski vekil ölçüye düşülüyor — kanıt
+kapısı hiç olmamasındansa zayıf bir kapı.
 
 ⚠️ **B'ye etkisi:** `ozellikten_kararlar_uret` (çoğul) eklendi; tekil sürüm
 davranışını korudu. Gecelik iş ve API çoğula geçtiğinde
@@ -381,7 +384,10 @@ karşılık ayırmanın tahsilat takibini geçersiz kılmaması gibi (§9).
 
 ---
 
-## 12. 🔴 A1 sonucu: iş gücü iddiası da tutmuyor
+## 12. ✅ ÇÖZÜLDÜ — A1 sonucu: iş gücü iddiası da tutmuyordu
+
+> Teşhis §12, düzeltmesi **§15**. Başlık 2026-08-10'da güncellendi;
+> "🔴 açık" görünüyordu ama iş aynı gün bitmişti.
 
 §8 kapanırken "maliyet iddiası yok ama iş gücü tasarrufu var" denmişti.
 A1 bunu ölçtü ve **o iddia da yanlış çıktı.**

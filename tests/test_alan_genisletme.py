@@ -402,3 +402,42 @@ def test_saglam_tedarikcide_ek_karar_yok():
 
     kararlar = ozellikten_kararlar_uret(_stok_ozelligi())
     assert len(kararlar) == 1
+
+
+def test_az_siparisli_tedarikcide_degisim_onerilmiyor():
+    """⭐ Vekil ölçü gerçeğiyle değişti: asıl kapı sipariş sayısı.
+
+    İki siparişten hesaplanan bir tedarikçi skoru gürültüdür. Talep geçmişi
+    üç yıllık olsa bile, o tedarikçiyle iki kez çalışılmışsa hüküm verilemez.
+    """
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    az_siparisli = _stok_ozelligi(
+        tedarikci_skoru=30.0, veri_gun_sayisi=1000, tedarikci_siparis_sayisi=2
+    )
+    tipler = {k.tip for k in ozellikten_kararlar_uret(az_siparisli)}
+
+    assert KararTipi.STOK_TEDARIKCI_DEGISIM not in tipler
+
+
+def test_yeterli_siparisli_tedarikcide_degisim_oneriliyor():
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    cok_siparisli = _stok_ozelligi(
+        tedarikci_skoru=30.0, veri_gun_sayisi=1000, tedarikci_siparis_sayisi=20
+    )
+    tipler = {k.tip for k in ozellikten_kararlar_uret(cok_siparisli)}
+
+    assert KararTipi.STOK_TEDARIKCI_DEGISIM in tipler
+
+
+def test_siparis_sayisi_bilinmiyorsa_vekil_olcuye_dusuluyor():
+    """Alan 0 ise (veri kaynağı taşımıyor) kapı kapanmıyor, zayıflıyor."""
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    bilinmiyor = _stok_ozelligi(
+        tedarikci_skoru=30.0, veri_gun_sayisi=1000, tedarikci_siparis_sayisi=0
+    )
+    tipler = {k.tip for k in ozellikten_kararlar_uret(bilinmiyor)}
+
+    assert KararTipi.STOK_TEDARIKCI_DEGISIM in tipler
