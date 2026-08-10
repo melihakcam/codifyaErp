@@ -4,7 +4,7 @@
 > engellediğini ve ne zaman çözülmesi gerektiğini söyler. Amaç, bir eksiğin
 > "unutulmuş" ile "ertelenmiş" arasındaki farkı kaybetmemesi.
 >
-> Son güncelleme: 2026-08-09 · Faz 7 · Kimlik doğrulama + finans para metriği
+> Son güncelleme: 2026-08-10 · Faz 8 · A paketi (A1-A5) + §12
 
 ---
 
@@ -150,47 +150,61 @@ varlığı sorulmalı.
 
 ---
 
-## 8. 🔴 Finansın iş değeri ÖLÇÜLDÜ ve ÇIKMADI
+## 8. 🔴 Finansın iş değeri hâlâ çıkmadı (güncel sayılar)
 
-Faz 7'de `app/domain/finance/para_metrigi.py` yazıldı: stoktaki para
-metriğinin finanstaki karşılığı. Sonuç, stoktakinin aksine **olumsuz**.
+⚠️ **Bu bölümün sayıları 2026-08-10'da yenilendi.** Önceki tablo dört
+değişiklik öncesine aitti (§9 ortogonal kollar, §10/§14 limit kolu,
+§12 maddiyet kolu) ve artık gerçeği yansıtmıyordu. Eski sayılara bakıp
+karar veren biri yanılırdı; ölçüm belgesi bayatlarsa ölçüm olmaktan çıkar.
 
-`kucuk_nalbur_dukkani`, 1 yıl, aylık inceleme:
+**1 yıl, aylık inceleme, iki profil:**
 
-| politika | toplam maliyet | batak zararı | takip maliyeti | marj kaybı |
-|---|---|---|---|---|
-| taban (hiçbir şey yapma) | 228.696 TL | 197.945 | 0 | 0 |
-| vasat (30 günü geçeni ara) | 232.413 TL | 186.745 | 18.300 | 0 |
-| kural_motoru | 255.725 TL | 195.328 | 11.550 | 21.699 |
+| | taban | vasat | kural_motoru |
+|---|---|---|---|
+| **küçük nalbur** | 228.696 | **232.413** | 247.699 |
+| batak zararı | 197.945 | 186.745 | **178.415** |
+| takip maliyeti | 0 | 18.300 | 20.400 |
+| marj kaybı | 0 | 0 | 24.215 |
+| | | | **%-6,6** |
+| **yapı toptancısı** | 5.578.239 | **5.438.518** | 5.649.408 |
+| batak zararı | 4.909.498 | 4.631.836 | **4.478.426** |
+| takip maliyeti | 0 | 210.900 | 195.750 |
+| marj kaybı | 0 | 0 | 483.677 |
+| | | | **%-3,9** |
 
-İki cümlelik özet: **kural motoru vasat politikadan %10 pahalı, vasat
-politika ise hiçbir şey yapmamaktan %1,6 pahalı.** Yani bu etki modelinde
-tahsilat çabası kendini zar zor çıkarıyor, seçici olmak ise marj kaybı
-üretiyor.
+**Özet: kural motoru toplam maliyette hâlâ vasatın gerisinde.** Ama tablo
+tek renkli değil ve bu önemli:
 
-**Bu sonuç neden yine de değerli:** ölçüm dört gerçek kusur buldurdu
-(tahsilat oranının paydası, karşılık eşiğinin tabanı, limit kesintisinin
-kademesizliği, limitin geri açılmaması). Dördü de düzeltildikten SONRAKİ
-sayı bu.
+⭐ **Batak zararında kural motoru her iki profilde de AÇIK ARA ÖNDE.**
+Küçük nalburda vasattan 8.330 TL, büyük toptancıda 153.410 TL daha az
+zarar. Yani "hangi alacağı kurtarabilirim" sorusunu vasattan iyi
+cevaplıyor.
 
-⚠️ **Sonucun en zayıf yeri etki modelinin kendisi.** Stok simülasyonunda
-politikanın sonucu fizikle belirlenir; tahsilatta "müşteriyi aradın, ne
-oldu?" sorusunun cevabı varsayım. Parametreler
-`para_metrigi.py`'nin başında tek yerde ve `duyarlilik_analizi_calistir`
-sonucun `TAKIP_MALIYETI_TL`'ye bağımlılığını gösteriyor.
+⚠️ **Kaybettiği tek yer marj kaybı** — limit kolunun bedeli (24 bin /
+484 bin). Bu kalem çıkarılırsa kural motoru her iki profilde de kazanıyor.
+Ama kolu kapatmak §14'te ölçülerek reddedildi: kol, batak riski
+yükseldiğinde 11 kat asimetrik koruma sağlıyor.
 
-**Ne yapılmalı:** üç seçenek var ve karar verilmedi.
+**Yani asıl soru şu hâle geldi:** kredi limitini sıkmanın marj bedeli, o
+limitin önlediği riske değer mi? Cevap müşterinin batak oranına bağlı ve
+o oran **gerçek veriyle ölçülebilir** (§13'teki geriye dönük test hattı
+hazır).
 
-1. Etki modeli sahadan kalibre edilmeli (gerçek tahsilat kayıtları) —
-   şu anki sayılar makul kabuller, ölçüm değil.
-2. Kural motorunun finanstaki değeri maliyet düşürmek değil **iş gücü
-   tasarrufu** olabilir: 122 arama yerine 77 arama, üstelik hangi
-   müşterinin aranacağı gerekçesiyle. Bu ayrı bir metrik ister.
-3. Kurallar gerçekten zayıf olabilir. Limit düşürme kolu, marj kaybı
-   ürettiği için net zararlı çıkıyor — kaldırılıp yeniden ölçülmeli.
+**Bugüne kadar denenen ve sonuç vermeyen dört yol:**
 
-**Engellediği:** finans için "%7,6" gibi bir satış cümlesi YOK. Stok
-tarafındaki iddia yerinde duruyor, finansa taşınamaz.
+1. Etki modelinin `TAKIP_MALIYETI_TL` varsayımı — 0'dan 1.000 TL'ye beş
+   noktada da kaybediyor. Sonuç parametre seçimine bağlı değil.
+2. İş gücü tasarrufu anlatısı — §12'den sonra geçersiz; sistem artık
+   daha ÇOK arıyor.
+3. Adet bazlı kurtarma metriği — aldatıcı çıktı, tutar bazlıya çevrildi.
+4. Limit kolunu kapatmak — kısa vadede kazandırıyor, risk profilinde
+   kaybettiriyor.
+
+**Dürüst konum:** finans için "maliyeti %X düşürdü" cümlesi **yok** ve
+zorlanarak üretilmeyecek. Söylenebilecek olan: *"şüpheli alacak zararını
+vasat bir tahsilat politikasına göre %4-6 azaltıyor, karşılığında kredi
+limitini sıkarak bir miktar satış marjından vazgeçiyor."* Bu bir ödünleşim
+cümlesi, zafer cümlesi değil.
 
 ---
 

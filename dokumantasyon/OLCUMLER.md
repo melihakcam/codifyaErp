@@ -2893,3 +2893,91 @@ sorunu diğerinin çıktısını yok etmemeli.
 Router'ın finans araçlarını tanıması için eğitim. Yol haritası bunu **üç
 alan bitince tek turda** yapmayı söylüyor (`alanları ayrı modellere bölme —
 16 GB'ta gereksiz yük`), o yüzden Satış ve Üretim'den sonra.
+
+---
+
+# Faz 8 — A paketi ölçümleri (2026-08-10)
+
+> Bu bölüm bir günün ölçüm kaydı. Her satır bir sorunun cevabı; sonucu
+> olumsuz olanlar da burada, çünkü olumsuz sonuç da ölçümdür.
+
+## Finans: iş değeri (1 yıl, aylık inceleme)
+
+| profil | taban | vasat | kural_motoru | vasata göre |
+|---|---|---|---|---|
+| küçük nalbur | 228.696 | 232.413 | 247.699 | %-6,6 |
+| yapı toptancısı | 5.578.239 | 5.438.518 | 5.649.408 | %-3,9 |
+
+Batak zararında kural motoru her iki profilde önde (178.415 vs 186.745 ·
+4.478.426 vs 4.631.836). Kaybettiği kalem marj kaybı (limit kolu bedeli).
+
+## Limit kolu: iki kez ölçüldü, iki farklı cevap
+
+**A7.1 — eşik/kesinti taraması** (kol ne kadar tetiklenirse o kadar zarar):
+
+| eşik | limit kararı | marj kaybı | vasata göre |
+|---|---|---|---|
+| kapalı | 0 | 0 | %-2,4 |
+| 30 | 12 | 1.748 | %-3,1 |
+| 45 | 165 | 24.215 | %-6,1 |
+| 60 | 305 | 50.048 | %-16,0 |
+
+**A5 — risk taraması** (kol açık vs kapalı, net katkı TL):
+
+| batak oranı | 1 yıl | 3 yıl |
+|---|---|---|
+| %2 | -8.543 | +18.309 |
+| %5 | +31.445 | +67.109 |
+| %10 | +18.644 | +96.541 |
+
+Karar: kol **açık**. Belirleyici çoğunluk değil kaybın asimetrisi —
+gereksizken açık olmak 8.543 TL, gerekliyken kapalı olmak 96.541 TL.
+
+## Duyarlılık: takip maliyeti
+
+| takip maliyeti | vasat | kural_motoru | fark |
+|---|---|---|---|
+| 0 TL | 214.113 | 220.499 | %-3,0 |
+| 50 TL | 220.213 | 226.349 | %-2,8 |
+| 150 TL | 232.413 | 238.049 | %-2,4 |
+| 400 TL | 262.913 | 267.299 | %-1,7 |
+| 1.000 TL | 336.113 | 337.499 | %-0,4 |
+
+Beş noktada da kaybediyor → sonuç parametre seçiminin eseri değil.
+
+## İş gücü (A1)
+
+| | vasat | kural_motoru |
+|---|---|---|
+| takip saati | 40,7 | 39,0 |
+| kurtarılan fatura | 74 | 81 |
+| kurtarılan tutar | **8.437 TL** | 6.606 TL |
+| saat başına | **207 TL** | 169 TL |
+
+⚠️ Adet aldatıyor: motor daha çok fatura kurtarıyor, daha az para.
+§12'den sonra bu tablo da geçersiz — sistem artık daha çok arıyor.
+
+## Maddiyet kolu (§12)
+
+| | küçük nalbur | yapı toptancısı |
+|---|---|---|
+| kapalı | 246.592 | 5.705.491 |
+| açık | 247.699 | **5.649.408** |
+| takip sayısı | 121 → 136 | 650 → **1.305** |
+
+Küçük profilde zarar, büyük profilde kazanç. Tek profilde ölçülseydi
+yanlış karar verilirdi.
+
+## Stok tarafı
+
+- Ölü stok eşiği `max(mutlak, göreceli)` — finanstaki kusurun karşılığı
+  **yok** (orada `min` yazılmıştı).
+- Stoksuzluk artık ölü stok sayılmıyor (§11): elde en az 1 günlük talebi
+  karşılayacak mal olmalı.
+- `stok.tedarikci_degisim` artık üretiliyor (§5), ortogonal kol olarak.
+
+## Geriye dönük test hattı (§13)
+
+İlk deneme koşusu: duyarlılık 1,00 — **ama sipariş önerisi oranı da 1,00**.
+Yani sayı iyiliği değil ayrımsızlığı gösteriyordu. İki sayı birlikte
+okunmalı.
