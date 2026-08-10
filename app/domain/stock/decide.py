@@ -43,6 +43,7 @@ from app.domain.stock.rules import (
     olu_stok_degerlendir,
     rop_ve_emniyet_stogu,
     siparis_miktari_hesapla,
+    tedarikci_degisim_degerlendir,
     tedarikci_skoru_hesapla,
 )
 from simulator.company import yapi_malzemesi_toptancisi
@@ -295,6 +296,82 @@ def ozellikten_karar_uret(ozellik: StockFeatures) -> DecisionCandidate:
         tetiklenen_kurallar=kurallar,
         ozellikler=ozellik,
         model_surumleri={"rules": KURAL_SURUMU, "demand_ml": "-"},
+    )
+
+
+def ozellikten_kararlar_uret(ozellik: StockFeatures) -> list[DecisionCandidate]:
+    """`StockFeatures` → koşulu sağlanan **tüm** kararlar.
+
+    `app/domain/finance/decide.py::ozellikten_kararlar_uret` ile aynı
+    sözleşme, ama içindeki mantık bilinçli olarak farklı:
+
+    · **Tasfiye ve sipariş dışlayıcı kalıyor.** İkisi aynı soruya zıt cevap
+      veriyor ("bu mala para bağlamalı mıyım?"), aynı anda uygulanamaz.
+      A2 incelemesi bunu doğruladı (`BILINEN-EKSIKLER.md` §11).
+    · **Tedarikçi değişimi ortogonal.** "Bu malı kimden almalıyım?" ayrı bir
+      soru; ölü stok tespiti onu geçersiz kılmaz. Finanstaki karşılık/takip
+      ayrımıyla aynı gerekçe (§9).
+
+    Yani liste en fazla iki karar taşır: biri stok aksiyonu, biri tedarikçi.
+    """
+    kararlar: list[DecisionCandidate] = []
+
+    birincil = ozellikten_karar_uret(ozellik)
+    degisim = _tedarikci_degisim_karari(ozellik)
+
+    # "Aksiyon yok" + tedarikçi kararı birlikte anlamsız: yapılacak bir şey
+    # VAR. Aksi hâlde kuyrukta hem "bir şey yapma" hem "tedarikçiyi gözden
+    # geçir" satırı yan yana görünürdü.
+    if not (birincil.tip is KararTipi.STOK_AKSIYON_YOK and degisim is not None):
+        kararlar.append(birincil)
+    if degisim is not None:
+        kararlar.append(degisim)
+
+    return kararlar
+
+
+def _tedarikci_degisim_karari(ozellik: StockFeatures) -> DecisionCandidate | None:
+    """Tedarikçi gözden geçirme kararı — koşul sağlanmıyorsa `None`.
+
+    ⚠️ Faz 8'e kadar `stok.tedarikci_degisim` tipi tanımlıydı ama hiç
+    üretilmiyordu (`BILINEN-EKSIKLER.md` §5). Ölü bir karar tipi, politika
+    tablosunda eşiği olan ama asla tetiklenmeyen bir satır demek — sistemin
+    neyi yapabildiğine dair yanlış bir izlenim veriyordu.
+    """
+    d = tedarikci_degisim_degerlendir(ozellik)
+    if not d["gozden_gecirilmeli"]:
+        return None
+
+    return DecisionCandidate(
+        alan=Alan.STOK,
+        tip=KararTipi.STOK_TEDARIKCI_DEGISIM,
+        aksiyon={
+            "tedarikci_id": ozellik.tedarikci_id,
+            "tedarikci_skoru": ozellik.tedarikci_skoru,
+        },
+        tahmini_tutar_tl=round(d["maruz_kalinan_deger_tl"], 2),
+        # Tedarikçi değişimi geri alınabilir: sözleşme yenilenebilir,
+        # eski tedarikçiye dönülebilir. Tasfiyeden farkı bu.
+        geri_alinabilir=True,
+        guven=_guven_skoru_hesapla(ozellik),
+        tetiklenen_kurallar=[
+            FiredRule(
+                kod="TEDARIKCI_SKORU_DUSUK",
+                aciklama=(
+                    f"Tedarikçi skoru {ozellik.tedarikci_skoru:.0f}; zamanında teslim "
+                    f"oranı %{ozellik.tedarikci_zamaninda_teslim_orani * 100:.0f}. "
+                    f"Alternatif tedarikçi değerlendirilmeli."
+                ),
+                degerler={
+                    "tedarikci_skoru": ozellik.tedarikci_skoru,
+                    "tedarikci_degisim_esigi": d["tedarikci_degisim_esigi"],
+                    "tedarikci_zamaninda_teslim_orani": ozellik.tedarikci_zamaninda_teslim_orani,
+                    "maruz_kalinan_deger_tl": d["maruz_kalinan_deger_tl"],
+                },
+            )
+        ],
+        ozellikler=ozellik,
+        model_surumleri={"rules": KURAL_SURUMU},
     )
 
 

@@ -269,6 +269,29 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
 TEDARIKCI_SKOR_AGIRLIK_ZAMANINDA = 0.6
 TEDARIKCI_SKOR_AGIRLIK_TUTARLILIK = 0.4
 
+TEDARIKCI_DEGISIM_SKOR_ESIGI = 50.0
+"""Bu skorun altındaki tedarikçi için değişim/gözden geçirme önerilir (0-100).
+
+50, skorun iki bileşeninin de ortalamanın altına düştüğü nokta: teslim
+süresi beklenenin ~iki katı VEYA sapma ortalamanın kendisi kadar. Ikisinden
+biri tek başına bu seviyeye indiriyorsa tedarik zinciri planlanamaz hâle
+gelmiş demektir."""
+
+TEDARIKCI_DEGISIM_ASGARI_VERI_GUN = 180
+"""Bu kadar geçmiş yoksa tedarikçi değişimi ÖNERİLMEZ.
+
+⚠️ Faz 7'de finans tarafında ölçülen kusurun buraya taşınmaması için:
+`limit_dusurulmeli`, veri azken tahsilat oranı düşük göründüğü için 150
+müşterinin 102'sinde yanlış tetikleniyordu (`BILINEN-EKSIKLER.md` §8).
+Karşı taraf hakkında karar veren her kural, kanıt yeterliliğine bakmak
+zorunda.
+
+⚠️ **Bu bir vekil ölçü.** Doğru kapı "bu tedarikçiye kaç sipariş verildi"
+olurdu; `StockFeatures` o alanı taşımıyor ve eklemek sözleşme değişikliği
+demek. `veri_gun_sayisi` talep geçmişinin uzunluğu — tedarikçi geçmişiyle
+korele ama aynı şey değil. Sözleşme bir sonraki turda açılırsa
+`tedarikci_siparis_sayisi` eklenmeli."""
+
 
 def _tedarikci_id_indeksli(tedarikci_df: pd.DataFrame) -> pd.DataFrame:
     """`tedarikci_df`'yi `tedarikci_id` index'iyle döndürür — gelen DataFrame ister
@@ -308,6 +331,39 @@ def tedarikci_performans_ozeti(
         ].fillna(0.0)
         ozet["siparis_sayisi"] = ozet["siparis_sayisi"].fillna(0)
     return ozet
+
+
+def tedarikci_degisim_degerlendir(ozellik: StockFeatures) -> dict:
+    """Bu SKU'nun tedarikçisi gözden geçirilmeli mi?
+
+    ⚠️ **Bu kol ORTOGONAL** — ölü stok ya da sipariş kararıyla yarışmaz.
+    "Bu mala para bağlamalı mıyım?" ile "bu malı kimden almalıyım?" ayrı
+    sorular; biri diğerini geçersiz kılmaz. Gerekçe: `BILINEN-EKSIKLER.md`
+    §9 (finansta bu ayrım gözden kaçmış, ölçümle bulunmuştu) ve §11.
+
+    ⚠️ Öneri "tedarikçiyi değiştir" değil **"gözden geçir"**: alternatif
+    tedarikçi bilgisi `StockFeatures`'ta yok. Sistem sorunu işaret ediyor,
+    yerine kimin geleceğini insan seçiyor.
+
+    `maruz_kalinan_deger_tl`, bir tedarik döngüsünde bu tedarikçiye bağlı
+    mal değeri — kararın büyüklüğü bu. Skoru düşük ama küçük bir C-sınıfı
+    ürünü besleyen tedarikçi, aynı skorla A-sınıfı ürünü besleyenden farklı
+    aciliyettedir.
+    """
+    skor = ozellik.tedarikci_skoru
+    yeterli_veri = ozellik.veri_gun_sayisi >= TEDARIKCI_DEGISIM_ASGARI_VERI_GUN
+    maruz_kalinan = (
+        ozellik.ort_gunluk_talep * ozellik.tedarik_suresi_gun * ozellik.birim_maliyet_tl
+    )
+
+    return {
+        "tedarikci_skoru": skor,
+        "tedarikci_degisim_esigi": TEDARIKCI_DEGISIM_SKOR_ESIGI,
+        "maruz_kalinan_deger_tl": round(maruz_kalinan, 2),
+        "gozden_gecirilmeli": bool(
+            skor < TEDARIKCI_DEGISIM_SKOR_ESIGI and yeterli_veri and ozellik.ort_gunluk_talep > 0
+        ),
+    }
 
 
 def tedarikci_skoru_hesapla(siparisler: pd.DataFrame, tedarikci_df: pd.DataFrame) -> pd.DataFrame:
@@ -371,6 +427,7 @@ __all__ = [
     "rop_ve_emniyet_stogu",
     "siparis_miktari_hesapla",
     "siparis_miktarini_yuvarla",
+    "tedarikci_degisim_degerlendir",
     "tedarikci_performans_ozeti",
     "tedarikci_skoru_hesapla",
     "xyz_sinif_ata",

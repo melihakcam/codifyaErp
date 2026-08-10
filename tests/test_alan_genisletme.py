@@ -336,3 +336,48 @@ def test_stoksuzluk_olu_stok_gibi_gorunuyor():
     assert karar.tip is KararTipi.STOK_TASFIYE, (
         "davranış değiştiyse §11 çözülmüş olabilir — testi ve belgeyi güncelle"
     )
+
+
+def test_tedarikci_degisim_artik_uretiliyor():
+    """§5 kapanıyor: tanımlı ama ölü olan karar tipi artık tetikleniyor."""
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    kotu_tedarikci = _stok_ozelligi(tedarikci_skoru=30.0, tedarikci_zamaninda_teslim_orani=0.55)
+    tipler = {k.tip for k in ozellikten_kararlar_uret(kotu_tedarikci)}
+
+    assert KararTipi.STOK_TEDARIKCI_DEGISIM in tipler
+
+
+def test_tedarikci_degisimi_siparisi_bastirmiyor():
+    """⭐ A2'nin bağlayıcı çıktısı: kol ORTOGONAL, `elif` zincirinde değil.
+
+    Stoğu ROP'un altına düşmüş VE tedarikçisi kötü bir SKU iki karar birden
+    almalı: mal sipariş edilmeli (bugünkü ihtiyaç) ve tedarikçi gözden
+    geçirilmeli (yapısal sorun). Biri diğerini geçersiz kılmaz.
+    """
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    hem_stoksuz_hem_kotu = _stok_ozelligi(
+        eldeki_stok=5, tedarikci_skoru=30.0, tedarikci_zamaninda_teslim_orani=0.55
+    )
+    tipler = {k.tip for k in ozellikten_kararlar_uret(hem_stoksuz_hem_kotu)}
+
+    assert tipler == {KararTipi.STOK_SIPARIS, KararTipi.STOK_TEDARIKCI_DEGISIM}
+
+
+def test_az_veriyle_tedarikci_degisimi_onerilmiyor():
+    """Finanstaki kusur buraya taşınmasın: kanıt yetersizken karşı taraf
+    hakkında karar verilmez (`BILINEN-EKSIKLER.md` §8)."""
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    yeni_tedarikci = _stok_ozelligi(tedarikci_skoru=30.0, veri_gun_sayisi=60)
+    tipler = {k.tip for k in ozellikten_kararlar_uret(yeni_tedarikci)}
+
+    assert KararTipi.STOK_TEDARIKCI_DEGISIM not in tipler
+
+
+def test_saglam_tedarikcide_ek_karar_yok():
+    from app.domain.stock.decide import ozellikten_kararlar_uret
+
+    kararlar = ozellikten_kararlar_uret(_stok_ozelligi())
+    assert len(kararlar) == 1

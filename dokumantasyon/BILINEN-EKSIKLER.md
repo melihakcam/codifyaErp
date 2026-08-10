@@ -94,12 +94,35 @@ Geriye dönük test (geçmiş 12 ay) bir haftalık canlı gözlemden güçlü ka
 
 ---
 
-## 5. 🟢 `stok.tedarikci_degisim` hiç üretilmiyor
+## 5. ✅ ÇÖZÜLDÜ — `stok.tedarikci_degisim` artık üretiliyor
 
 Kural motoru bu karar tipini hiç çıkarmıyor; golden set'te de örneği yok.
 Politika tablosunda ve `KararTipi`'nde tanımlı ama ölü.
 
-**Ne zaman:** ya kural yazılmalı ya da tip kaldırılmalı. Acil değil.
+**✅ 2026-08-10'da çözüldü (A3).** Kural yazıldı:
+`rules.tedarikci_degisim_degerlendir` + `decide._tedarikci_degisim_karari`.
+
+Üç tasarım kararı, üçü de bugün ölçülen kusurlardan geliyor:
+
+1. **Ortogonal kol.** `elif` zincirine EKLENMEDİ. "Bu mala para bağlamalı
+   mıyım?" ile "bu malı kimden almalıyım?" ayrı sorular; bir SKU aynı anda
+   hem sipariş hem tedarikçi gözden geçirme kararı alabiliyor (§9, §11).
+2. **Kanıt kapısı.** `TEDARIKCI_DEGISIM_ASGARI_VERI_GUN = 180`. Finansta
+   limit kolu, veri azken yanlış tetikleniyordu (§8); karşı taraf hakkında
+   karar veren her kural kanıt yeterliliğine bakmak zorunda.
+3. **Öneri "değiştir" değil "gözden geçir".** Alternatif tedarikçi bilgisi
+   `StockFeatures`'ta yok — sistem sorunu işaret ediyor, yerine kimin
+   geleceğini insan seçiyor.
+
+⚠️ **Bilinen sınır:** kanıt kapısı `veri_gun_sayisi` üzerinden, yani bir
+**vekil ölçü**. Doğru kapı "bu tedarikçiye kaç sipariş verildi" olurdu ama
+`StockFeatures` o alanı taşımıyor ve eklemek sözleşme değişikliği demek.
+Sözleşme açıldığında `tedarikci_siparis_sayisi` eklenmeli.
+
+⚠️ **B'ye etkisi:** `ozellikten_kararlar_uret` (çoğul) eklendi; tekil sürüm
+davranışını korudu. Gecelik iş ve API çoğula geçtiğinde
+(B1) bu karar tipi kuyrukta görünmeye başlayacak — politika tablosunda
+eşiği zaten tanımlı.
 
 ---
 

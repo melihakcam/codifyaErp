@@ -630,7 +630,12 @@ notu, ya finanstaki gibi bir düzeltme + regresyon testi.
 
 </details>
 
-## A3 — `stok.tedarikci_degisim` ölü tipi 🟡
+## A3 — `stok.tedarikci_degisim` ölü tipi ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> Kural yazıldı, ortogonal kol olarak bağlandı, kanıt kapısı kondu.
+> Ayrıntı: `BILINEN-EKSIKLER.md` §5. Sırada **A1**.
+
+<details><summary>Özgün görev tanımı</summary>
 
 `BILINEN-EKSIKLER.md` §5. Kural motoru bu tipi hiç üretmiyor; golden set'te
 örneği yok. Politika tablosunda ve `KararTipi`'nde tanımlı ama ölü.
@@ -641,6 +646,8 @@ tespiti onu geçersiz kılmaz. Ortogonal kol, ortogonal üretilir
 (`BILINEN-EKSIKLER.md` §9 ve §11).
 
 **Bitti sayılır:** ya kural + test, ya tipin kaldırılması. Ortada bırakma.
+
+</details>
 
 ## A4 — Gerçek veri hattı 🔴
 
