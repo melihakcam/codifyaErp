@@ -49,6 +49,7 @@ from app.domain.finance.rules import (
     esik_ve_emniyet_gunu,
     karsilik_degerlendir,
     limit_degerlendir,
+    takip_gerekcesi,
 )
 
 # Güven skoru, veri geçmişinin uzunluğuyla artar. 365 günlük geçmiş tam
@@ -196,9 +197,14 @@ def ozellikten_kararlar_uret(ozellik: FinansOzellikleri) -> list[DecisionCandida
             )
         )
 
-    if ozellik.en_eski_gecikme_gun > esik and ozellik.vadesi_gecen_tl > 0:
-        # ⭐ Bu koşul artık karşılık/limit kollarından BAĞIMSIZ. Faz 7 öncesi
+    takip = takip_gerekcesi(ozellik, esik)
+    if takip["gerekli"]:
+        # ⭐ Bu koşul karşılık/limit kollarından BAĞIMSIZ. Faz 7 öncesi
         # `elif` idi ve batık müşteri hiçbir zaman buraya ulaşmıyordu.
+        #
+        # ⭐ Artık iki kolla tetikleniyor: anomali (istatistik) ve maddiyet
+        # (ekonomi). Öncesinde yalnızca anomali vardı ve sistem, sıradan
+        # görünen büyük alacakları atlıyordu — A1'de ölçüldü (§12).
         kararlar.append(
             _aday(
                 ozellik,
@@ -212,15 +218,22 @@ def ozellikten_kararlar_uret(ozellik: FinansOzellikleri) -> list[DecisionCandida
                 kurallar=[
                     taban,
                     FiredRule(
-                        kod="TAKIP_ESIGI_ASILDI",
+                        kod="TAKIP_ESIGI_ASILDI" if takip["anomali"] else "TUTAR_TAKIBE_DEGER",
                         aciklama=(
                             "Gecikme, müşterinin kendi ödeme davranışından beklenen "
                             "eşiği aştı."
+                            if takip["anomali"]
+                            else (
+                                f"Gecikme bu müşteri için olağandışı değil, ama "
+                                f"{ozellik.vadesi_gecen_tl:,.0f} TL alacak takip "
+                                f"maliyetini fazlasıyla karşılıyor."
+                            )
                         ),
                         degerler={
                             "takip_esigi_gun": round(esik, 2),
                             "en_eski_gecikme_gun": float(ozellik.en_eski_gecikme_gun),
                             "vadesi_gecen_tl": round(ozellik.vadesi_gecen_tl, 2),
+                            "maddi_takip_esigi_tl": takip["maddi_takip_esigi_tl"],
                         },
                     ),
                 ],

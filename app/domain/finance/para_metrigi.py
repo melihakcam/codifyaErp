@@ -61,6 +61,7 @@ import numpy as np
 import pandas as pd
 
 from app.contracts import KararTipi
+from app.domain.finance import rules
 from app.domain.finance.decide import ozellikten_kararlar_uret
 from app.domain.finance.features import musteri_ozelliklerini_hesapla
 from simulator.company import CompanyProfile, yapi_malzemesi_toptancisi
@@ -104,9 +105,12 @@ faturayı kurtarıyordu. Gerçekte ödemeyen müşteri her ay **aynı sebeple**
 Bağımsız çekiliş varsayımı, yeterince ısrarcı her politikayı kazanan yapar —
 ölçüm aracı olarak değersizleştirir."""
 
-TAKIP_SURESI_DK = 20.0
-"""Bir tahsilat eyleminin insan zamanı: dosyayı aç, geçmişi oku, ara,
-konuş, not düş, hatırlatıcı kur.
+TAKIP_SURESI_DK = rules.TAKIP_SURESI_DK
+"""Bir tahsilat eyleminin insan zamanı — `rules`'tan geliyor.
+
+⚠️ Tek kaynak: kural motoru bu sayıyı `MADDI_TAKIP_ESIGI_TL`'yi türetmek
+için de kullanıyor. İki yerde ayrı tanımlansaydı, biri değiştiğinde ölçüm
+ile karar farklı dünyalarda yaşamaya başlardı.
 
 ⭐ **A1'in ana metriği bu.** Para metriği finansta çıkmadı (§8) ama iş
 gücü tarafında sistemin ölçülebilir bir üstünlüğü var: aynı işi daha az
@@ -114,21 +118,19 @@ aramayla yapıyor. Saat, TL'den daha savunulabilir bir birim — çünkü
 `TAKIP_MALIYETI_TL`'nin aksine bir **varsayım değil, bir sayım**: kaç
 arama yapıldığı simülasyonda kesin biliniyor."""
 
-PERSONEL_SAATLIK_MALIYET_TL = 450.0
-"""Tahsilat personelinin yüklenmiş saatlik maliyeti (maaş + yan haklar +
-genel gider). `TAKIP_MALIYETI_TL` buradan türüyor ki iki sayı birbirinden
-kaymasın."""
+PERSONEL_SAATLIK_MALIYET_TL = rules.PERSONEL_SAATLIK_MALIYET_TL
+"""Tahsilat personelinin yüklenmiş saatlik maliyeti — `rules`'tan geliyor."""
 
-TAKIP_MALIYETI_TL = PERSONEL_SAATLIK_MALIYET_TL * (TAKIP_SURESI_DK / 60.0)
+TAKIP_MALIYETI_TL = rules.TAKIP_EYLEM_MALIYETI_TL
 """Bir tahsilat eyleminin parasal maliyeti — 20 dk × 450 TL/saat = 150 TL.
 
 ⚠️ Sonucun en duyarlı olduğu sayı bu. Sıfıra yaklaştıkça "herkesi ara"
 politikası kazanır — seçici olmanın değeri, seçmemenin bedeliyle ölçülüyor.
 `duyarlilik_analizi_calistir` bu bağımlılığı açıkça gösteriyor."""
 
-YILLIK_FINANSMAN_ORANI = 0.45
-"""Tahsil edilmemiş alacağın yıllık taşıma maliyeti. Alacak, müşteriye
-verilmiş faizsiz kredidir; parayı bir yerden bulmak gerekir."""
+YILLIK_FINANSMAN_ORANI = rules.YILLIK_FINANSMAN_ORANI
+"""Tahsil edilmemiş alacağın yıllık taşıma maliyeti — `rules`'tan geliyor.
+Alacak, müşteriye verilmiş faizsiz kredidir."""
 
 # ---------------------------------------------------------------------------
 # Vasat politika

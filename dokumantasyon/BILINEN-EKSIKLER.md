@@ -495,3 +495,50 @@ yapıyoruz.
 **Müşteri bazında ayar:** portföyün batak oranı %3'ün altındaysa ve
 planlama ufku 1 yılsa `LIMIT_KOLU_AKTIF = False` yapılabilir. Emin
 değilsen açık bırak.
+
+
+---
+
+## 15. ✅ §12 çözüldü: takip kararı artık tutara da bakıyor
+
+A1'in teşhisi: takip eşiği "bu gecikme bu müşteri için olağandışı mı?"
+diye soruyordu (**anomali**) ama "bu alacak aramaya değer mi?" diye hiç
+sormuyordu (**maddiyet**).
+
+`rules.takip_gerekcesi` iki ortogonal kol taşıyor. Maddiyet eşiği
+**seçilmedi, türetildi**:
+
+    eylem maliyeti = alacak x günlük finansman oranı x ufuk
+    150 TL = X x (0,45/365) x 30  →  X ≈ 4.056 TL
+
+⭐ Türetilmiş olması önemli: bu bir "iş kararı" değil, iki iş girdisinin
+(personel maliyeti, finansman oranı) sonucu. Müşteride faiz düşükse eşik
+kendiliğinden yükselir.
+
+Yan fayda: `PERSONEL_SAATLIK_MALIYET_TL`, `TAKIP_SURESI_DK` ve
+`YILLIK_FINANSMAN_ORANI` artık **tek yerde** (`rules.py`); ölçüm modülü
+oradan okuyor. Önceden ikisinde ayrı tanımlıydı ve sessizce ayrışabilirdi.
+
+### Sonuç: profile göre değişiyor
+
+| | küçük nalbur (1 yıl) | yapı toptancısı (1 yıl) |
+|---|---|---|
+| maddiyet kapalı | 246.592 | 5.705.491 |
+| maddiyet açık | 247.699 | **5.649.408** |
+| batak zararı | değişmedi | 4.566.924 → **4.478.426** |
+| takip sayısı | 121 → 136 | 650 → **1.305** |
+| kurtarılan tutar | ~aynı | 54.092 → **87.871** |
+
+**Küçük nalburda zarar (+1.107 TL)**: 15 fazla arama, sıfır ek kurtarma.
+Türetilmiş eşik o ölçekte nadiren bağlıyor.
+
+**Büyük toptancıda kazanç (−56.083 TL)**: batak zararı 88 bin TL düşüyor,
+kurtarılan tutar %62 artıyor.
+
+⚠️ **Bedeli: iş yükü iki katına çıkıyor** (650 → 1.305 arama) ve saat
+başına verim düşüyor (250 → 202 TL). Yani §12'nin düzeltmesi A1'in "daha az
+aramayla" anlatısını **büsbütün ortadan kaldırıyor**. Sistem artık daha çok
+arıyor ve daha çok para kurtarıyor.
+
+**Açık kalan:** kural motoru büyük profilde hâlâ vasatın gerisinde
+(5.649.408 vs 5.438.518). §8 kapanmadı.

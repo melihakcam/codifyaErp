@@ -113,6 +113,81 @@ def takip_esigi_hesapla(
     return ort_odeme_gecikmesi_gun + emniyet_gunu
 
 
+# ---------------------------------------------------------------------------
+# Maddiyet kolu — "bu benim zamanıma değer mi?"
+# ---------------------------------------------------------------------------
+#
+# ⭐ A1 ölçümünün doğurduğu kol. Takip eşiği "bu gecikme bu müşteri için
+# olağandışı mı?" diye soruyor — bir ANOMALİ dedektörü. Ama "bu alacak
+# aramaya değer mi?" diye hiç sormuyordu.
+#
+# Ölçülen sonucu: kural motoru vasat politikadan daha ÇOK fatura kurtarıyor
+# (81 vs 74) ama daha AZ para (6.606 vs 8.437 TL). Kurtardıkları küçük
+# faturalar; istatistiksel olarak sıradan görünen büyük alacaklar
+# atlanıyordu (`BILINEN-EKSIKLER.md` §12).
+
+PERSONEL_SAATLIK_MALIYET_TL = 450.0
+"""Tahsilat personelinin yüklenmiş saatlik maliyeti (maaş + yan hak + genel
+gider). İş girdisi olduğu için kural motorunda; ölçüm modülü buradan okur ki
+iki sayı ayrışmasın."""
+
+TAKIP_SURESI_DK = 20.0
+"""Bir tahsilat eyleminin insan zamanı: dosyayı aç, geçmişi oku, ara, konuş,
+not düş, hatırlatıcı kur."""
+
+TAKIP_EYLEM_MALIYETI_TL = PERSONEL_SAATLIK_MALIYET_TL * (TAKIP_SURESI_DK / 60.0)
+"""Bir tahsilat eyleminin maliyeti — 20 dk × 450 TL/saat = 150 TL."""
+
+YILLIK_FINANSMAN_ORANI = 0.45
+"""Tahsil edilmemiş alacağın yıllık taşıma maliyeti."""
+
+MADDI_TAKIP_UFKU_GUN = 30
+"""Aramanın kazancı bu kadar günlük finansman tasarrufu üzerinden ölçülüyor —
+bir sonraki inceleme döngüsü."""
+
+MADDI_TAKIP_ESIGI_TL = TAKIP_EYLEM_MALIYETI_TL / (
+    YILLIK_FINANSMAN_ORANI / 365.0 * MADDI_TAKIP_UFKU_GUN
+)
+"""Aramanın kendini ödediği asgari alacak — **seçilmedi, türetildi.**
+
+    eylem maliyeti = alacak x günlük finansman oranı x ufuk
+    150 TL = X x (0,45/365) x 30  →  X ≈ 4.054 TL
+
+⭐ Türetilmiş olması önemli: bu sayı bir "iş kararı" değil, iki iş
+girdisinin (personel maliyeti, finansman oranı) sonucu. Müşteride faiz
+düşükse eşik yükselir, personel ucuzsa düşer — kendiliğinden."""
+
+MADDI_ASGARI_GECIKME_GUN = 7
+"""Maddiyet kolu için asgari gecikme. Vadesi dün dolmuş büyük bir faturayı
+aramak, müşteriyi gereksiz yere rahatsız etmek olur; kol "büyük ve gecikmiş"
+diyor, "büyük" demiyor."""
+
+
+def takip_gerekcesi(ozellik: FinansOzellikleri, takip_esigi: float) -> dict:
+    """Takip gerekli mi ve **hangi kol** tetikledi?
+
+    İki kol ORTOGONAL ve ikisi de ayrı sorulara cevap veriyor:
+
+    · `anomali`  — bu gecikme bu müşteri için olağandışı mı? (istatistik)
+    · `maddiyet` — bu alacak aramaya değer mi? (ekonomi)
+
+    Hangisinin tetiklediği `FiredRule` üzerinden gerekçeye taşınıyor: "bu
+    müşteri normalde 20 günde öder, 60 gündür ödemiyor" ile "bu alacak
+    82.000 TL ve 40 gündür gecikmede" farklı cümleler, farklı aksiyonlar.
+    """
+    anomali = ozellik.en_eski_gecikme_gun > takip_esigi and ozellik.vadesi_gecen_tl > 0
+    maddiyet = (
+        ozellik.vadesi_gecen_tl >= MADDI_TAKIP_ESIGI_TL
+        and ozellik.en_eski_gecikme_gun >= MADDI_ASGARI_GECIKME_GUN
+    )
+    return {
+        "anomali": bool(anomali),
+        "maddiyet": bool(maddiyet),
+        "gerekli": bool(anomali or maddiyet),
+        "maddi_takip_esigi_tl": round(MADDI_TAKIP_ESIGI_TL, 2),
+    }
+
+
 def esik_ve_emniyet_gunu(ozellik: FinansOzellikleri) -> tuple[float, float]:
     """`FinansOzellikleri`'nden (takip_esigi, emniyet_gunu) — `decide.py` girişi."""
     emniyet = emniyet_gunu_hesapla(
@@ -345,9 +420,16 @@ __all__ = [
     "KARSILIK_TABAN_ESIK_GUN",
     "LIMIT_DUSURME_SKOR_ESIGI",
     "LIMIT_KOLU_AKTIF",
+    "MADDI_ASGARI_GECIKME_GUN",
+    "MADDI_TAKIP_ESIGI_TL",
+    "MADDI_TAKIP_UFKU_GUN",
     "MAKS_LIMIT_KESINTI_ORANI",
+    "PERSONEL_SAATLIK_MALIYET_TL",
     "RISK_AGIRLIK_GECIKME",
     "RISK_AGIRLIK_TAHSILAT",
+    "TAKIP_EYLEM_MALIYETI_TL",
+    "TAKIP_SURESI_DK",
+    "YILLIK_FINANSMAN_ORANI",
     "emniyet_gunu_hesapla",
     "esik_ve_emniyet_gunu",
     "karsilik_degerlendir",
@@ -356,4 +438,5 @@ __all__ = [
     "limit_degerlendir",
     "musteri_risk_skoru",
     "takip_esigi_hesapla",
+    "takip_gerekcesi",
 ]
