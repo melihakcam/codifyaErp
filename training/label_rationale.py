@@ -383,8 +383,13 @@ def _sekil_prompt_olustur(karar_tipi: str, slot_tokenlari: list[str], varyant_sa
     )
     token_listesi = ", ".join("{" + t + "}" for t in slot_tokenlari)
     durum_aciklamasi = KARAR_TIPI_ACIKLAMASI.get(karar_tipi, karar_tipi)
+    # ⚠️ Rol tanımı alana göre değişiyor (Faz 8). Finans şekillerinde de
+    # "stok yönetimi asistanısın" yazıyordu; büyük modele yanlış bağlam
+    # vermek, üretilen cümlelerin tahsilat yerine stok diliyle yazılmasına
+    # yol açardı — ve o cümleler eğitim verisi olarak kalıcılaşırdı.
+    rol = "alacak ve tahsilat yönetimi" if karar_tipi.startswith("finans.") else "stok yönetimi"
     return (
-        "Sen bir ERP stok yönetimi asistanısın. Aşağıdaki DURUM için "
+        f"Sen bir ERP {rol} asistanısın. Aşağıdaki DURUM için "
         f"{varyant_sayisi} FARKLI, doğal, profesyonel Türkçe gerekçe cümlesi yaz.\n\n"
         f"DURUM: {durum_aciklamasi}\n\n"
         f"Cümlede AYNEN şu {len(slot_tokenlari)} yer tutucunun HEPSİ geçmeli "
@@ -534,11 +539,17 @@ def _tek_satir_prompt_olustur(satir: dict[str, Any]) -> str:
     kurallar_metni = "\n".join(
         f"- {k.kod}: {k.aciklama} ({k.degerler})" for k in aday.tetiklenen_kurallar
     )
+    finans_mi = aday.tip.value.startswith("finans.")
+    rol = "alacak ve tahsilat yönetimi" if finans_mi else "stok yönetimi"
+    # ⚠️ `sku_adi` yerine `gorunen_ad`: sözleşmenin alan-bağımsız cevabı.
+    # Doğrudan `sku_adi` okumak finans kararında `AttributeError` verirdi —
+    # `app/llm/explain.py`'de aynı kusurun üç örneği bulunmuştu (§18).
+    kalem_etiketi = "Müşteri" if finans_mi else "Ürün"
     return (
-        "Sen bir ERP stok yönetimi asistanısın. Aşağıdaki kural motoru çıktısını "
+        f"Sen bir ERP {rol} asistanısın. Aşağıdaki kural motoru çıktısını "
         "TEK bir doğal Türkçe gerekçe cümlesine dönüştür. Yalnızca aşağıda verilen "
         "sayıları kullan, yeni sayı UYDURMA.\n\n"
-        f"Ürün: {aday.ozellikler.sku_adi}\n"
+        f"{kalem_etiketi}: {aday.ozellikler.gorunen_ad}\n"
         f"Karar: {aday.tip.value}\n"
         f"Aksiyon: {aday.aksiyon}\n"
         f"Tetiklenen kurallar:\n{kurallar_metni}\n\n"
