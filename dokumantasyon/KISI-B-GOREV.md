@@ -605,96 +605,114 @@ uv run pytest && uv run ruff check .
 
 ---
 
-# FAZ 7 SONRASI — Kalan işler (Kişi B payı)
+# TUR 8 — Bağımsız iş paketi B (Servis & Model)
 
-> Bu bölüm 2026-08-09'da, Faz 7 (kimlik doğrulama + finansın para metriği)
-> bittiğinde yazıldı. B7.1 **acil**: bugün yapılan bir değişikliğin doğrudan
-> sonucu ve onay ekranını şu an bozuyor olabilir.
+> Yazıldı: 2026-08-10, Faz 7 bitiminde. **Bu paketteki hiçbir madde A
+> paketinden bir çıktı beklemiyor.** Sıra serbest, paralel çalışılabilir.
 
-## B7.1 — Onay kuyruğu çoklu karara hazır değil 🔴 ÖNCE BU
+## Dosya sahipliği (çakışma önleme)
 
-Bugün `app/domain/finance/decide.py` değişti: bir müşteri artık **birden
-çok karar** üretebiliyor (karşılık + limit + takip aynı anda). Gerekçesi
-`BILINEN-EKSIKLER.md` §9 — ölçülmüş bir kusurun düzeltmesi.
+| B'nin sahası | A'nın sahası |
+|---|---|
+| `app/api/**` | `app/domain/**` |
+| `app/core/**` | `app/adapters/**` |
+| `app/llm/**` | `simulator/**` |
+| `app/jobs/**` | `app/contracts.py` *(bu tur A'da)* |
+| `training/eval/**`, `training/veri_*` | `training/build_dataset.py` |
 
-**Sonucu senin tarafında:** onay kuyruğunda aynı müşteri artık 2-3 ayrı
-satır olarak görünüyor. Operatör "Yılmaz İnşaat" için üç kez karar
-veriyor ve bunların birbiriyle ilişkili olduğunu göremiyor.
+⚠️ Bu turda B'nin **sözleşmeye dokunan işi yok**. `app/contracts.py`'de bir
+şey gerekiyorsa dur ve A ile konuş — tek taraflı değiştirme.
 
-**Yapılacak:** `app/api/approvals.py` + `app/api/ui.py`'de kalem bazında
-gruplama. Aynı `kalem_adi` (yeni alan, Faz 7'de eklendi) altındaki kararlar
-tek blokta görünmeli.
-
-⚠️ Kararları **birleştirme**: üçü ayrı karar, ayrı onaylanabilmeli. Sorun
-sunum, veri modeli değil.
-
-**Bitti sayılır:** üç kararı olan bir müşteri ekranda tek başlık altında,
-üç ayrı onay düğmesiyle görünüyor. Test: `tests/test_ui_finans.py` kalıbı.
-
-## B7.2 — Kişi bazlı yetki 🔴
-
-`BILINEN-EKSIKLER.md` §2'nin kalan sınırı. API anahtarı **sistemi**
-doğruluyor, kişiyi değil: denetim kaydındaki `kullanici` hâlâ çağıranın
-serbest metin beyanı. Onay ekranındaki kutuya "genel müdür" yazan herkes
-öyle kaydediliyor.
-
-**Yapılacak:** anahtar → kullanıcı eşlemesi (anahtar başına ad + rol), ve
-`app/api/approvals.py`'de `kullanici` alanının beyandan değil kimlikten
-gelmesi.
-
-**Bitti sayılır:** onay kaydındaki isim değiştirilemiyor. Tutar eşiğine
-göre rol kısıtı (ör. 100k üstünü yalnızca `yonetici` onaylar) ayrıca
-tartışılmalı — otonomi kademelerinin insan tarafındaki karşılığı bu.
-
-## B7.3 — Gecelik iş bütçesi yeniden ölçülmeli 🟡
-
-İki şey değişti ve ikisi de gecelik taramayı büyüttü: ikinci alan (finans)
-ve müşteri başına çoklu karar. `gecelik_gerekce_ust_n = 25` ayarı tek alan
-tek karar varsayımıyla seçilmişti.
-
-**Yapılacak:** taramayı gerçek boyutta koştur, süreyi ve gerekçe kuyruğunun
-uzunluğunu ölç. Faz 5 hedefi hâlâ **< 10 dk**.
-
-**Bitti sayılır:** ölçülmüş süre + gerekirse yeni `gecelik_gerekce_ust_n`.
-Sınır aşılıyorsa hangi kararların gerekçe alacağı iş kararıdır — risk
-skoruna göre mi, alana göre mi?
-
-## B7.4 — Router %75 → gerçek soru toplama 🟡
-
-`BILINEN-EKSIKLER.md` §3. Beş eğitim turu denendi, %95 hedefine
-ulaşılamadı. Değerlendirme: darboğaz eğitim turu sayısı değil, **verinin
-kendisi** — elle yazılmış şablonlar gerçek kullanıcı sorusuna benzemiyor.
-
-**Yapılacak:** `/v1/feedback` ucu bunun için duruyor ama toplanan soru
-kullanılmıyor. Gerçek sorulardan golden set'i büyütecek hattı kur.
-
-**Bitti sayılır:** en az 100 gerçek soru + hedefin gerçekçi bir yere
-çekilmesi (ör. %85) hakkında yazılı bir karar.
-
-## B7.5 — Üretim sertleştirmesi 🟡
-
-Kimlik doğrulama var ama üretim kurulumunun geri kalanı denenmedi:
-
-- `CEREZ_GUVENLI=true` ile TLS arkasında ekran çalışıyor mu?
-- `/docs` ve `/openapi.json` şu an korumasız — şema dışarı açılmalı mı?
-- Hız sınırı (rate limit) yok; anahtar sızarsa sınırsız istek gider.
-- `/health/db` kayıtlı karar sayısını anahtarsız veriyor — sorun mu?
-
-**Bitti sayılır:** her madde için "şöyle çözüldü" ya da "şu yüzden kabul
-edildi" cevabı. Cevapsız madde kalmasın.
-
-## B7.6 — `onay_kuyrugu_sorgula` golden set'te ince 🟢
-
-`BILINEN-EKSIKLER.md` §6. 4 örnek — tek hata %25 oynatıyor. Bir sonraki
-veri turunda hedefli paraphrase.
+⚠️ Kural motorunun davranışı bu tur **sabit**. B'nin tüm işleri mevcut
+karar çıktısını tüketiyor, üretmiyor.
 
 ---
 
-## Kişi A ile buluşma noktaları
+## B1 — Finans API'si çoklu kararı yansıtmıyor 🔴
 
-| konu | kim başlatır | neden birlikte |
-|---|---|---|
-| `contracts.py` değişikliği | ihtiyacı gören | dosya dondurulmuş, tek PR |
-| A7.5 finans eğitim verisi | A üretir, B eğitir | Drive'daki veri klasörü |
-| A7.1 limit kolu kararı | A ölçer, B onaylar | iş değeri iddiası ikinizin imzası |
-| `threshold` moduna geçiş | B'nin kapısı | shadow raporu olmadan ASLA |
+Faz 7'de `ozellikten_kararlar_uret` liste döndürür oldu: bir müşteri aynı
+anda karşılık + takip kararı alabiliyor (`BILINEN-EKSIKLER.md` §9).
+
+**Ama HTTP ucu hâlâ tek karar döndürüyor.** `app/api/decisions.py`
+`finans_karari_uret` çağırıyor, o da listenin yalnızca **birincisini**
+veriyor. Yani ERP, batık bir müşteri için karşılık kararını görüyor ama
+aynı müşterinin tahsilat takibi kararını **hiç görmüyor**.
+
+Bu, düzeltilen kusurun API katmanında hâlâ yaşayan hâli.
+
+**Yapılacak:** finans ucu karar **listesi** döndürmeli. `KararSonucu` tekil;
+ya liste döndüren yeni bir cevap tipi ya da mevcut ucun çoğullaştırılması.
+Sürüm kırılımı olacaksa `ERP-ENTEGRASYON.md`'ye yaz.
+
+**Bitti sayılır:** üç kararı olan bir müşteri için API üçünü de döndürüyor,
+testi var.
+
+## B2 — Onay kuyruğu kalem bazında gruplanmalı 🔴
+
+Aynı değişikliğin ekran tarafı: bir müşteri kuyrukta 2-3 ayrı satır olarak
+görünüyor, operatör bunların aynı müşteriye ait olduğunu göremiyor.
+
+**Yapılacak:** `app/api/ui.py`'de `kalem_adi` (Faz 7'de eklendi) altında
+gruplama. ⚠️ Kararları **birleştirme** — üçü ayrı, ayrı onaylanabilmeli.
+Sorun sunum, veri modeli değil.
+
+**Bitti sayılır:** üç kararlı müşteri tek başlık altında, üç ayrı onay
+düğmesiyle. Kalıp: `tests/test_ui_finans.py`.
+
+## B3 — Kişi bazlı yetki 🔴
+
+`BILINEN-EKSIKLER.md` §2'nin kalan sınırı. API anahtarı **sistemi**
+doğruluyor, kişiyi değil: onay ekranındaki kutuya "genel müdür" yazan
+herkes denetim kaydına öyle geçiyor.
+
+**Yapılacak:** anahtar → (ad, rol) eşlemesi; `app/api/approvals.py`'de
+`kullanici` alanı beyandan değil kimlikten gelsin.
+
+**Bitti sayılır:** onay kaydındaki isim çağıran tarafından
+değiştirilemiyor. Tutar eşiğine göre rol kısıtı (ör. 100k üstünü yalnızca
+`yonetici`) ayrıca tartışılmalı — otonomi kademelerinin insan karşılığı bu.
+
+## B4 — Üretim sertleştirmesi 🟡
+
+Kimlik doğrulama var, üretim kurulumunun geri kalanı denenmedi:
+
+- `CEREZ_GUVENLI=true` ile TLS arkasında ekran çalışıyor mu?
+- `/docs` ve `/openapi.json` korumasız — şema dışarı açılmalı mı?
+- Hız sınırı yok; anahtar sızarsa sınırsız istek gider.
+- `/health/db` kayıtlı karar sayısını anahtarsız veriyor — sorun mu?
+
+**Bitti sayılır:** her madde için "şöyle çözüldü" ya da "şu yüzden kabul
+edildi". Cevapsız madde kalmasın.
+
+## B5 — Model finansı hiç görmedi 🔴
+
+Gerekçe modeli yalnızca stok kararlarıyla eğitildi. Finans kararları için
+gerekçe üretimi **hiç ölçülmedi**: guard finans sayılarıyla sınanmadı,
+golden set'te finans örneği yok, LoRA turlarının hiçbirinde finans verisi
+yoktu.
+
+Canlıda finans kararı geldiğinde model tanımadığı bir girdi görüyor — Faz
+7'de bulunan "eğitim/çalışma zamanı biçim uyuşmazlığı" ile aynı risk.
+
+**Yapılacak (tam dikey, A'ya bağımlı değil):**
+1. Finans kararlarından gerekçe eğitim verisi üret — `app/domain/finance`
+   fonksiyonlarını **çağırarak**, değiştirmeden.
+2. Guard'ı finans sayılarıyla sına (`ORAN_ALANLARI`'na Faz 6'da finans
+   oranları eklenmişti, doğrulanmadı).
+3. Golden set'e finans örnekleri ekle, benchmark'ı yeniden koştur.
+
+**Bitti sayılır:** "finans gerekçelerinde guard reddedilme oranı %X"
+şeklinde bir sayı. Yüksekse bu bir bulgu, başarısızlık değil.
+
+## B6 — Gecelik iş + benchmark yeniden ölçümü 🟡
+
+İki şey değişti ve ikisi de taramayı büyüttü: ikinci alan (finans) ve
+müşteri başına çoklu karar. `gecelik_gerekce_ust_n = 25` tek alan / tek
+karar varsayımıyla seçilmişti. Faz 5 hedefi hâlâ **< 10 dk** ve **< 4 GB**.
+
+Aynı koşuda `BILINEN-EKSIKLER.md` §3'ü de kapat: router %75'te; hedefin
+%95'te kalıp kalmayacağı yazılı bir karar bekliyor. §6 (golden set'te
+`onay_kuyrugu_sorgula` ince, 4 örnek) bu turda B5 ile birlikte düzeltilir.
+
+**Bitti sayılır:** ölçülmüş süre + RAM, gerekirse yeni
+`gecelik_gerekce_ust_n`, ve router hedefi hakkında karar.

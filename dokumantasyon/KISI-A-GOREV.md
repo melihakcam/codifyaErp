@@ -565,89 +565,88 @@ uv run ruff format .
 
 ---
 
-# FAZ 7 SONRASI — Kalan işler (Kişi A payı)
+# TUR 8 — Bağımsız iş paketi A (Alan & Ölçüm)
 
-> Bu bölüm 2026-08-09'da, Faz 7 (kimlik doğrulama + finansın para metriği)
-> bittiğinde yazıldı. Sıra **önem sırası**: A7.1 çözülmeden A7.6'ya
-> geçilmemeli, çünkü A7.1'in cevabı ikinci bir alan eklemenin değerini
-> belirliyor.
+> Yazıldı: 2026-08-10, Faz 7 bitiminde. **Bu paketteki hiçbir madde B
+> paketinden bir çıktı beklemiyor.** Sıra serbest, paralel çalışılabilir.
+>
+> Bağımsızlık dosya sahipliğiyle korunuyor — aşağıdaki tabloya bak.
 
-## A7.1 — Limit kolu kararı ✅ ÇÖZÜLDÜ (2026-08-10)
+## Dosya sahipliği (çakışma önleme)
 
-> **Sonuç: kol kapatıldı.** İki profilde tarandı, her ayarda zararlı çıktı.
-> Tam tablo ve gerekçe: `BILINEN-EKSIKLER.md` §10 ve
-> `rules.LIMIT_KOLU_AKTIF` docstring'i. Sıradaki: **A7.2**.
+| A'nın sahası | B'nin sahası |
+|---|---|
+| `app/domain/**` | `app/api/**` |
+| `app/adapters/**` | `app/core/**` |
+| `simulator/**` | `app/llm/**` |
+| `app/contracts.py` *(bu tur A'da)* | `app/jobs/**` |
+| `training/build_dataset.py` | `training/eval/**`, `training/veri_*` |
 
-<details><summary>Özgün görev tanımı</summary>
+⚠️ `app/contracts.py` bu tur **A'nın sahasında**. B'nin listesinde
+sözleşmeye dokunan iş yok; bu yüzden A tek taraflı değiştirebilir — ama
+değişikliği B'ye **haber vermek zorunda**, çünkü B o tipleri tüketiyor.
 
-`BILINEN-EKSIKLER.md` §8: finansın iş değeri ölçüldü ve **çıkmadı**. Kural
-motoru vasat politikanın %6,1 gerisinde. Sebep tek bir kalemde:
+---
 
-| kalem | kural_motoru | limitsiz |
-|---|---|---|
-| batak zararı | **178.415** (en iyi) | 191.416 |
-| kaybedilen marj | **24.215** | 0 |
+## A1 — Finansın iş değeri sorusunu kapat 🔴
 
-Tahsilat kolu kazanıyor, limit kolu kaybettiriyor.
+`BILINEN-EKSIKLER.md` §8 hâlâ açık. Limit kolu kapatıldıktan sonra kural
+motoru vasatla **başa baş** (küçük profil %-2,4, büyük profil %-0,3) ama
+maliyet üstünlüğü yok.
 
-**Yapılacak:** `LIMIT_DUSURME_SKOR_ESIGI` (şu an 45) ve
-`MAKS_LIMIT_KESINTI_ORANI` (0,5) için tarama koştur — her kombinasyonda
-`tahsilat_politikasi_karsilastir`. Aranan şey: kural motorunun toplam
-maliyeti vasatın altına inen bir ayar var mı?
+Elde olan asıl sinyal başka yerde: **117 aramayla 81 fatura** kurtarılıyor,
+vasat 122 aramayla 74 kurtarıyor. Yani aynı işi daha az emekle.
 
-**Bitti sayılır:** üç cevaptan biri, sayıyla:
-1. "Şu eşikte kazanıyor" → eşiği değiştir, ölçümü rapora yaz.
-2. "Hiçbir eşikte kazanmıyor" → limit kolunu **kaldır**, üç kollu sistem
-   iki kollu olsun. Kaldırmak da bir sonuç.
-3. "Kazanç etki modelinin varsayımına bağlı" → A7.2'ye bağla.
+**Yapılacak:** iş gücü metriğini ölç ve raporla — arama başına personel
+dakikası × arama sayısı. `TAKIP_MALIYETI_TL` zaten bunun parasal karşılığı;
+onu saat cinsinden de ifade et. Ayrıca `duyarlilik_analizi_calistir`'ı
+koştur, iddianın hangi maliyet aralığında geçerli olduğunu tabloya dök.
 
-⚠️ **Tuzak:** kazanana kadar parametre denemek ölçümü ölçüm olmaktan
-çıkarır. Taramanın tamamını raporla, yalnızca kazanan hücreyi değil.
+**Bitti sayılır:** "sistem, tahsilat ekibinin şu kadar saatini şu kadar
+tahsilata çeviriyor" cümlesi, sayıyla. Maliyet iddiası yoksa yok — zorlama.
 
-</details>
+## A2 — Stok karar önceliğini §9 gözüyle incele 🔴
 
-## A7.2 — Etki modelini kalibre et 🔴 ŞİMDİ BU
+Finansta bulunan kusur (`elif` zincirinin sorunlu kalemi tamamen susturması)
+stokta da olabilir. `app/domain/stock/decide.py`'deki `tasfiye → sipariş`
+dışlaması "doğru görünüyor" ama **hiç doğrulanmadı**.
 
-`app/domain/finance/para_metrigi.py`'nin başındaki beş sabit
-(`TAKIP_HIZLANDIRMA_ORANI`, `BATAK_KURTARMA_OLASILIGI`,
-`BATAK_KURTARMA_YARILANMA_GUN`, `BATAK_TEKRAR_SONUMU`,
-`TAKIP_MALIYETI_TL`) sahadan ölçülmedi — makul kabuller.
+**Sorulacak:** ölü sayılan bir SKU aynı anda tedarikçi değişimi
+gerektirebilir mi? Tasfiye kararı onu susturuyor mu?
 
-**Yapılacak:** `duyarlilik_analizi_calistir`'ı koştur, sonucun hangi
-parametre aralığında geçerli olduğunu tablo halinde yaz.
+**Bitti sayılır:** ya "dışlama doğru, şu yüzden" diye kanıtlı bir docstring
+notu, ya finanstaki gibi bir düzeltme + regresyon testi.
 
-**Bitti sayılır:** "kural motoru, takip maliyeti X TL'nin üstünde kazanıyor"
-gibi **koşullu** bir cümle. Koşulsuz iddia edilemez, edilmemeli.
+## A3 — `stok.tedarikci_degisim` ölü tipi 🟡
 
-## A7.3 — Stok karar önceliğini aynı gözle incele 🟡
+`BILINEN-EKSIKLER.md` §5. Kural motoru bu tipi hiç üretmiyor; golden set'te
+örneği yok. Politika tablosunda ve `KararTipi`'nde tanımlı ama ölü.
 
-§9'da finansta bulunan kusur — `elif` zincirinin sorunlu kalemi tamamen
-susturması — stokta da olabilir. `app/domain/stock/decide.py`'deki
-`tasfiye → sipariş` dışlaması "doğru görünüyor" ama **doğrulanmadı**.
+⚠️ A2 ile birlikte düşün: kural yazılırsa öncelik sorusu da doğar.
 
-**Sorulacak soru:** ölü sayılan bir SKU'nun aynı anda tedarikçi değişimi
-gerektirmesi mümkün mü? Tasfiye kararı ikincisini susturuyor mu?
+**Bitti sayılır:** ya kural + test, ya tipin kaldırılması. Ortada bırakma.
 
-**Bitti sayılır:** ya "dışlama doğru, şu yüzden" diye bir docstring notu,
-ya finanstaki gibi bir düzeltme.
+## A4 — Gerçek veri hattı 🔴
 
-## A7.4 — `stok.tedarikci_degisim` ölü tipi 🟢
+`BILINEN-EKSIKLER.md` §4 ve §7. Tüm ölçümler simülasyonda; bu, `threshold`
+moduna geçişi engelleyen tek şey.
 
-`BILINEN-EKSIKLER.md` §5. Kural motoru bu tipi hiç üretmiyor. Ya kuralı
-yaz ya tipi kaldır — ikisi de olur, ortada bırakmak olmaz.
+**Yapılacak:** `app/adapters/csv_erp.py` yazıldı ama gerçek CSV ile hiç
+koşturulmadı. Üç CSV'nin (envanter, hareket, tedarikçi) beklenen şemasını
+netleştir, örnek dosyalarla uçtan uca koştur, `yoldaki_stok`'un 0
+varsayılmasının etkisini ölç.
 
-## A7.5 — Finans eğitim verisi 🟡
+**Bitti sayılır:** geçmiş 12 aylık veriyle geriye dönük test koşabilecek
+bir hat. Veri henüz yoksa **hattın kendisi** ve eksik olanın listesi.
 
-`training/build_dataset.py` yalnızca stoğu kapsıyor. Finans kararları için
-gerekçe eğitim verisi yok; model finans gerekçelerini hiç görmedi.
+## A5 — Limit kolunun yeniden açılma koşulu 🟡
 
-⚠️ Üretirken **çoğul** sürümü kullan (`ozellikten_kararlar_uret`) — tekil
-sürüm batık müşterinin takip kararını hiç üretmez ve veri o kusuru öğrenir.
+`rules.LIMIT_KOLU_AKTIF = False` — A7.1'de ölçülerek kapatıldı. Ama kapatma
+gerekçesinin bir sınırı var: simülasyonda batak oranı %2 ve ufuk 1 yıl,
+oysa kredi limitinin asıl işi **nadir ama büyük** çöküşü engellemek.
 
-**Bitti sayılır:** veri Drive'da, Kişi B eğitime alabilecek durumda.
+**Yapılacak:** batak oranını (%2 → %5, %10) ve ufku (1 → 3 yıl) değiştirip
+taramayı tekrarla. Kol hangi risk seviyesinden sonra kârlı hale geliyor?
 
-## A7.6 — Satış & Fiyatlama alanı 🟢 SONRAYA
-
-Faz 6'nın üçüncü ayağı. **A7.1 bitmeden başlama:** finansın iş değeri
-çıkmadıysa, aynı kalıpla üçüncü bir alan eklemek aynı sonucu üçe katlamak
-olabilir. Önce ikinci alanın değeri kanıtlansın.
+**Bitti sayılır:** "batak oranı %X'i geçtiğinde limit kolu açılmalı" gibi
+bir eşik, ya da "hiçbir makul senaryoda açılmamalı" sonucu. İkisi de değerli.
