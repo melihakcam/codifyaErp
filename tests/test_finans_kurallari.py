@@ -166,21 +166,23 @@ def test_riskli_musteride_limit_dusuruluyor(limit_kolu_acik):
     assert d["onerilen_kredi_limiti_tl"] < riskli.kredi_limiti_tl
 
 
-def test_limit_kolu_varsayilan_kapali():
-    """⭐ A7.1'in sonucu: kol varsayılan olarak kapalı ve bu ölçülmüş bir karar.
+def test_limit_kolu_varsayilan_acik():
+    """⭐ A5'in sonucu: kol varsayılan AÇIK ve bu ölçülmüş bir karar.
 
-    İki şirket profilinde, beş eşik x üç kesinti oranında tarandı; kol ne
-    kadar tetiklenirse toplam maliyet o kadar arttı. Gerekçesi ve tam tablo:
+    ⚠️ Bu bayrak bugün iki kez ölçüldü, iki farklı cevap verdi:
+    A7.1 kapattı (varsayılan senaryoda zarar ettiriyordu), A5 yeniden açtı
+    (altı risk senaryosunun beşinde kârlı). Belirleyici olan çoğunluk değil
+    **kaybın asimetrisi**: gereksizken açık olmak 8.543 TL, gerekliyken
+    kapalı olmak 96.541 TL — 11 kat. Tam tablo:
     `rules.LIMIT_KOLU_AKTIF` docstring'i.
 
-    Bu test bir davranışı değil bir **kararı** koruyor: kol sessizce
-    açılırsa ölçülmemiş bir maliyet geri gelir.
+    Bu test bir davranışı değil bir **kararı** koruyor. Bayrak sessizce
+    değişirse ölçülmemiş bir risk profiline geçilmiş olur.
     """
     riskli = oz(tahsilat_orani=0.30, ort_odeme_gecikmesi_gun=20.0, odeme_gecikmesi_std=45.0)
     d = limit_degerlendir(riskli)
 
-    assert not d["limit_dusurulmeli"]
-    # Risk skoru YİNE hesaplanıyor — riski görmeyi bırakmıyoruz.
+    assert d["limit_dusurulmeli"]
     assert d["musteri_risk_skoru"] < LIMIT_DUSURME_SKOR_ESIGI
 
 
@@ -193,8 +195,19 @@ def test_saglam_musteride_limit_korunuyor():
 # --- Karar üretimi: kollar ve birincil karar --------------------------------------------
 
 
-def test_esik_altinda_aksiyon_yok():
-    karar = ozellikten_karar_uret(oz(en_eski_gecikme_gun=15))
+def test_esik_altinda_ve_tutar_kucukse_aksiyon_yok():
+    """⚠️ Bu test §12'de değişti ve değişme sebebi öğretici.
+
+    Önceden yalnızca `en_eski_gecikme_gun=15` veriliyordu ve karar
+    `aksiyon_yok` çıkıyordu. Maddiyet kolu eklenince aynı girdi
+    `tahsilat_takibi` vermeye başladı — çünkü varsayılan `vadesi_gecen_tl`
+    95.000 TL ve o tutar aramayı fazlasıyla hak ediyor.
+
+    Yani eski test "eşik altında hiçbir şey yapılmaz" varsayıyordu; doğrusu
+    "eşik altında **ve tutar küçükse** hiçbir şey yapılmaz". Kusur testte
+    değil, sistemin o zamanki dünya görüşündeydi.
+    """
+    karar = ozellikten_karar_uret(oz(en_eski_gecikme_gun=15, vadesi_gecen_tl=800.0))
 
     assert karar.tip is KararTipi.FINANS_AKSIYON_YOK
     assert karar.tahmini_tutar_tl == 0.0
@@ -443,3 +456,74 @@ def test_tekil_surum_birincil_karari_donduruyor():
     tekil, ilk = ozellikten_karar_uret(ornek), ozellikten_kararlar_uret(ornek)[0]
     assert tekil.tip is ilk.tip
     assert tekil.aksiyon == ilk.aksiyon
+
+
+# --- Maddiyet kolu (§12) ------------------------------------------------------
+
+
+def test_maddi_esik_is_maliyetinden_turetiliyor():
+    """⭐ Eşik seçilmedi, türetildi: aramanın kendini ödediği nokta.
+
+        eylem maliyeti = alacak x günlük finansman oranı x ufuk
+        150 TL = X x (0,45/365) x 30  →  X ≈ 4.056 TL
+
+    Bu test formülü kilitliyor. Sabitlerden biri değişirse eşik
+    kendiliğinden kayar — elle güncellenmesi gereken bir sayı olmamalı.
+    """
+    from app.domain.finance.rules import (
+        MADDI_TAKIP_ESIGI_TL,
+        MADDI_TAKIP_UFKU_GUN,
+        TAKIP_EYLEM_MALIYETI_TL,
+        YILLIK_FINANSMAN_ORANI,
+    )
+
+    beklenen = TAKIP_EYLEM_MALIYETI_TL / (
+        YILLIK_FINANSMAN_ORANI / 365.0 * MADDI_TAKIP_UFKU_GUN
+    )
+    assert beklenen == MADDI_TAKIP_ESIGI_TL
+    assert 3_500 < MADDI_TAKIP_ESIGI_TL < 4_500
+
+
+def test_buyuk_alacak_anomali_olmasa_da_takibe_giriyor():
+    """A1'in bulduğu boşluk: sıradan görünen büyük alacak atlanıyordu."""
+    from app.domain.finance.rules import takip_gerekcesi
+
+    # Gecikme eşiğin ALTINDA (bu müşteri için olağan) ama tutar büyük.
+    buyuk_ama_siradan = oz(en_eski_gecikme_gun=20, vadesi_gecen_tl=250_000.0)
+    d = takip_gerekcesi(buyuk_ama_siradan, takip_esigi=40.0)
+
+    assert not d["anomali"], "gecikme eşiğin altında — anomali değil"
+    assert d["maddiyet"]
+    assert d["gerekli"]
+
+
+def test_kucuk_alacak_maddiyetten_gecmiyor():
+    """Eşiğin altındaki alacağı aramak, aramanın maliyetini çıkarmıyor."""
+    from app.domain.finance.rules import takip_gerekcesi
+
+    kucuk = oz(en_eski_gecikme_gun=20, vadesi_gecen_tl=500.0)
+    d = takip_gerekcesi(kucuk, takip_esigi=40.0)
+
+    assert not d["maddiyet"]
+    assert not d["gerekli"]
+
+
+def test_yeni_gecikmede_maddiyet_kolu_beklemede():
+    """Vadesi dün dolmuş büyük faturayı aramak müşteriyi rahatsız eder;
+    kol "büyük ve gecikmiş" diyor, sadece "büyük" demiyor."""
+    from app.domain.finance.rules import takip_gerekcesi
+
+    yeni = oz(en_eski_gecikme_gun=2, vadesi_gecen_tl=250_000.0)
+    assert not takip_gerekcesi(yeni, takip_esigi=40.0)["gerekli"]
+
+
+def test_anomali_kolu_kucuk_tutarda_da_calisiyor():
+    """İki kol ortogonal: maddiyet eklendi diye anomali kolu susmamalı."""
+    from app.domain.finance.rules import takip_gerekcesi
+
+    sapan = oz(en_eski_gecikme_gun=90, vadesi_gecen_tl=800.0)
+    d = takip_gerekcesi(sapan, takip_esigi=40.0)
+
+    assert d["anomali"]
+    assert not d["maddiyet"]
+    assert d["gerekli"]

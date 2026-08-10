@@ -61,6 +61,7 @@ import numpy as np
 import pandas as pd
 
 from app.contracts import KararTipi
+from app.domain.finance import rules
 from app.domain.finance.decide import ozellikten_kararlar_uret
 from app.domain.finance.features import musteri_ozelliklerini_hesapla
 from simulator.company import CompanyProfile, yapi_malzemesi_toptancisi
@@ -104,9 +105,12 @@ faturayı kurtarıyordu. Gerçekte ödemeyen müşteri her ay **aynı sebeple**
 Bağımsız çekiliş varsayımı, yeterince ısrarcı her politikayı kazanan yapar —
 ölçüm aracı olarak değersizleştirir."""
 
-TAKIP_SURESI_DK = 20.0
-"""Bir tahsilat eyleminin insan zamanı: dosyayı aç, geçmişi oku, ara,
-konuş, not düş, hatırlatıcı kur.
+TAKIP_SURESI_DK = rules.TAKIP_SURESI_DK
+"""Bir tahsilat eyleminin insan zamanı — `rules`'tan geliyor.
+
+⚠️ Tek kaynak: kural motoru bu sayıyı `MADDI_TAKIP_ESIGI_TL`'yi türetmek
+için de kullanıyor. İki yerde ayrı tanımlansaydı, biri değiştiğinde ölçüm
+ile karar farklı dünyalarda yaşamaya başlardı.
 
 ⭐ **A1'in ana metriği bu.** Para metriği finansta çıkmadı (§8) ama iş
 gücü tarafında sistemin ölçülebilir bir üstünlüğü var: aynı işi daha az
@@ -114,21 +118,19 @@ aramayla yapıyor. Saat, TL'den daha savunulabilir bir birim — çünkü
 `TAKIP_MALIYETI_TL`'nin aksine bir **varsayım değil, bir sayım**: kaç
 arama yapıldığı simülasyonda kesin biliniyor."""
 
-PERSONEL_SAATLIK_MALIYET_TL = 450.0
-"""Tahsilat personelinin yüklenmiş saatlik maliyeti (maaş + yan haklar +
-genel gider). `TAKIP_MALIYETI_TL` buradan türüyor ki iki sayı birbirinden
-kaymasın."""
+PERSONEL_SAATLIK_MALIYET_TL = rules.PERSONEL_SAATLIK_MALIYET_TL
+"""Tahsilat personelinin yüklenmiş saatlik maliyeti — `rules`'tan geliyor."""
 
-TAKIP_MALIYETI_TL = PERSONEL_SAATLIK_MALIYET_TL * (TAKIP_SURESI_DK / 60.0)
+TAKIP_MALIYETI_TL = rules.TAKIP_EYLEM_MALIYETI_TL
 """Bir tahsilat eyleminin parasal maliyeti — 20 dk × 450 TL/saat = 150 TL.
 
 ⚠️ Sonucun en duyarlı olduğu sayı bu. Sıfıra yaklaştıkça "herkesi ara"
 politikası kazanır — seçici olmanın değeri, seçmemenin bedeliyle ölçülüyor.
 `duyarlilik_analizi_calistir` bu bağımlılığı açıkça gösteriyor."""
 
-YILLIK_FINANSMAN_ORANI = 0.45
-"""Tahsil edilmemiş alacağın yıllık taşıma maliyeti. Alacak, müşteriye
-verilmiş faizsiz kredidir; parayı bir yerden bulmak gerekir."""
+YILLIK_FINANSMAN_ORANI = rules.YILLIK_FINANSMAN_ORANI
+"""Tahsil edilmemiş alacağın yıllık taşıma maliyeti — `rules`'tan geliyor.
+Alacak, müşteriye verilmiş faizsiz kredidir."""
 
 # ---------------------------------------------------------------------------
 # Vasat politika
@@ -607,6 +609,78 @@ def limit_kolu_taramasi_calistir(
     return pd.DataFrame(satirlar)
 
 
+def limit_kolu_risk_taramasi(
+    batak_oranlari: tuple[float, ...] = (0.02, 0.05, 0.10),
+    yil_sayilari: tuple[int, ...] = (1, 3),
+    profile: CompanyProfile | None = None,
+    **kwargs: object,
+) -> pd.DataFrame:
+    """A5: limit kolu hangi risk seviyesinden sonra kârlı hale geliyor?
+
+    `LIMIT_KOLU_AKTIF = False` A7.1'de ölçülerek kapatıldı, ama kapatma
+    gerekçesinin bilinen bir sınırı vardı: simülasyonda batak oranı %2 ve
+    ufuk 1 yıl. **Kredi limitinin asıl işi nadir ama büyük çöküşü
+    engellemek** ve o senaryo bu ufukta hiç temsil edilmiyordu.
+
+    Bu tarama tam o soruyu soruyor: batak oranı yükseldikçe ve ufuk
+    uzadıkça kol ne zaman kendini ödüyor?
+
+    Her hücrede kol açık (`kural_motoru`) ve kapalı
+    (`kural_motoru_limitsiz`) yan yana koşuyor; fark kolun net katkısı.
+    Pozitif `kol_katkisi_tl` = kol para kazandırdı.
+
+    ⚠️ Çıktının tamamı raporlanmalı. "Şu hücrede kazanıyor" deyip gerisini
+    saklamak, parametreyi sonuca uydurmak olur.
+    """
+    from app.domain.finance import rules
+
+    profile = profile or yapi_malzemesi_toptancisi()
+    orijinal_aktif = rules.LIMIT_KOLU_AKTIF
+    rules.LIMIT_KOLU_AKTIF = True
+
+    satirlar = []
+    try:
+        for batak in batak_oranlari:
+            for yil in yil_sayilari:
+                patoloji = TahsilatPatolojisi(
+                    kronik_gecikme_aktif=True,
+                    duzensiz_odeme_aktif=True,
+                    sezonluk_tikanma_aktif=True,
+                    batak_aktif=True,
+                    batak_musteri_orani=batak,
+                )
+                df = tahsilat_politikasi_karsilastir(
+                    profile=profile,
+                    yil_sayisi=yil,
+                    patoloji=patoloji,
+                    politikalar=("kural_motoru", "kural_motoru_limitsiz"),
+                    **kwargs,  # type: ignore[arg-type]
+                )
+                acik = df.loc["kural_motoru"]
+                kapali = df.loc["kural_motoru_limitsiz"]
+                satirlar.append(
+                    {
+                        "batak_musteri_orani": batak,
+                        "yil": yil,
+                        "kol_acik_toplam_tl": acik["toplam_maliyet_tl"],
+                        "kol_kapali_toplam_tl": kapali["toplam_maliyet_tl"],
+                        # Pozitif = kol kazandırdı (kapalıya göre maliyet düştü).
+                        "kol_katkisi_tl": kapali["toplam_maliyet_tl"]
+                        - acik["toplam_maliyet_tl"],
+                        "onlenen_batak_tl": kapali["batak_zarari_tl"]
+                        - acik["batak_zarari_tl"],
+                        "kaybedilen_marj_tl": acik["kaybedilen_marj_tl"],
+                        "kol_karli": bool(
+                            acik["toplam_maliyet_tl"] < kapali["toplam_maliyet_tl"]
+                        ),
+                    }
+                )
+    finally:
+        rules.LIMIT_KOLU_AKTIF = orijinal_aktif
+
+    return pd.DataFrame(satirlar)
+
+
 __all__ = [
     "BATAK_KURTARMA_OLASILIGI",
     "BATAK_KURTARMA_YARILANMA_GUN",
@@ -619,6 +693,7 @@ __all__ = [
     "VASAT_TAKIP_ESIGI_GUN",
     "YILLIK_FINANSMAN_ORANI",
     "duyarlilik_analizi_calistir",
+    "limit_kolu_risk_taramasi",
     "limit_kolu_taramasi_calistir",
     "tahsilat_politikasi_karsilastir",
 ]

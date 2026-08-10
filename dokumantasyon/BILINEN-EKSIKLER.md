@@ -459,9 +459,114 @@ sayım farkı). Ölçüm yine koşuyor ama sonucun güvenilirliği düşer.
 yok**. Hat hazır, üç CSV gelir gelmez koşacak. Eksik olan kod değil veri.
 
 
-## 14. 🟡 `finans.kredi_limiti_dusur` demo dünyada hiç üretilmiyor
+---
 
-**Bulan:** Kişi B, Tur 8 · B1 sırasında (2026-08-10).
+## 14. ✅ A5: limit kolu yeniden AÇILDI (aynı gün, ters karar)
+
+§10'da kol ölçülerek kapatılmıştı. A5 kapatma gerekçesinin bilinen sınırını
+test etti ve **kararı tersine çevirdi**. İkisi de doğru; soru değişti.
+
+§10 tek bir senaryoyu ölçmüştü: batak müşteri oranı %2, ufuk 1 yıl. Oysa
+kredi limitinin asıl işi **nadir ama büyük** çöküşü engellemek ve o senaryo
+orada hiç temsil edilmiyordu.
+
+`limit_kolu_risk_taramasi` — kol açık vs kapalı, net katkı TL
+(pozitif = kol kazandırdı):
+
+| batak oranı | 1 yıl | 3 yıl |
+|---|---|---|
+| %2 | **-8.543** | +18.309 |
+| %5 | +31.445 | +67.109 |
+| %10 | +18.644 | +96.541 |
+
+Altı senaryonun beşinde kol kârlı. Kaybettiği tek hücre, en yumuşak olanı.
+
+⭐ **Varsayılanı belirleyen çoğunluk değil, kaybın asimetrisi.** Kol
+gereksizken açık olmanın bedeli 8.543 TL; gerekliyken kapalı olmanın bedeli
+96.541 TL — **11 kat**. Kredi limiti bir sigortadır: primi düşük riskte
+boşa gider, yangında ödediğin primle kıyaslanmaz.
+
+⚠️ **Bedeli saklanmıyor:** varsayılan senaryoda (§8'in ölçüm zemini) kural
+motoru vasata göre %2,4 yerine %6,1 geride kalıyor. Kolu açık bırakmak
+benchmark sayısını **kötüleştiriyor**. Sayıyı iyi göstermek için kapatmak,
+sistemi gerçek riskte savunmasız bırakmak olurdu — bu tercihi bilinçli
+yapıyoruz.
+
+**Müşteri bazında ayar:** portföyün batak oranı %3'ün altındaysa ve
+planlama ufku 1 yılsa `LIMIT_KOLU_AKTIF = False` yapılabilir. Emin
+değilsen açık bırak.
+
+
+---
+
+## 15. ✅ §12 çözüldü: takip kararı artık tutara da bakıyor
+
+A1'in teşhisi: takip eşiği "bu gecikme bu müşteri için olağandışı mı?"
+diye soruyordu (**anomali**) ama "bu alacak aramaya değer mi?" diye hiç
+sormuyordu (**maddiyet**).
+
+`rules.takip_gerekcesi` iki ortogonal kol taşıyor. Maddiyet eşiği
+**seçilmedi, türetildi**:
+
+    eylem maliyeti = alacak x günlük finansman oranı x ufuk
+    150 TL = X x (0,45/365) x 30  →  X ≈ 4.056 TL
+
+⭐ Türetilmiş olması önemli: bu bir "iş kararı" değil, iki iş girdisinin
+(personel maliyeti, finansman oranı) sonucu. Müşteride faiz düşükse eşik
+kendiliğinden yükselir.
+
+Yan fayda: `PERSONEL_SAATLIK_MALIYET_TL`, `TAKIP_SURESI_DK` ve
+`YILLIK_FINANSMAN_ORANI` artık **tek yerde** (`rules.py`); ölçüm modülü
+oradan okuyor. Önceden ikisinde ayrı tanımlıydı ve sessizce ayrışabilirdi.
+
+### Sonuç: profile göre değişiyor
+
+| | küçük nalbur (1 yıl) | yapı toptancısı (1 yıl) |
+|---|---|---|
+| maddiyet kapalı | 246.592 | 5.705.491 |
+| maddiyet açık | 247.699 | **5.649.408** |
+| batak zararı | değişmedi | 4.566.924 → **4.478.426** |
+| takip sayısı | 121 → 136 | 650 → **1.305** |
+| kurtarılan tutar | ~aynı | 54.092 → **87.871** |
+
+**Küçük nalburda zarar (+1.107 TL)**: 15 fazla arama, sıfır ek kurtarma.
+Türetilmiş eşik o ölçekte nadiren bağlıyor.
+
+**Büyük toptancıda kazanç (−56.083 TL)**: batak zararı 88 bin TL düşüyor,
+kurtarılan tutar %62 artıyor.
+
+⚠️ **Bedeli: iş yükü iki katına çıkıyor** (650 → 1.305 arama) ve saat
+başına verim düşüyor (250 → 202 TL). Yani §12'nin düzeltmesi A1'in "daha az
+aramayla" anlatısını **büsbütün ortadan kaldırıyor**. Sistem artık daha çok
+arıyor ve daha çok para kurtarıyor.
+
+**Açık kalan:** kural motoru büyük profilde hâlâ vasatın gerisinde
+(5.649.408 vs 5.438.518). §8 kapanmadı.
+
+
+## 16. ✅ ÇÖZÜLDÜ — `finans.kredi_limiti_dusur` hiç üretilmiyordu
+
+**Bulan:** Kişi B, Tur 8 · B1 sırasında. **Çözen:** Kişi A, aynı gün,
+§14 (A5 — limit kolu yeniden açıldı). İki iş birbirinden habersiz yürüdü ve
+aynı yere çıktı.
+
+**Çözüldükten sonra ölçüldü:**
+
+```
+                             once   sonra
+finans.kredi_limiti_dusur       0      10
+musteri basina azami karar      2       3   (9 musteride)
+```
+
+M-0192 artık tam olarak görev tanımındaki vaka: `karsilik_ayir` +
+`kredi_limiti_dusur` + `tahsilat_takibi`. B1'in kabul ölçütü ("üç kararı
+olan bir müşteri için API üçünü de döndürüyor") artık **gerçekten**
+sınanabiliyor ve sınanıyor — test sabit sayı yerine dünyadan okunan azami
+çokluğu kullandığı için kendiliğinden kapsadı, tek satır değişmedi.
+
+---
+
+### Bulgu kaydı (tarihsel)
 
 Sözleşmede dört finans karar tipi var; demo dünyada üçü üretiliyor:
 
