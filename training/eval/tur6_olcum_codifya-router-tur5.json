@@ -1,0 +1,97 @@
+{
+  "model": "codifya-router:tur5",
+  "sure_sn": 232.7,
+  "karar_basina_sn": 6.0,
+  "genel": {
+    "toplam": 39,
+    "sizinti_orani": 0.154,
+    "guard_gecti_orani": 0.949,
+    "sablona_dusme_orani": 0.0,
+    "tekrarli": 0,
+    "ort_uzunluk": 189
+  },
+  "tip_kirilimi": {
+    "finans.aksiyon_yok": {
+      "toplam": 6,
+      "sizinti_orani": 0.333,
+      "guard_gecti_orani": 0.667,
+      "sablona_dusme_orani": 0.0,
+      "tekrarli": 0,
+      "ort_uzunluk": 154
+    },
+    "finans.karsilik_ayir": {
+      "toplam": 6,
+      "sizinti_orani": 0.0,
+      "guard_gecti_orani": 1.0,
+      "sablona_dusme_orani": 0.0,
+      "tekrarli": 0,
+      "ort_uzunluk": 157
+    },
+    "finans.kredi_limiti_dusur": {
+      "toplam": 6,
+      "sizinti_orani": 0.167,
+      "guard_gecti_orani": 1.0,
+      "sablona_dusme_orani": 0.0,
+      "tekrarli": 0,
+      "ort_uzunluk": 228
+    },
+    "finans.tahsilat_takibi": {
+      "toplam": 6,
+      "sizinti_orani": 0.5,
+      "guard_gecti_orani": 1.0,
+      "sablona_dusme_orani": 0.0,
+      "tekrarli": 0,
+      "ort_uzunluk": 222
+    },
+    "stok.aksiyon_yok": {
+      "toplam": 6,
+      "sizinti_orani": 0.0,
+      "guard_gecti_orani": 1.0,
+      "sablona_dusme_orani": 0.0,
+      "tekrarli": 0,
+      "ort_uzunluk": 151
+    },
+    "stok.tasfiye": {
+      "toplam": 9,
+      "sizinti_orani": 0.0,
+      "guard_gecti_orani": 1.0,
+      "sablona_dusme_orani": 0.0,
+      "tekrarli": 0,
+      "ort_uzunluk": 210
+    }
+  },
+  "ornekler": [
+    {
+      "tip": "stok.tasfiye",
+      "metin": "Isı Yalıtım Levhası 5cm - İzocam ürününün 216 gün hareket göstermedikten sonra 12 adet stokta bulunmaktadır ve bu stok maliyeti 2.707,43 TL'dir. Bu ürünlerin tafiyetine karar verildiğinde, %30 iskonto sunulacaktır."
+    },
+    {
+      "tip": "stok.aksiyon_yok",
+      "metin": "Zımba Teli - Bosch ürününün 19 adet kullanılabilir olduğuna göre, 8,49 değerinin üstündeyken sipariş vermek gerekmese de, mevcut durum idealdir."
+    },
+    {
+      "tip": "stok.tasfiye",
+      "metin": "Su Yalıtım Membranı - Knauf Insulation ürününün 293 gün hareket göstermedikten sonra 19 adet stokta bulunmaktadır ve bu stok maliyeti 5.220,32 TL'dir. Bu ürünlerin tafiyetine karar verildiğinde, %50 iskonto sunulacaktır."
+    },
+    {
+      "tip": "stok.aksiyon_yok",
+      "metin": "Delikli Tuğla 13.5x19x19 - Ege Tuğla ürününün 804 adet kullanılabilir olduğuna göre, 13,84 değerinin üstündeyken sipariş vermek gerekmese de, mevcut durum idealdir."
+    },
+    {
+      "tip": "stok.aksiyon_yok",
+      "metin": "Çivi Kutusu - Makita ürününün 224 adet kullanılabilir olduğuna göre, 0,72 değerinin üstündeyken sipariş vermek gerekmese de, mevcut durum idealdir."
+    },
+    {
+      "tip": "stok.tasfiye",
+      "metin": "Porselen Karo - Vitra ürününün 649 gün hareket göstermedikten sonra 6 adet stokta bulunmaktadır ve bu stok maliyeti 1.877,61 TL'dir. Bu ürünlerin tafiyetine karar verildiğinde, %50 iskonto sunulacaktır."
+    },
+    {
+      "tip": "stok.tasfiye",
+      "metin": "Menteşe - Yerli Hırdavat ürününün 221 gün hareket göstermedikten sonra 20 adet stokta bulunmaktadır ve bu stok maliyeti 4.043,83 TL'dir. Bu ürünlerin tafiyetine karar verildiğinde, %30 iskonto sunulacaktır."
+    },
+    {
+      "tip": "stok.tasfiye",
+      "metin": "Cam Yünü Rulo - Knauf Insulation ürününün 199 gün hareket göstermedikten sonra 5 adet stokta bulunmaktadır ve bu stok maliyeti 1.294,83 TL'dir. Bu ürünlerin tafiyetine karar verildiğinde, %30 iskonto sunulacaktır."
+    }
+  ]
+}
