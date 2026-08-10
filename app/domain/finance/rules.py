@@ -220,40 +220,48 @@ LIMIT_CIRO_CARPANI = 2.0
 RISK_AGIRLIK_TAHSILAT = 0.6
 RISK_AGIRLIK_GECIKME = 0.4
 
-LIMIT_KOLU_AKTIF = False
-"""Kredi limiti düşürme kolu açık mı? **Varsayılan KAPALI** ve bu ölçülmüş
-bir karar (A7.1), bir eksiklik değil.
+LIMIT_KOLU_AKTIF = True
+"""Kredi limiti düşürme kolu açık mı? **Varsayılan AÇIK.**
 
-`app/domain/finance/para_metrigi.py::limit_kolu_taramasi_calistir` iki
-şirket profilinde, beş eşik × üç kesinti oranında taradı. Sonuç tek yönlü:
-**kol ne kadar çok tetiklenirse o kadar zarar.**
+⚠️ Bu bayrak bugün iki kez ölçüldü ve iki farklı cevap verdi. İkisi de
+doğru; soru değişti.
 
-`kucuk_nalbur_dukkani`, 1 yıl (vasat politikaya göre toplam maliyet):
+**A7.1 (kapatıldı).** Varsayılan senaryoda — batak müşteri oranı %2, ufuk
+1 yıl — kol her ayarda zarar ettiriyordu. Beş eşik × üç kesinti oranında
+tarandı, hepsinde maliyet arttı. Kapatıldı.
 
-| eşik | limit kararı | marj kaybı | vasata göre |
-|---|---|---|---|
-| kapalı | 0 | 0 | **%-2,4** |
-| 30 | 12 | 1.748 | %-3,1 |
-| 45 | 165 | 24.215 | %-6,1 |
-| 60 | 305 | 50.048 | %-16,0 |
+**A5 (yeniden açıldı).** Kapatma gerekçesinin bilinen bir sınırı vardı ve
+o sınır test edildi: kredi limitinin asıl işi **nadir ama büyük** çöküşü
+engellemek, o senaryo ise 1 yıl / %2 batakta hiç temsil edilmiyordu.
 
-`yapi_malzemesi_toptancisi` aynı deseni doğruladı: kapalı %-0,3 · 45 → %-4,9
-· 60 → %-9,3.
+`limit_kolu_risk_taramasi` çıktısı (kol açık vs kapalı, net katkı TL —
+pozitif = kol kazandırdı):
 
-⭐ Kol **işini yapıyor**: batak zararını gerçekten düşürüyor (büyük profilde
-4,73M → 4,35M). Ama önlediği riskten **üç kat fazla** marj yakıyor (1,03M).
-Yani sorun kolun bozuk olması değil, satın aldığı korumanın fiyatı.
+| batak oranı | 1 yıl | 3 yıl |
+|---|---|---|
+| %2 | **-8.543** | +18.309 |
+| %5 | +31.445 | +67.109 |
+| %10 | +18.644 | +96.541 |
 
-⚠️ **Kod silinmedi, kapatıldı.** İki sebeple:
+Altı senaryonun **beşinde** kol kârlı. Kaybettiği tek hücre, en yumuşak
+senaryo.
 
-1. Ölçüm bu etki modeline dayanıyor ve model varsayım (bkz. `para_metrigi`
-   modül docstring'i). İptal edilen faturanın marjı burada **tamamen**
-   kayıp sayılıyor; gerçekte müşteri sonra ödeyip yeniden sipariş verebilir.
-2. Simülasyonda batak oranı %2 ve ufuk 1 yıl. Kredi limitinin asıl işi
-   nadir ama büyük çöküşü engellemek — bu ufukta temsil edilmiyor.
+⭐ **Varsayılanı belirleyen şey çoğunluk değil, kaybın asimetrisi.** Kol
+gereksizken açık olmanın bedeli 8.543 TL; gerekliyken kapalı olmanın
+bedeli 96.541 TL — **11 kat**. Kredi limiti bir sigortadır: primi düşük
+riskte boşa gider, ama yangın çıktığında ödediğin primle
+kıyaslanmayacak kadar iş görür.
 
-Saha verisiyle kalibrasyondan sonra (A7.2) yeniden açılabilir. Açmak için
-bu bayrağı `True` yapmak yeterli; kural, testleri ve ölçüm hattı duruyor."""
+⚠️ **Bunun bedeli var ve saklanmıyor:** varsayılan senaryoda (§8'in ölçüm
+zemini) kural motoru vasat politikaya göre %2,4 yerine %6,1 geride
+kalıyor. Yani kolu açık bırakmak, benchmark sayısını **kötüleştiriyor**.
+Sayıyı iyi göstermek için kapatmak, sistemi gerçek riskte savunmasız
+bırakmak olurdu.
+
+**Müşteri bazında karar:** gerçek veride portföyün batak oranı ölçülebilir
+(`FinansOzellikleri.tahsilat_orani` üzerinden). %3'ün altındaysa ve planlama
+ufku 1 yılsa bu bayrak `False` yapılabilir. Emin değilsen açık bırak —
+asimetri onu söylüyor."""
 
 # Bu skorun altındaki müşteride limit düşürme önerilir (0-100 ölçeği).
 LIMIT_DUSURME_SKOR_ESIGI = 45.0

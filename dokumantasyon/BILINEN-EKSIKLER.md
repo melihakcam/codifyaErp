@@ -457,3 +457,41 @@ sayım farkı). Ölçüm yine koşuyor ama sonucun güvenilirliği düşer.
 
 **Engellediği:** hâlâ `threshold` modu — çünkü **gerçek müşteri verisi
 yok**. Hat hazır, üç CSV gelir gelmez koşacak. Eksik olan kod değil veri.
+
+
+---
+
+## 14. ✅ A5: limit kolu yeniden AÇILDI (aynı gün, ters karar)
+
+§10'da kol ölçülerek kapatılmıştı. A5 kapatma gerekçesinin bilinen sınırını
+test etti ve **kararı tersine çevirdi**. İkisi de doğru; soru değişti.
+
+§10 tek bir senaryoyu ölçmüştü: batak müşteri oranı %2, ufuk 1 yıl. Oysa
+kredi limitinin asıl işi **nadir ama büyük** çöküşü engellemek ve o senaryo
+orada hiç temsil edilmiyordu.
+
+`limit_kolu_risk_taramasi` — kol açık vs kapalı, net katkı TL
+(pozitif = kol kazandırdı):
+
+| batak oranı | 1 yıl | 3 yıl |
+|---|---|---|
+| %2 | **-8.543** | +18.309 |
+| %5 | +31.445 | +67.109 |
+| %10 | +18.644 | +96.541 |
+
+Altı senaryonun beşinde kol kârlı. Kaybettiği tek hücre, en yumuşak olanı.
+
+⭐ **Varsayılanı belirleyen çoğunluk değil, kaybın asimetrisi.** Kol
+gereksizken açık olmanın bedeli 8.543 TL; gerekliyken kapalı olmanın bedeli
+96.541 TL — **11 kat**. Kredi limiti bir sigortadır: primi düşük riskte
+boşa gider, yangında ödediğin primle kıyaslanmaz.
+
+⚠️ **Bedeli saklanmıyor:** varsayılan senaryoda (§8'in ölçüm zemini) kural
+motoru vasata göre %2,4 yerine %6,1 geride kalıyor. Kolu açık bırakmak
+benchmark sayısını **kötüleştiriyor**. Sayıyı iyi göstermek için kapatmak,
+sistemi gerçek riskte savunmasız bırakmak olurdu — bu tercihi bilinçli
+yapıyoruz.
+
+**Müşteri bazında ayar:** portföyün batak oranı %3'ün altındaysa ve
+planlama ufku 1 yılsa `LIMIT_KOLU_AKTIF = False` yapılabilir. Emin
+değilsen açık bırak.

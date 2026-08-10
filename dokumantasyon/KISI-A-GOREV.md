@@ -680,7 +680,13 @@ bir hat. Veri henüz yoksa **hattın kendisi** ve eksik olanın listesi.
 
 </details>
 
-## A5 — Limit kolunun yeniden açılma koşulu 🟡
+## A5 — Limit kolunun yeniden açılma koşulu ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> **Sonuç: kol yeniden açıldı.** Altı risk senaryosunun beşinde kârlı;
+> belirleyici olan kaybın asimetrisi (11 kat). Ayrıntı:
+> `BILINEN-EKSIKLER.md` §14. **A paketi bitti.**
+
+<details><summary>Özgün görev tanımı</summary>
 
 `rules.LIMIT_KOLU_AKTIF = False` — A7.1'de ölçülerek kapatıldı. Ama kapatma
 gerekçesinin bir sınırı var: simülasyonda batak oranı %2 ve ufuk 1 yıl,
@@ -691,3 +697,5 @@ taramayı tekrarla. Kol hangi risk seviyesinden sonra kârlı hale geliyor?
 
 **Bitti sayılır:** "batak oranı %X'i geçtiğinde limit kolu açılmalı" gibi
 bir eşik, ya da "hiçbir makul senaryoda açılmamalı" sonucu. İkisi de değerli.
+
+</details>

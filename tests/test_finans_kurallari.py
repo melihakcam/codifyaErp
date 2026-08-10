@@ -166,21 +166,23 @@ def test_riskli_musteride_limit_dusuruluyor(limit_kolu_acik):
     assert d["onerilen_kredi_limiti_tl"] < riskli.kredi_limiti_tl
 
 
-def test_limit_kolu_varsayilan_kapali():
-    """⭐ A7.1'in sonucu: kol varsayılan olarak kapalı ve bu ölçülmüş bir karar.
+def test_limit_kolu_varsayilan_acik():
+    """⭐ A5'in sonucu: kol varsayılan AÇIK ve bu ölçülmüş bir karar.
 
-    İki şirket profilinde, beş eşik x üç kesinti oranında tarandı; kol ne
-    kadar tetiklenirse toplam maliyet o kadar arttı. Gerekçesi ve tam tablo:
+    ⚠️ Bu bayrak bugün iki kez ölçüldü, iki farklı cevap verdi:
+    A7.1 kapattı (varsayılan senaryoda zarar ettiriyordu), A5 yeniden açtı
+    (altı risk senaryosunun beşinde kârlı). Belirleyici olan çoğunluk değil
+    **kaybın asimetrisi**: gereksizken açık olmak 8.543 TL, gerekliyken
+    kapalı olmak 96.541 TL — 11 kat. Tam tablo:
     `rules.LIMIT_KOLU_AKTIF` docstring'i.
 
-    Bu test bir davranışı değil bir **kararı** koruyor: kol sessizce
-    açılırsa ölçülmemiş bir maliyet geri gelir.
+    Bu test bir davranışı değil bir **kararı** koruyor. Bayrak sessizce
+    değişirse ölçülmemiş bir risk profiline geçilmiş olur.
     """
     riskli = oz(tahsilat_orani=0.30, ort_odeme_gecikmesi_gun=20.0, odeme_gecikmesi_std=45.0)
     d = limit_degerlendir(riskli)
 
-    assert not d["limit_dusurulmeli"]
-    # Risk skoru YİNE hesaplanıyor — riski görmeyi bırakmıyoruz.
+    assert d["limit_dusurulmeli"]
     assert d["musteri_risk_skoru"] < LIMIT_DUSURME_SKOR_ESIGI
 
 

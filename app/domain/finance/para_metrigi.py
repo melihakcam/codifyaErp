@@ -607,6 +607,78 @@ def limit_kolu_taramasi_calistir(
     return pd.DataFrame(satirlar)
 
 
+def limit_kolu_risk_taramasi(
+    batak_oranlari: tuple[float, ...] = (0.02, 0.05, 0.10),
+    yil_sayilari: tuple[int, ...] = (1, 3),
+    profile: CompanyProfile | None = None,
+    **kwargs: object,
+) -> pd.DataFrame:
+    """A5: limit kolu hangi risk seviyesinden sonra kârlı hale geliyor?
+
+    `LIMIT_KOLU_AKTIF = False` A7.1'de ölçülerek kapatıldı, ama kapatma
+    gerekçesinin bilinen bir sınırı vardı: simülasyonda batak oranı %2 ve
+    ufuk 1 yıl. **Kredi limitinin asıl işi nadir ama büyük çöküşü
+    engellemek** ve o senaryo bu ufukta hiç temsil edilmiyordu.
+
+    Bu tarama tam o soruyu soruyor: batak oranı yükseldikçe ve ufuk
+    uzadıkça kol ne zaman kendini ödüyor?
+
+    Her hücrede kol açık (`kural_motoru`) ve kapalı
+    (`kural_motoru_limitsiz`) yan yana koşuyor; fark kolun net katkısı.
+    Pozitif `kol_katkisi_tl` = kol para kazandırdı.
+
+    ⚠️ Çıktının tamamı raporlanmalı. "Şu hücrede kazanıyor" deyip gerisini
+    saklamak, parametreyi sonuca uydurmak olur.
+    """
+    from app.domain.finance import rules
+
+    profile = profile or yapi_malzemesi_toptancisi()
+    orijinal_aktif = rules.LIMIT_KOLU_AKTIF
+    rules.LIMIT_KOLU_AKTIF = True
+
+    satirlar = []
+    try:
+        for batak in batak_oranlari:
+            for yil in yil_sayilari:
+                patoloji = TahsilatPatolojisi(
+                    kronik_gecikme_aktif=True,
+                    duzensiz_odeme_aktif=True,
+                    sezonluk_tikanma_aktif=True,
+                    batak_aktif=True,
+                    batak_musteri_orani=batak,
+                )
+                df = tahsilat_politikasi_karsilastir(
+                    profile=profile,
+                    yil_sayisi=yil,
+                    patoloji=patoloji,
+                    politikalar=("kural_motoru", "kural_motoru_limitsiz"),
+                    **kwargs,  # type: ignore[arg-type]
+                )
+                acik = df.loc["kural_motoru"]
+                kapali = df.loc["kural_motoru_limitsiz"]
+                satirlar.append(
+                    {
+                        "batak_musteri_orani": batak,
+                        "yil": yil,
+                        "kol_acik_toplam_tl": acik["toplam_maliyet_tl"],
+                        "kol_kapali_toplam_tl": kapali["toplam_maliyet_tl"],
+                        # Pozitif = kol kazandırdı (kapalıya göre maliyet düştü).
+                        "kol_katkisi_tl": kapali["toplam_maliyet_tl"]
+                        - acik["toplam_maliyet_tl"],
+                        "onlenen_batak_tl": kapali["batak_zarari_tl"]
+                        - acik["batak_zarari_tl"],
+                        "kaybedilen_marj_tl": acik["kaybedilen_marj_tl"],
+                        "kol_karli": bool(
+                            acik["toplam_maliyet_tl"] < kapali["toplam_maliyet_tl"]
+                        ),
+                    }
+                )
+    finally:
+        rules.LIMIT_KOLU_AKTIF = orijinal_aktif
+
+    return pd.DataFrame(satirlar)
+
+
 __all__ = [
     "BATAK_KURTARMA_OLASILIGI",
     "BATAK_KURTARMA_YARILANMA_GUN",
@@ -619,6 +691,7 @@ __all__ = [
     "VASAT_TAKIP_ESIGI_GUN",
     "YILLIK_FINANSMAN_ORANI",
     "duyarlilik_analizi_calistir",
+    "limit_kolu_risk_taramasi",
     "limit_kolu_taramasi_calistir",
     "tahsilat_politikasi_karsilastir",
 ]
