@@ -242,3 +242,97 @@ def test_her_karar_tipi_tanimli_bir_alana_ait():
 
     for tip in KararTipi:
         assert tip.alan in alanlar, f"{tip.value} tanımsız alana ait"
+
+
+# ---------------------------------------------------------------------------
+# A2 — Stok karar önceliği incelemesi (Faz 8)
+# ---------------------------------------------------------------------------
+
+
+def _stok_ozelligi(**degisiklikler) -> StockFeatures:
+    """Sağlıklı, hızlı dönen bir SKU. Testler yalnızca ilgilendikleri alanı ezer."""
+    varsayilan = {
+        "sku_id": "SKU-0001",
+        "sku_adi": "Kırmızı Tuğla 19x9x5",
+        "kategori": "tugla",
+        "eldeki_stok": 400,
+        "rezerve_stok": 0,
+        "yoldaki_stok": 0,
+        "ort_gunluk_talep": 8.0,
+        "talep_std": 2.0,
+        "veri_gun_sayisi": 365,
+        "tedarik_suresi_gun": 7.0,
+        "tedarik_suresi_std": 2.0,
+        "abc_sinifi": ABCSinifi.A,
+        "xyz_sinifi": XYZSinifi.X,
+        "hedef_servis_seviyesi": 0.95,
+        "son_hareket_gun_once": 1,
+        "raf_omru_kalan_gun": None,
+        "birim_maliyet_tl": 12.0,
+        "satis_fiyati_tl": 18.0,
+        "tedarikci_id": "T-014",
+        "tedarikci_adi": "Anadolu Yapi",
+        "tedarikci_skoru": 80.0,
+        "tedarikci_zamaninda_teslim_orani": 0.93,
+        "tedarikci_onayli": True,
+        "moq": 100,
+        "paket_adedi": 50,
+        "olcum_tarihi": dt.date(2026, 8, 10),
+    }
+    return StockFeatures(**{**varsayilan, **degisiklikler})
+
+
+def test_stok_olu_esigi_yalnizca_yukari_cikar():
+    """⭐ Finanstaki kusurun stok karşılığı YOK — ve sebebi tek bir kelime.
+
+    `rules._olu_stok_esigi` `max(mutlak, göreceli)` kullanıyor: eşik hiçbir
+    zaman 90 günün altına inemez. Finansta aynı satır `min(...)` yazılmıştı
+    ve hızlı ödeyen bir müşterinin 40 günlük alacağı için karşılık
+    ayrılıyordu (`BILINEN-EKSIKLER.md` §9).
+
+    Bu test yönü kilitliyor: `min`'e dönerse kırılır.
+    """
+    from app.domain.stock.rules import OLU_STOK_MUTLAK_ESIK_GUN, _olu_stok_esigi
+
+    # Günde 10 birim satan hızlı ürün: göreceli eşik 6/10 = 0,6 gün.
+    hizli = _olu_stok_esigi(ort_gunluk_talep=10.0)
+    # Günde 0,01 birim satan yavaş ürün: göreceli eşik 600 gün.
+    yavas = _olu_stok_esigi(ort_gunluk_talep=0.01)
+
+    assert hizli == OLU_STOK_MUTLAK_ESIK_GUN, "hızlı üründe eşik tabana oturmalı"
+    assert yavas > OLU_STOK_MUTLAK_ESIK_GUN, "yavaş üründe eşik yukarı çıkmalı"
+
+
+def test_stoksuzluk_olu_stok_gibi_gorunuyor():
+    """🔴 A2'nin bulduğu kusur: stoksuz kalan ürün "ölü" damgası yiyor.
+
+    Elde 2 birim kalmış, 120 gündür hareket yok — çünkü satacak mal yoktu.
+    Geçmiş talep hâlâ yüksek (günde 8 birim), yani ürün ölü DEĞİL, aç.
+
+    Sistem tasfiye öneriyor ve tasfiye siparişi bastırdığı için ürün bir
+    daha hiç hareket etmiyor: teşhis kendi kendini doğruluyor.
+
+    ⚠️ Bu test mevcut davranışı **belgeliyor**, onaylamıyor. Simülasyonda
+    zararsız (talep tablosu gerçek talebi taşıyor); gerçek veride
+    `hareketler.csv` fiili satıştan geldiği için canlı bir risk.
+    Düzeltme A4 ile birlikte: `BILINEN-EKSIKLER.md` §11.
+    """
+    from app.contracts import KararTipi
+    from app.domain.stock.decide import ozellikten_karar_uret
+
+    ac_kalmis = _stok_ozelligi(
+        eldeki_stok=2,
+        rezerve_stok=0,
+        yoldaki_stok=0,
+        ort_gunluk_talep=8.0,
+        talep_std=2.0,
+        son_hareket_gun_once=120,
+        veri_gun_sayisi=365,
+    )
+    karar = ozellikten_karar_uret(ac_kalmis)
+
+    # Beklenen: net pozisyon (2) ROP'un çok altında → sipariş verilmeli.
+    # Gerçekte: tasfiye kararı siparişi bastırıyor.
+    assert karar.tip is KararTipi.STOK_TASFIYE, (
+        "davranış değiştiyse §11 çözülmüş olabilir — testi ve belgeyi güncelle"
+    )

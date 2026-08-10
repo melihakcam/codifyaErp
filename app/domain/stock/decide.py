@@ -159,6 +159,33 @@ def ozellikten_karar_uret(ozellik: StockFeatures) -> DecisionCandidate:
     için çalışır. `training/build_dataset.py` (A3.1) bunu farklı (sku_id,
     tarih) kombinasyonları için tekrar tekrar çağırarak etiketli eğitim
     verisi üretir; "demo dünyası" önbelleğine bağımlı değildir.
+    
+    ## Karar önceliği — A2 incelemesi (2026-08-10)
+
+    Sıra `tasfiye → sipariş → aksiyon yok` ve **dışlayıcı olması doğru**.
+    Finansta aynı kalıp kusurluydu (`BILINEN-EKSIKLER.md` §9) ve stok da
+    aynı gözle incelendi; iki alan gerçekten farklı çıktı:
+
+    · Finansta üç kol **ortogonaldi**: karşılık muhasebe, limit gelecek
+      risk, takip bugünkü nakit. Üçü aynı anda doğru olabilirdi.
+    · Stokta tasfiye ile sipariş **aynı soruya zıt cevap veriyor**: "bu mala
+      para bağlamalı mıyım?" İkisi birden uygulanamaz.
+
+    Eşiğin yönü de doğru: `rules._olu_stok_esigi` `max(mutlak, göreceli)`
+    kullanıyor, yani eşik yalnızca yukarı çıkabiliyor. Finanstaki kusur
+    kalıbın kendisinde değil, kopyalanırken yönün ters çevrilmesindeydi
+    (`min` yazılmıştı).
+
+    ⚠️ **Ama dışlamanın sağlamlığı `son_hareket_gun_once`'ın doğruluğuna
+    bağlı.** Gerçek veride o alan fiili satıştan türüyor ve stoksuz kalmış
+    bir ürün "ölü" görünüyor — bkz. `rules.olu_stok_degerlendir` ve
+    `BILINEN-EKSIKLER.md` §11.
+
+    ⚠️ **A3 için not:** `stok.tedarikci_degisim` kuralı yazıldığında bu
+    `elif` zincirine EKLENMEMELİ. Tedarikçi değişimi bir **karşı taraf**
+    kararı; ölü stok tespiti onu geçersiz kılmaz, tıpkı finansta karşılık
+    ayırmanın tahsilat takibini geçersiz kılmaması gibi. Ortogonal kol,
+    ortogonal üretilir.
     """
     kurallar: list[FiredRule] = []
     rop, emniyet_stogu = rop_ve_emniyet_stogu(ozellik)

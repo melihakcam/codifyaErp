@@ -609,7 +609,14 @@ koştur, iddianın hangi maliyet aralığında geçerli olduğunu tabloya dök.
 **Bitti sayılır:** "sistem, tahsilat ekibinin şu kadar saatini şu kadar
 tahsilata çeviriyor" cümlesi, sayıyla. Maliyet iddiası yoksa yok — zorlama.
 
-## A2 — Stok karar önceliğini §9 gözüyle incele 🔴
+## A2 — Stok karar önceliğini §9 gözüyle incele ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> **Sonuç: beklenen kusur yok, başka bir kusur var.** Dışlama ve eşik yönü
+> doğru çıktı; ama `son_hareket_gun_once` gerçek veride fiili satıştan
+> türediği için **stoksuzluk ölü stok gibi görünüyor**. Ayrıntı:
+> `BILINEN-EKSIKLER.md` §11. Düzeltme A4 ile birlikte yapılacak.
+
+<details><summary>Özgün görev tanımı</summary>
 
 Finansta bulunan kusur (`elif` zincirinin sorunlu kalemi tamamen susturması)
 stokta da olabilir. `app/domain/stock/decide.py`'deki `tasfiye → sipariş`
@@ -621,12 +628,17 @@ gerektirebilir mi? Tasfiye kararı onu susturuyor mu?
 **Bitti sayılır:** ya "dışlama doğru, şu yüzden" diye kanıtlı bir docstring
 notu, ya finanstaki gibi bir düzeltme + regresyon testi.
 
+</details>
+
 ## A3 — `stok.tedarikci_degisim` ölü tipi 🟡
 
 `BILINEN-EKSIKLER.md` §5. Kural motoru bu tipi hiç üretmiyor; golden set'te
 örneği yok. Politika tablosunda ve `KararTipi`'nde tanımlı ama ölü.
 
-⚠️ A2 ile birlikte düşün: kural yazılırsa öncelik sorusu da doğar.
+⚠️ **A2'den bağlayıcı çıktı:** kural yazılırsa `decide.py`'deki `elif`
+zincirine EKLENMEYECEK. Tedarikçi değişimi karşı taraf kararı; ölü stok
+tespiti onu geçersiz kılmaz. Ortogonal kol, ortogonal üretilir
+(`BILINEN-EKSIKLER.md` §9 ve §11).
 
 **Bitti sayılır:** ya kural + test, ya tipin kaldırılması. Ortada bırakma.
 

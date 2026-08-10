@@ -213,6 +213,22 @@ def _olu_stok_esigi(ort_gunluk_talep: float) -> float:
 def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
     """N gündür hareketsiz + kalan raf ömrü + bağlı sermaye -> tasfiye/iskonto önerisi.
 
+    ⚠️ **Bu kuralın girdisi `son_hareket_gun_once` ve o alanın anlamı veri
+    kaynağına göre DEĞİŞİYOR** (Faz 8 / A2 incelemesi):
+
+    · **Simülasyonda** `talep` tablosu gerçek talebi taşıyor — karşılanamayan
+      talep ayrıca kaydediliyor. Stoksuz kalmak hareketi sıfırlamıyor.
+    · **Gerçek veride** (`app/adapters/csv_erp.py::hareketleri_oku`) talep
+      `hareketler.csv`'den, yani **fiili satıştan** türüyor. Satılamayan mal
+      hareket üretmez.
+
+    Sonuç: gerçek veride uzun süre stoksuz kalmış bir ürün "hareketsiz"
+    görünür. `decide.py`'de tasfiye, siparişi bastırdığı için sistem o ürünü
+    yeniden sipariş etmek yerine **iskontoyla elden çıkarmayı** önerir — ve
+    ürün bir daha hiç hareket etmediği için teşhis kendi kendini doğrular.
+
+    Ayrıntı ve ne yapılacağı: `dokumantasyon/BILINEN-EKSIKLER.md` §11.
+
     Eşik, ürünün kendi tipik satış hızına göre normalize edilir (bkz.
     `_olu_stok_esigi`) — sabit bir gün sayısı, doğası gereği aralıklı satan
     ürünleri yanlışlıkla "ölü" damgalar. Ne kadar uzun süredir hareketsizse

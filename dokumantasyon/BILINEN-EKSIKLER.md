@@ -288,3 +288,48 @@ değil), büyük profilde %0,3. Yani **başa baş**. Tahsilat kolu 81 fatura
 kurtarıyor (vasat 74) ve 117 aramayla yapıyor (vasat 122). Hâlâ "maliyeti
 %X düşürdü" denecek bir sayı yok — ama "aynı işi daha az aramayla yapıyor"
 denebilir. İş gücü metriği (§8 seçenek 2) artık gerçekçi bir iddia.
+
+---
+
+## 11. 🔴 Stoksuzluk, ölü stok gibi görünüyor (gerçek veride)
+
+A2 incelemesinin bulduğu şey. §9'un stok kardeşini ararken çıktı — ama
+beklenen yerde değil.
+
+**Beklenen kusur YOK.** Stokta `tasfiye → sipariş` dışlaması doğru: ikisi
+aynı soruya zıt cevap veriyor ("bu mala para bağlamalı mıyım?"), aynı anda
+uygulanamaz. Finansta üç kol ortogonaldi, burada değil. Eşiğin yönü de
+doğru — `_olu_stok_esigi` `max(mutlak, göreceli)` kullanıyor, eşik yalnızca
+yukarı çıkabiliyor. **Finanstaki kusur kalıbın kendisinde değil,
+kopyalanırken `max`'ın `min` yazılmasındaymış.**
+
+**Ama başka bir şey çıktı.** Dışlamanın sağlamlığı tek bir alana bağlı:
+`son_hareket_gun_once`. O alanın anlamı veri kaynağına göre değişiyor:
+
+| kaynak | `talep` neyi taşıyor | stoksuzlukta |
+|---|---|---|
+| `simulator/run.py` | **gerçek talep** (karşılanamayan ayrıca kayıtlı) | hareket görünür |
+| `adapters/csv_erp.py` | `hareketler.csv` = **fiili satış** | hareket YOK |
+
+Yani gerçek veride uzun süre stoksuz kalmış bir ürün "120 gündür hareketsiz"
+görünür. Tasfiye tetiklenir, tasfiye siparişi bastırır, ürün bir daha hiç
+hareket etmez — **teşhis kendi kendini doğrular.** Aç kalan ürün ölü ilan
+edilip iskontoyla elden çıkarılır.
+
+`tests/test_alan_genisletme.py::test_stoksuzluk_olu_stok_gibi_gorunuyor`
+bu davranışı belgeliyor (onaylamıyor): elde 2 birim, 120 gün hareketsiz,
+geçmiş talep günde 8 → sistem `stok.tasfiye` diyor.
+
+**Şimdi zararsız, gerçek veride canlı risk.** Bugün tüm ölçümler
+simülasyonda (§4) ve orada talep tablosu gerçek talebi taşıyor.
+
+**Ne yapılmalı (A4 ile birlikte):** ölü stok kuralı "hareket yok" ile
+"satacak mal yoktu" arasını ayırmalı. En ucuz ayrım: hareketsiz geçen
+günlerde **eldeki stok da sıfıra yakın mıydı?** Öyleyse bu ölü stok değil,
+karşılanamayan talep. `envanter_gunluk` tablosu bu bilgiyi zaten taşıyor;
+CSV adaptörünün karşılığı `stok_seviyesi` sütunu.
+
+⚠️ **A3 için bağlayıcı not:** `stok.tedarikci_degisim` kuralı yazıldığında
+`decide.py`'deki `elif` zincirine **eklenmemeli**. Tedarikçi değişimi bir
+karşı taraf kararı; ölü stok tespiti onu geçersiz kılmaz — tıpkı finansta
+karşılık ayırmanın tahsilat takibini geçersiz kılmaması gibi (§9).
