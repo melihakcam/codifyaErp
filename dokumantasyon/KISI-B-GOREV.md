@@ -602,3 +602,99 @@ uv run pytest && uv run ruff check .
 4. Her yer tutucu dosyanın docstring'inde **kimin, hangi fazda** yazacağı belirtilmiş
 5. Sözleşmede eksik bir alan varsa **kendi başına ekleme** — Kişi A ile konuş,
    tek PR'da birlikte ekleyin
+
+---
+
+# FAZ 7 SONRASI — Kalan işler (Kişi B payı)
+
+> Bu bölüm 2026-08-09'da, Faz 7 (kimlik doğrulama + finansın para metriği)
+> bittiğinde yazıldı. B7.1 **acil**: bugün yapılan bir değişikliğin doğrudan
+> sonucu ve onay ekranını şu an bozuyor olabilir.
+
+## B7.1 — Onay kuyruğu çoklu karara hazır değil 🔴 ÖNCE BU
+
+Bugün `app/domain/finance/decide.py` değişti: bir müşteri artık **birden
+çok karar** üretebiliyor (karşılık + limit + takip aynı anda). Gerekçesi
+`BILINEN-EKSIKLER.md` §9 — ölçülmüş bir kusurun düzeltmesi.
+
+**Sonucu senin tarafında:** onay kuyruğunda aynı müşteri artık 2-3 ayrı
+satır olarak görünüyor. Operatör "Yılmaz İnşaat" için üç kez karar
+veriyor ve bunların birbiriyle ilişkili olduğunu göremiyor.
+
+**Yapılacak:** `app/api/approvals.py` + `app/api/ui.py`'de kalem bazında
+gruplama. Aynı `kalem_adi` (yeni alan, Faz 7'de eklendi) altındaki kararlar
+tek blokta görünmeli.
+
+⚠️ Kararları **birleştirme**: üçü ayrı karar, ayrı onaylanabilmeli. Sorun
+sunum, veri modeli değil.
+
+**Bitti sayılır:** üç kararı olan bir müşteri ekranda tek başlık altında,
+üç ayrı onay düğmesiyle görünüyor. Test: `tests/test_ui_finans.py` kalıbı.
+
+## B7.2 — Kişi bazlı yetki 🔴
+
+`BILINEN-EKSIKLER.md` §2'nin kalan sınırı. API anahtarı **sistemi**
+doğruluyor, kişiyi değil: denetim kaydındaki `kullanici` hâlâ çağıranın
+serbest metin beyanı. Onay ekranındaki kutuya "genel müdür" yazan herkes
+öyle kaydediliyor.
+
+**Yapılacak:** anahtar → kullanıcı eşlemesi (anahtar başına ad + rol), ve
+`app/api/approvals.py`'de `kullanici` alanının beyandan değil kimlikten
+gelmesi.
+
+**Bitti sayılır:** onay kaydındaki isim değiştirilemiyor. Tutar eşiğine
+göre rol kısıtı (ör. 100k üstünü yalnızca `yonetici` onaylar) ayrıca
+tartışılmalı — otonomi kademelerinin insan tarafındaki karşılığı bu.
+
+## B7.3 — Gecelik iş bütçesi yeniden ölçülmeli 🟡
+
+İki şey değişti ve ikisi de gecelik taramayı büyüttü: ikinci alan (finans)
+ve müşteri başına çoklu karar. `gecelik_gerekce_ust_n = 25` ayarı tek alan
+tek karar varsayımıyla seçilmişti.
+
+**Yapılacak:** taramayı gerçek boyutta koştur, süreyi ve gerekçe kuyruğunun
+uzunluğunu ölç. Faz 5 hedefi hâlâ **< 10 dk**.
+
+**Bitti sayılır:** ölçülmüş süre + gerekirse yeni `gecelik_gerekce_ust_n`.
+Sınır aşılıyorsa hangi kararların gerekçe alacağı iş kararıdır — risk
+skoruna göre mi, alana göre mi?
+
+## B7.4 — Router %75 → gerçek soru toplama 🟡
+
+`BILINEN-EKSIKLER.md` §3. Beş eğitim turu denendi, %95 hedefine
+ulaşılamadı. Değerlendirme: darboğaz eğitim turu sayısı değil, **verinin
+kendisi** — elle yazılmış şablonlar gerçek kullanıcı sorusuna benzemiyor.
+
+**Yapılacak:** `/v1/feedback` ucu bunun için duruyor ama toplanan soru
+kullanılmıyor. Gerçek sorulardan golden set'i büyütecek hattı kur.
+
+**Bitti sayılır:** en az 100 gerçek soru + hedefin gerçekçi bir yere
+çekilmesi (ör. %85) hakkında yazılı bir karar.
+
+## B7.5 — Üretim sertleştirmesi 🟡
+
+Kimlik doğrulama var ama üretim kurulumunun geri kalanı denenmedi:
+
+- `CEREZ_GUVENLI=true` ile TLS arkasında ekran çalışıyor mu?
+- `/docs` ve `/openapi.json` şu an korumasız — şema dışarı açılmalı mı?
+- Hız sınırı (rate limit) yok; anahtar sızarsa sınırsız istek gider.
+- `/health/db` kayıtlı karar sayısını anahtarsız veriyor — sorun mu?
+
+**Bitti sayılır:** her madde için "şöyle çözüldü" ya da "şu yüzden kabul
+edildi" cevabı. Cevapsız madde kalmasın.
+
+## B7.6 — `onay_kuyrugu_sorgula` golden set'te ince 🟢
+
+`BILINEN-EKSIKLER.md` §6. 4 örnek — tek hata %25 oynatıyor. Bir sonraki
+veri turunda hedefli paraphrase.
+
+---
+
+## Kişi A ile buluşma noktaları
+
+| konu | kim başlatır | neden birlikte |
+|---|---|---|
+| `contracts.py` değişikliği | ihtiyacı gören | dosya dondurulmuş, tek PR |
+| A7.5 finans eğitim verisi | A üretir, B eğitir | Drive'daki veri klasörü |
+| A7.1 limit kolu kararı | A ölçer, B onaylar | iş değeri iddiası ikinizin imzası |
+| `threshold` moduna geçiş | B'nin kapısı | shadow raporu olmadan ASLA |
