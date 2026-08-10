@@ -141,3 +141,92 @@ def test_limit_kolu_profilden_kapatilabiliyor():
     assert limit_degerlendir(riskli)["limit_dusurulmeli"] is True
     kapali = FinansProfili(limit_kolu_aktif=False)
     assert limit_degerlendir(riskli, kapali)["limit_dusurulmeli"] is False
+
+
+# ---------------------------------------------------------------------------
+# Stok tarafı
+# ---------------------------------------------------------------------------
+
+
+def _stok_ozelligi(**degisiklikler):
+    import datetime as dt
+
+    from app.contracts import ABCSinifi, StockFeatures, XYZSinifi
+
+    varsayilan = {
+        "sku_id": "SKU-1",
+        "sku_adi": "Test Ürünü",
+        "kategori": "genel",
+        "eldeki_stok": 400,
+        "rezerve_stok": 0,
+        "yoldaki_stok": 0,
+        "ort_gunluk_talep": 0.5,
+        "talep_std": 0.2,
+        "veri_gun_sayisi": 365,
+        "tedarik_suresi_gun": 7.0,
+        "tedarik_suresi_std": 2.0,
+        "abc_sinifi": ABCSinifi.B,
+        "xyz_sinifi": XYZSinifi.Y,
+        "hedef_servis_seviyesi": 0.95,
+        "son_hareket_gun_once": 100,
+        "raf_omru_kalan_gun": None,
+        "birim_maliyet_tl": 10.0,
+        "satis_fiyati_tl": 15.0,
+        "tedarikci_id": "T-1",
+        "tedarikci_adi": "Test Tedarikçi",
+        "tedarikci_skoru": 80.0,
+        "tedarikci_zamaninda_teslim_orani": 0.9,
+        "tedarikci_onayli": True,
+        "tedarikci_siparis_sayisi": 20,
+        "moq": 1,
+        "paket_adedi": 1,
+        "olcum_tarihi": dt.date(2026, 8, 10),
+    }
+    return StockFeatures(**{**varsayilan, **degisiklikler})
+
+
+def test_olu_stok_esigi_profilden_geliyor():
+    """⭐ Nalburun sabrı toptancınınkinden uzun — artık ayarlanabiliyor.
+
+    100 gündür hareketsiz bir ürün varsayılan profilde (90 gün) ölü; nalbur
+    profilinde (120 gün) değil.
+    """
+    from app.domain.stock.rules import olu_stok_degerlendir
+
+    urun = _stok_ozelligi(son_hareket_gun_once=100)
+
+    assert olu_stok_degerlendir(urun)["olu_stok_mu"] is True
+
+    sabirli = StokProfili(olu_stok_mutlak_esik_gun=120)
+    assert olu_stok_degerlendir(urun, sabirli)["olu_stok_mu"] is False
+
+
+def test_tedarikci_kaniti_profilden_geliyor():
+    """Kaç sipariş sonra tedarikçi hakkında hüküm verilir — müşteri kararı."""
+    from app.domain.stock.rules import tedarikci_degisim_degerlendir
+
+    az_siparisli = _stok_ozelligi(tedarikci_skoru=30.0, tedarikci_siparis_sayisi=8)
+
+    # Varsayılan kapı 5 sipariş → 8 yeterli.
+    assert tedarikci_degisim_degerlendir(az_siparisli)["gozden_gecirilmeli"] is True
+
+    # Temkinli müşteri 15 sipariş istiyor → 8 yetmiyor.
+    temkinli = StokProfili(tedarikci_degisim_asgari_siparis=15)
+    assert tedarikci_degisim_degerlendir(az_siparisli, temkinli)["gozden_gecirilmeli"] is False
+
+
+def test_ornek_profiller_yuklenebiliyor():
+    """Depodaki üç örnek profil geçerli olmalı — bozuksa kurulum başarısız."""
+    from pathlib import Path
+
+    from app.core.isletme_profili import PROJE_KOKU
+
+    for ad in ("varsayilan", "nalbur", "toptanci"):
+        yol = Path(PROJE_KOKU) / "profiller" / f"{ad}.json"
+        assert yol.exists(), f"{ad}.json yok"
+        p = IsletmeProfili.dosyadan(yol)
+        assert p.ad == ad
+
+    # Nalburda limit kolu kapalı olmalı (§14'ün kararı müşteri bazında).
+    nalbur = IsletmeProfili.dosyadan(Path(PROJE_KOKU) / "profiller" / "nalbur.json")
+    assert nalbur.finans.limit_kolu_aktif is False

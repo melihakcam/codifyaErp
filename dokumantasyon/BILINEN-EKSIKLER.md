@@ -4,7 +4,7 @@
 > engellediğini ve ne zaman çözülmesi gerektiğini söyler. Amaç, bir eksiğin
 > "unutulmuş" ile "ertelenmiş" arasındaki farkı kaybetmemesi.
 >
-> Son güncelleme: 2026-08-10 · Faz 8 · A paketi (A1-A5) + §12
+> Son güncelleme: 2026-08-10 · Faz 9 · İşletme profili
 
 ---
 
@@ -765,3 +765,64 @@ değil. Kullanıcıya çöp gitmiyor.
 **Çözüm yeni eğitim turu DEĞİL, daha fazla eşsiz örnek.** Ölçüm noktası
 sıklaştırılıp (30 gün → 15) ufuk uzatılırsa (2 → 3 yıl) bu iki tipin
 örnek sayısı birkaç katına çıkar. Bir sonraki tur ancak o zaman anlamlı.
+
+
+---
+
+## 20. ✅ Müşteriye özel sayılar koddan çıktı (Faz 9)
+
+`config.py`'nin kendi kuralı şunu diyordu:
+
+    KURAL: Kodda hiçbir sabit eşik olmayacak. Bir sayı iş kararıysa buraya
+    ya da `policy` tablosuna girer.
+
+**Kural tutulmamıştı.** 2026-08-10'da sayıldı: **34 iş parametresi**
+`app/domain/*/rules.py` içinde modül sabiti olarak duruyordu.
+
+Sebebi anlaşılır: her sabit yazılırken "bu genel bir doğru" gibi
+görünüyordu. Bir nalburun ölü stok eşiğiyle bir ilaç deposununki aynı
+olamaz — ama tek müşterin yokken bu görünmüyor.
+
+**Çözüm:** `app/core/isletme_profili.py`. Yeni müşteri = yeni JSON dosyası,
+kod dağıtımı yok.
+
+    # .env
+    ISLETME_PROFILI_YOLU=profiller/nalbur.json
+
+**Ayrım bilinçli:**
+
+| dosya | neye göre değişir | kim değiştirir |
+|---|---|---|
+| `config.py` | kuruluma göre (DB, LLM, anahtar) | sistem yöneticisi |
+| `profiller/*.json` | işe göre (eşik, maliyet, oran) | iş sahibi |
+
+⚠️ Varsayılanlar eski sabitlerin **birebir aynısı**; profil eklemek tek
+başına hiçbir sayıyı oynatmadı ve `test_varsayilanlar_mevcut_davranisi_koruyor`
+bunu kilitliyor.
+
+**İki tasarım kararı:**
+
+1. `extra="forbid"` — `karsilik_esigi` diye yazıp
+   `karsilik_taban_esik_gun` demeyi unutan bir kurulum sessizce
+   varsayılanla çalışırdı. Yazım hatası hata vermeli.
+2. Sınırlar `Field`'da — `hedef_servis_seviyesi` 1,2 yazılırsa `norm.ppf`
+   sonsuz döndürür ve emniyet stoğu patlar; hata aylar sonra tuhaf bir
+   sipariş miktarı olarak görünürdü. Artık dosya yüklenirken patlıyor.
+
+**Üç örnek profil** (`profiller/`):
+
+| | ölü stok | sipariş maliyeti | personel | limit kolu |
+|---|---|---|---|---|
+| varsayılan | 90 gün | 250 TL | 450 TL/sa | açık |
+| nalbur | 120 gün | 80 TL | 200 TL/sa | **kapalı** |
+| toptancı | 60 gün | 600 TL | 650 TL/sa | açık |
+
+Nalburda limit kolu kapalı çünkü §14'ün kendi kuralı öyle diyor: batak
+oranı düşük ve ufuk kısaysa kol zarar ettiriyor. O karar artık **müşteri
+başına** verilebiliyor; önceden tek bir global bayraktı.
+
+⚠️ **Kapsam dışı kalanlar:** ABC/XYZ matrisleri (`HEDEF_SERVIS_SEVIYESI_MATRISI`,
+`HEDEF_TAHSILAT_ORANI_MATRISI`), karşılık kademeleri ve etki modeli
+sabitleri (`para_metrigi.py`) hâlâ kodda. İlk ikisi 9 hücrelik matris,
+üçüncüsü ölçüm varsayımı — profil şemasına almak ayrı bir tur işi ve
+gerçek bir müşteri gelmeden hangi biçimin doğru olduğu belli değil.

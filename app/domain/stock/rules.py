@@ -15,6 +15,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from app.contracts import ABCSinifi, StockFeatures, XYZSinifi
+from app.core.isletme_profili import StokProfili, profil
 from app.domain.siniflandirma import (
     ABC_KESIM_A,
     ABC_KESIM_B,
@@ -216,14 +217,28 @@ Göreceli eşik, aralıklı talebi olan ama sağlıklı ürünleri yanlışlıkl
 etiketlemekten kaçınır."""
 
 
-def _olu_stok_esigi(ort_gunluk_talep: float) -> float:
+def _sp(p: StokProfili | None = None) -> StokProfili:
+    """Etkin stok profili.
+
+    ⚠️ Parametre olarak geçilebilmesi bilinçli: ölçüm betikleri farklı
+    profilleri yan yana koşturuyor ve global duruma dokunmadan yapabilmeli.
+    `app/domain/finance/rules.py::_fp` ile aynı kalıp.
+    """
+    return p if p is not None else profil().stok
+
+
+def _olu_stok_esigi(ort_gunluk_talep: float, p: StokProfili | None = None) -> float:
+    sp = _sp(p)
     if ort_gunluk_talep <= 0:
-        return OLU_STOK_MUTLAK_ESIK_GUN
+        return float(sp.olu_stok_mutlak_esik_gun)
     tipik_satis_araligi_gun = 1.0 / ort_gunluk_talep
-    return max(OLU_STOK_MUTLAK_ESIK_GUN, OLU_STOK_GORECELI_CARPAN * tipik_satis_araligi_gun)
+    return max(
+        float(sp.olu_stok_mutlak_esik_gun),
+        sp.olu_stok_goreceli_carpan * tipik_satis_araligi_gun,
+    )
 
 
-def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
+def olu_stok_degerlendir(ozellik: StockFeatures, p: StokProfili | None = None) -> dict:
     """N gündür hareketsiz + kalan raf ömrü + bağlı sermaye -> tasfiye/iskonto önerisi.
 
     ⚠️ **Bu kuralın girdisi `son_hareket_gun_once` ve o alanın anlamı veri
@@ -249,7 +264,8 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
     iskonto ayrıca artırılır — bozulacak bir ürünü elde tutmanın maliyeti,
     satamamanın maliyetinden daha kötüdür.
     """
-    esik_gun = _olu_stok_esigi(ozellik.ort_gunluk_talep)
+    sp = _sp(p)
+    esik_gun = _olu_stok_esigi(ozellik.ort_gunluk_talep, sp)
     # ⭐ §11'in düzeltmesi: "hareket yok" ile "satacak mal yoktu" ayrımı.
     #
     # Eskiden koşul yalnızca `eldeki_stok > 0` idi. Gerçek veride
@@ -260,7 +276,7 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
     # doğruluyordu.
     #
     # Ölü stok iddiası ancak **satılabilecek kadar mal varken** kurulabilir.
-    asgari_stok = ozellik.ort_gunluk_talep * OLU_STOK_ASGARI_STOK_GUN
+    asgari_stok = ozellik.ort_gunluk_talep * sp.olu_stok_asgari_stok_gun
     satilabilir_mal_vardi = ozellik.eldeki_stok > 0 and ozellik.eldeki_stok >= asgari_stok
     olu_mu = satilabilir_mal_vardi and ozellik.son_hareket_gun_once >= esik_gun
     bagli_sermaye_tl = ozellik.eldeki_stok * ozellik.birim_maliyet_tl
@@ -370,7 +386,9 @@ def tedarikci_performans_ozeti(
     return ozet
 
 
-def tedarikci_degisim_degerlendir(ozellik: StockFeatures) -> dict:
+def tedarikci_degisim_degerlendir(
+    ozellik: StockFeatures, p: StokProfili | None = None
+) -> dict:
     """Bu SKU'nun tedarikçisi gözden geçirilmeli mi?
 
     ⚠️ **Bu kol ORTOGONAL** — ölü stok ya da sipariş kararıyla yarışmaz.
@@ -387,9 +405,10 @@ def tedarikci_degisim_degerlendir(ozellik: StockFeatures) -> dict:
     ürünü besleyen tedarikçi, aynı skorla A-sınıfı ürünü besleyenden farklı
     aciliyettedir.
     """
+    sp = _sp(p)
     skor = ozellik.tedarikci_skoru
     if ozellik.tedarikci_siparis_sayisi > 0:
-        yeterli_veri = ozellik.tedarikci_siparis_sayisi >= TEDARIKCI_DEGISIM_ASGARI_SIPARIS
+        yeterli_veri = ozellik.tedarikci_siparis_sayisi >= sp.tedarikci_degisim_asgari_siparis
     else:
         # Sipariş sayısı bilinmiyor → vekil ölçüye düş.
         yeterli_veri = ozellik.veri_gun_sayisi >= TEDARIKCI_DEGISIM_ASGARI_VERI_GUN
@@ -399,10 +418,12 @@ def tedarikci_degisim_degerlendir(ozellik: StockFeatures) -> dict:
 
     return {
         "tedarikci_skoru": skor,
-        "tedarikci_degisim_esigi": TEDARIKCI_DEGISIM_SKOR_ESIGI,
+        "tedarikci_degisim_esigi": sp.tedarikci_degisim_skor_esigi,
         "maruz_kalinan_deger_tl": round(maruz_kalinan, 2),
         "gozden_gecirilmeli": bool(
-            skor < TEDARIKCI_DEGISIM_SKOR_ESIGI and yeterli_veri and ozellik.ort_gunluk_talep > 0
+            skor < sp.tedarikci_degisim_skor_esigi
+            and yeterli_veri
+            and ozellik.ort_gunluk_talep > 0
         ),
     }
 
