@@ -222,3 +222,94 @@ def test_onceden_uretilmis_varyant_ollama_i_atlar():
     )
     assert sonuclar[0]["guard_sonucu"] == GuardSonucu.GECTI.value
     assert "{" not in sonuclar[0]["metin"]
+
+
+# ---------------------------------------------------------------------------
+# Finans slotları (Faz 8) — tur6 eğitim verisinin ön koşulu
+# ---------------------------------------------------------------------------
+
+
+def _finans_satiri(karar_tipi: str) -> dict:
+    """`build_dataset.finans_karar_noktasi_veri_seti_uret` çıktısının bir satırı."""
+    import datetime as dt
+    import json
+
+    from app.contracts import ABCSinifi, FinansOzellikleri, XYZSinifi
+    from app.domain.finance.decide import ozellikten_kararlar_uret
+
+    ozellik = FinansOzellikleri(
+        musteri_id="M-0042",
+        musteri_adi="Yılmaz İnşaat Ltd.",
+        segment="santiye",
+        toplam_alacak_tl=250_000.0,
+        vadesi_gecen_tl=95_000.0,
+        en_eski_gecikme_gun=400,
+        ort_odeme_gecikmesi_gun=18.5,
+        odeme_gecikmesi_std=45.0,
+        veri_gun_sayisi=540,
+        kredi_limiti_tl=200_000.0,
+        abc_sinifi=ABCSinifi.A,
+        xyz_sinifi=XYZSinifi.Y,
+        hedef_tahsilat_orani=0.95,
+        son_odeme_gun_once=41,
+        tahsilat_orani=0.30,
+        musteri_kredi_onayli=True,
+        olcum_tarihi=dt.date(2026, 8, 10),
+    )
+    for karar in ozellikten_kararlar_uret(ozellik):
+        if karar.tip.value != karar_tipi:
+            continue
+        return {
+            "musteri_id": ozellik.musteri_id,
+            "karar_tipi": karar.tip.value,
+            "ozellikler": json.loads(ozellik.model_dump_json()),
+            "aksiyon": karar.aksiyon,
+            "tetiklenen_kurallar": [
+                json.loads(k.model_dump_json()) for k in karar.tetiklenen_kurallar
+            ],
+        }
+    raise AssertionError(f"{karar_tipi} üretilmedi")
+
+
+def test_finans_karar_tiplerinin_hepsi_slot_uretiyor():
+    """Slot tanımı olmayan karar tipi `None` döner ve eğitim verisinden
+    sessizce düşer — tur6 öncesi kapatılması gereken boşluk buydu."""
+    from training.label_rationale import _slotlari_cikar
+
+    for tip in (
+        "finans.tahsilat_takibi",
+        "finans.karsilik_ayir",
+        "finans.kredi_limiti_dusur",
+    ):
+        slotlar = _slotlari_cikar(_finans_satiri(tip))
+        assert slotlar is not None, f"{tip} için slot tanımı yok"
+        assert slotlar["MUSTERI_ADI"] == "Yılmaz İnşaat Ltd."
+
+
+def test_oran_slotlari_yuzdeye_ceviriliyor():
+    """⚠️ Guard'ın izinli kümesi `ORAN_ALANLARI` sayesinde ×100 karşılığını
+    kabul ediyor; şablon farklı bir ölçek kullanırsa gerekçe reddedilir."""
+    from training.label_rationale import _slotlari_cikar
+
+    karsilik = _slotlari_cikar(_finans_satiri("finans.karsilik_ayir"))
+    limit = _slotlari_cikar(_finans_satiri("finans.kredi_limiti_dusur"))
+
+    assert karsilik["KARSILIK_YUZDE"] == 100.0  # 400 gün → %100 karşılık
+    assert limit["TAHSILAT_YUZDE"] == 30.0  # tahsilat_orani 0,30
+
+
+def test_finans_slot_adlari_stokla_cakismiyor():
+    """Model tek ağırlık kümesinde iki alanı birden öğreniyor; aynı slot adı
+    farklı anlama gelirse cümleler karışır."""
+    from app.contracts import KararTipi
+    from training.label_rationale import _SLOT_TANIMLARI
+
+    def adlar(tipler: list[str]) -> set[str]:
+        return {ad for t in tipler for ad, _, _ in _SLOT_TANIMLARI[t]}
+
+    stok = adlar([t.value for t in KararTipi if t.value.startswith("stok.")
+                  and t.value in _SLOT_TANIMLARI])
+    finans = adlar([t.value for t in KararTipi if t.value.startswith("finans.")
+                    and t.value in _SLOT_TANIMLARI])
+
+    assert not (stok & finans), f"örtüşen slot adları: {stok & finans}"

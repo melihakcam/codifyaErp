@@ -149,6 +149,103 @@ def karar_noktasi_veri_seti_uret(
     return pd.DataFrame(kayitlar)
 
 
+FINANS_ISINMA_GUN = 180
+"""Finans tarafında ısınma daha uzun: ödeme profili (ortalama + sapma) ancak
+birkaç tahsilat döngüsünden sonra anlam kazanıyor. Stoktaki 90 gün talep
+penceresi içindi; burada ölçülen şey müşterinin **ödeme davranışı** ve o
+davranışın bir örneği ancak vade dolunca oluşuyor."""
+
+FINANS_INCELEME_ARALIGI_GUN = 30
+"""Ölçüm noktaları arası mesafe — tahsilat ekibinin aylık döngüsü."""
+
+
+def finans_karar_noktasi_veri_seti_uret(
+    hedef_nokta_sayisi: int = 20_000,
+    seed: int = 42,
+    yil_sayisi: int = 2,
+    tahsilat_seed: int = 101,
+    isinma_gun: int = FINANS_ISINMA_GUN,
+    aralik_gun: int = FINANS_INCELEME_ARALIGI_GUN,
+) -> pd.DataFrame:
+    """Finans karar noktaları — `karar_noktasi_veri_seti_uret`'in karşılığı.
+
+    Stok sürümüyle **aynı JSONL şemasını** üretiyor; tek fark kimlik alanı
+    (`sku_id` yerine `musteri_id`) ve onu da `kalem_id` olarak ikinci bir
+    ada kopyalıyoruz ki `label_rationale` alan bilmeden okuyabilsin.
+
+    ⚠️ **Çoğul karar üreticisi kullanılıyor.** Tekil sürüm batık müşterinin
+    takip kararını hiç üretmez (`BILINEN-EKSIKLER.md` §9); onunla üretilen
+    eğitim verisi modele o kusuru öğretirdi.
+
+    ⚠️ `aksiyon_yok` kararları da veri setine giriyor ve bu bilinçli: stok
+    tarafında da öyle. Model "yapılacak bir şey yok" cümlesini de kurabilmeli,
+    yoksa her müşteri için aksiyon uydurur.
+    """
+    from app.domain.finance.decide import ozellikten_kararlar_uret
+    from app.domain.finance.features import musteri_ozelliklerini_hesapla
+    from simulator.tahsilat import TahsilatPatolojisi, tahsilat_uret
+
+    dunya = simulasyon_calistir(
+        profile=yapi_malzemesi_toptancisi(), seed=seed, yil_sayisi=yil_sayisi
+    )
+    tahsilat = tahsilat_uret(
+        dunya["faturalar"],
+        dunya["musteri"],
+        seed=tahsilat_seed,
+        # Patolojiler AÇIK: kapalı bir dünyada her müşteri tam vadesinde öder,
+        # yalnızca `aksiyon_yok` üretilir ve veri seti tek sınıfa çöker.
+        patoloji=TahsilatPatolojisi(
+            kronik_gecikme_aktif=True,
+            duzensiz_odeme_aktif=True,
+            sezonluk_tikanma_aktif=True,
+            batak_aktif=True,
+        ),
+    )
+    faturalar = tahsilat.faturalar
+    tarihler = pd.to_datetime(faturalar["tarih"])
+    baslangic = tarihler.min() + pd.Timedelta(days=isinma_gun)
+    olcum_tarihleri = pd.date_range(baslangic, tarihler.max(), freq=f"{aralik_gun}D")
+    if len(olcum_tarihleri) == 0:
+        raise ValueError("Isınma sonrası ölçüm noktası kalmadı — süreyi uzatın.")
+
+    nokta_basina = max(1, round(hedef_nokta_sayisi / len(olcum_tarihleri)))
+    rng = np.random.default_rng(seed)
+
+    kayitlar: list[dict] = []
+    for olcum in olcum_tarihleri:
+        ozellikler = musteri_ozelliklerini_hesapla(
+            faturalar, dunya["musteri"], olcum.date()
+        )
+        if not ozellikler:
+            continue
+        if len(ozellikler) > nokta_basina:
+            secilen = rng.choice(len(ozellikler), size=nokta_basina, replace=False)
+            ozellikler = [ozellikler[i] for i in secilen]
+
+        for ozellik in ozellikler:
+            for karar in ozellikten_kararlar_uret(ozellik):
+                kayitlar.append(
+                    {
+                        "musteri_id": ozellik.musteri_id,
+                        "kalem_id": ozellik.musteri_id,
+                        "alan": "finans",
+                        "tarih": olcum.date().isoformat(),
+                        "ozellikler": json.loads(ozellik.model_dump_json()),
+                        "karar_tipi": karar.tip.value,
+                        "aksiyon": karar.aksiyon,
+                        "tahmini_tutar_tl": karar.tahmini_tutar_tl,
+                        "guven": round(karar.guven, 4),
+                        "tetiklenen_kurallar": [
+                            json.loads(k.model_dump_json())
+                            for k in karar.tetiklenen_kurallar
+                        ],
+                        "izinli_sayilar": sorted(karar.izinli_sayilar()),
+                    }
+                )
+
+    return pd.DataFrame(kayitlar)
+
+
 def jsonl_yaz(df: pd.DataFrame, yol: Path) -> None:
     yol.parent.mkdir(parents=True, exist_ok=True)
     with open(yol, "w", encoding="utf-8") as f:

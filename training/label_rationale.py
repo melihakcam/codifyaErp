@@ -207,6 +207,38 @@ _SLOT_TANIMLARI: dict[str, list[tuple[str, str, str]]] = {
         ("ISKONTO_YUZDE", "hesap", "iskonto_yuzde"),
         ("BAGLI_SERMAYE_TL", "kural:OLU_STOK_TESPIT_EDILDI", "bagli_sermaye_tl"),
     ],
+    # --- Finans (Faz 8) ---
+    #
+    # ⚠️ Slot adları stok tarafındakilerle kasıtlı olarak ÖRTÜŞMÜYOR. Model
+    # tek bir ağırlık kümesinde iki alanı birden öğreniyor; aynı slot adı
+    # farklı anlamlara gelirse (ör. "TUTAR") cümleler karışır. Her alan kendi
+    # sözlüğünü taşıyor.
+    KararTipi.FINANS_TAHSILAT_TAKIBI.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("VADESI_GECEN_TL", "ozellik", "vadesi_gecen_tl"),
+        ("EN_ESKI_GECIKME_GUN", "ozellik", "en_eski_gecikme_gun"),
+        ("ORT_ODEME_GECIKMESI_GUN", "ozellik", "ort_odeme_gecikmesi_gun"),
+        ("TAKIP_ESIGI_GUN", "kural:TAKIP_ESIGI_HESAPLANDI", "takip_esigi_gun"),
+    ],
+    KararTipi.FINANS_KARSILIK_AYIR.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("EN_ESKI_GECIKME_GUN", "ozellik", "en_eski_gecikme_gun"),
+        ("VADESI_GECEN_TL", "ozellik", "vadesi_gecen_tl"),
+        ("KARSILIK_YUZDE", "hesap", "karsilik_yuzde"),
+        ("KARSILIK_TUTARI_TL", "kural:KARSILIK_GEREKLI", "karsilik_tutari_tl"),
+    ],
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("MUSTERI_RISK_SKORU", "kural:MUSTERI_RISKI_YUKSEK", "musteri_risk_skoru"),
+        ("TAHSILAT_YUZDE", "hesap", "tahsilat_yuzde"),
+        ("KREDI_LIMITI_TL", "ozellik", "kredi_limiti_tl"),
+        ("ONERILEN_KREDI_LIMITI_TL", "aksiyon", "onerilen_kredi_limiti_tl"),
+    ],
+    KararTipi.FINANS_AKSIYON_YOK.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("EN_ESKI_GECIKME_GUN", "ozellik", "en_eski_gecikme_gun"),
+        ("TAKIP_ESIGI_GUN", "kural:TAKIP_ESIGI_HESAPLANDI", "takip_esigi_gun"),
+    ],
 }
 
 
@@ -223,6 +255,26 @@ KARAR_TIPI_ACIKLAMASI: dict[str, str] = {
     KararTipi.STOK_TASFIYE.value: (
         "Ürün uzun süredir HAREKETSİZ (ölü stok) — TASFİYE/İSKONTO öneriliyor, yeni sipariş DEĞİL."
     ),
+    KararTipi.FINANS_TAHSILAT_TAKIBI.value: (
+        "Müşteriden ALACAK var ve gecikme ya bu müşterinin OLAĞAN aralığının "
+        "ÜSTÜNDE ya da tutar takip maliyetini karşılayacak kadar BÜYÜK — "
+        "TAHSİLAT TAKİBİ (arama/yazışma) öneriliyor. Zarar yazmak DEĞİL."
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR.value: (
+        "Alacak, tahsil edilemeyecek kadar ESKİ — muhasebe kaydı olarak "
+        "ŞÜPHELİ ALACAK KARŞILIĞI ayrılması öneriliyor. ⚠️ Bu, müşteriyi "
+        "aramayı BIRAKMAK anlamına GELMEZ; ayrı bir takip kararı da üretilmiş "
+        "olabilir."
+    ),
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR.value: (
+        "Müşterinin ödeme davranışı RİSKLİ — GELECEK satışları sınırlamak için "
+        "KREDİ LİMİTİNİN DÜŞÜRÜLMESİ öneriliyor. Mevcut alacağın tahsili ayrı "
+        "bir karar."
+    ),
+    KararTipi.FINANS_AKSIYON_YOK.value: (
+        "Gecikme bu müşteri için OLAĞAN aralıkta — HİÇBİR aksiyon önerilmiyor. "
+        "Cümle bunu net söylemeli: aramaya gerek YOK."
+    ),
 }
 
 SLOT_ACIKLAMALARI: dict[str, str] = {
@@ -238,6 +290,22 @@ SLOT_ACIKLAMALARI: dict[str, str] = {
     "ELDEKI_STOK": "elde bulunan toplam stok, adet (sayı)",
     "ISKONTO_YUZDE": "önerilen iskonto oranı, yüzde (sayı)",
     "BAGLI_SERMAYE_TL": "bu stoka bağlı sermaye, Türk Lirası (sayı)",
+    # Finans
+    "MUSTERI_ADI": "müşteri adı (metin, sayı değil)",
+    "VADESI_GECEN_TL": "vadesi geçmiş alacak tutarı, Türk Lirası (sayı)",
+    "EN_ESKI_GECIKME_GUN": (
+        "en eski faturanın kaç GÜNDÜR geciktiği — bir TARİH DEĞİL, gün SAYISI"
+    ),
+    "ORT_ODEME_GECIKMESI_GUN": "bu müşterinin ortalama ödeme gecikmesi, gün (sayı)",
+    "TAKIP_ESIGI_GUN": (
+        "bu müşteri için hesaplanan takip eşiği, gün (sayı) — bunun üstü olağandışı"
+    ),
+    "KARSILIK_YUZDE": "önerilen şüpheli alacak karşılığı oranı, yüzde (sayı)",
+    "KARSILIK_TUTARI_TL": "ayrılması önerilen karşılık tutarı, Türk Lirası (sayı)",
+    "MUSTERI_RISK_SKORU": "müşteri risk skoru, 0-100 arası — YÜKSEK = güvenilir (sayı)",
+    "TAHSILAT_YUZDE": "geçmişte tahsil edilen alacak oranı, yüzde (sayı)",
+    "KREDI_LIMITI_TL": "mevcut kredi limiti, Türk Lirası (sayı)",
+    "ONERILEN_KREDI_LIMITI_TL": "önerilen yeni kredi limiti, Türk Lirası (sayı)",
 }
 
 
@@ -247,6 +315,13 @@ def _hesapla(anahtar: str, satir: dict[str, Any]) -> float:
         return float(o["eldeki_stok"] - o["rezerve_stok"])
     if anahtar == "iskonto_yuzde":
         return float(satir["aksiyon"]["onerilen_iskonto_orani"]) * 100.0
+    # ⚠️ Oranlar yüzdeye burada çevriliyor. Guard'ın izinli kümesi
+    # `ORAN_ALANLARI` sayesinde x100 karşılığını zaten kabul ediyor
+    # (bkz. `app/contracts.py`); ikisi ayrışırsa gerekçe reddedilir.
+    if anahtar == "karsilik_yuzde":
+        return float(satir["aksiyon"]["onerilen_karsilik_orani"]) * 100.0
+    if anahtar == "tahsilat_yuzde":
+        return float(satir["ozellikler"]["tahsilat_orani"]) * 100.0
     raise ValueError(f"Bilinmeyen hesap anahtarı: {anahtar}")
 
 
