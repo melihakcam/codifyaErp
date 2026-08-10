@@ -44,3 +44,8 @@ data/*
 .vscode/
 .idea/
 .claude/
+
+# Yerel .env yedekleri — sir tasiyabilir, asla commit edilmez
+.env.yedek
+.env.bak
+.env.*.yedek
