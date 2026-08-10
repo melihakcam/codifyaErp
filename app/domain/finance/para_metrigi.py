@@ -123,6 +123,17 @@ VARSAYILAN_INCELEME_ARALIGI_GUN = 30
 
 POLITIKALAR = ("taban", "vasat", "kural_motoru")
 
+ABLASYON_POLITIKALARI = ("taban", "vasat", "kural_motoru", "kural_motoru_limitsiz")
+"""Ablasyon koşusu: kural motoru + limit kolu KAPALI dördüncü politika.
+
+⭐ Bu ayrımın amacı "kazanan kombinasyonu bulmak" DEĞİL. Kural motoru üç
+kollu (takip / limit / karşılık) ve toplam sonuç kaybettiğinde hangi kolun
+sorumlu olduğu görünmüyor. Ablasyon o soruyu ayırıyor: limit kolu kaldırılıp
+sonuç düzeliyorsa kol zararlı, değişmiyorsa etkisiz, kötüleşiyorsa değerli.
+
+⚠️ Sonuca göre kolu kaldırmak ayrı bir karar ve bu dosyanın işi değil —
+burada yalnızca ölçülüyor."""
+
 
 @dataclass
 class _PolitikaDurumu:
@@ -249,6 +260,7 @@ def _kural_motoru_adim(
     musteri_df: pd.DataFrame,
     bugun: pd.Timestamp,
     pencere_sonu: pd.Timestamp,
+    limit_kolu: bool = True,
 ) -> None:
     """Gerçek karar hattı: özellik hesabı → `ozellikten_karar_uret` → eylem.
 
@@ -274,6 +286,11 @@ def _kural_motoru_adim(
             _takip_uygula(durum, ozellik.musteri_id, bugun)
 
         elif karar.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
+            if not limit_kolu:
+                # Ablasyon: karar üretiliyor ama uygulanmıyor. Müşteri
+                # aranmıyor da — karar önceliği aynen korunuyor, yalnızca
+                # limitin satışa etkisi kaldırılıyor.
+                continue
             durum.limit_karari += 1
             limit = float(karar.aksiyon["onerilen_kredi_limiti_tl"])
             durum.aktif_limitler[ozellik.musteri_id] = limit
@@ -434,8 +451,14 @@ def tahsilat_politikasi_karsilastir(
             )
             if politika == "vasat":
                 _vasat_adim(durum, bugun)
-            elif politika == "kural_motoru":
-                _kural_motoru_adim(durum, musteri_df, bugun, pencere_sonu)
+            elif politika.startswith("kural_motoru"):
+                _kural_motoru_adim(
+                    durum,
+                    musteri_df,
+                    bugun,
+                    pencere_sonu,
+                    limit_kolu=(politika != "kural_motoru_limitsiz"),
+                )
 
         ozet = _maliyet_ozeti(durum, ufuk_sonu, marj_orani)
         ozet["politika"] = politika

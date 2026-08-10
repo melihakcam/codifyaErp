@@ -161,3 +161,59 @@ sonucun `TAKIP_MALIYETI_TL`'ye bağımlılığını gösteriyor.
 
 **Engellediği:** finans için "%7,6" gibi bir satış cümlesi YOK. Stok
 tarafındaki iddia yerinde duruyor, finansa taşınamaz.
+
+---
+
+## 9. 🔴 Karar önceliği, sorunlu müşteriyi tahsilatın DIŞINA atıyor
+
+Faz 7 ablasyon koşusunun bulduğu şey ve §8'deki olumsuz sonucun asıl kök
+nedeni bu.
+
+`app/domain/finance/decide.py` müşteri başına **tek** karar üretiyor ve
+sırası: `karşılık → limit → takip → aksiyon yok`. Docstring'i şöyle
+diyor: *"her adım bir öncekinin anlamsız kıldığı durumu eliyor."*
+
+Ölçüm bunun tersini gösterdi. `kucuk_nalbur_dukkani`, 1 yıl, 3 batık
+müşteri — sistemin bu üç müşteriye ürettiği kararlar:
+
+| gün | üretilen kararlar |
+|---|---|
+| 120 | karşılık 2, limit 1 |
+| 240 | karşılık 3 |
+| 330 | karşılık 3 |
+
+**Hiçbiri, hiçbir zaman `tahsilat_takibi` almıyor.** Yani parasını
+gerçekten alamayacağın müşteri, sistemin tahsilat kolunun hiç dokunmadığı
+tek grup.
+
+Ablasyon sayıları (limit kolu kapalı koşu):
+
+| | taban | vasat | kural_motoru | kural_motoru_limitsiz |
+|---|---|---|---|---|
+| toplam maliyet | 228.696 | 232.413 | 255.725 | 239.944 |
+| batak zararı | 197.945 | 186.745 | 195.328 | **197.945** |
+| takip sayısı | 0 | 122 | 77 | 75 |
+
+Son sütundaki batak zararı **tabanla birebir aynı** (197.944,685531).
+75 tahsilat eylemi yapılmış, 11.250 TL harcanmış, kurtarılan alacak
+sıfır. Çünkü o 75 eylem, zaten ödeyecek müşterilere gitmiş.
+
+⭐ **Kusur mantık hatası değil, modelleme hatası.** Üç kol birbirini
+dışlar varsayıldı; oysa ortogonaller:
+
+· karşılık ayırmak bir **muhasebe** işlemidir, takibi durdurmaz
+· kredi limitini düşürmek **gelecek** riski keser, mevcut alacağı tahsil etmez
+· ikisi de "bu müşteriyi arama" demek değil
+
+Doğru davranış: batık bir müşteriye hem karşılık ayır, hem aramaya devam et.
+
+**Ne yapılmalı:** `ozellikten_karar_uret` tek `DecisionCandidate` yerine
+**liste** döndürmeli. Bu bir sözleşme değişikliği (`app/contracts.py`
+dondurulmuş) — Kişi A ve B birlikte karar vermeli, tek PR'da. Etkileyeceği
+yerler: gecelik iş, onay kuyruğu (müşteri başına birden çok satır),
+eğitim verisi üreticisi, shadow raporu.
+
+⚠️ Stok tarafında aynı kusur **yok gibi görünüyor** ama doğrulanmadı:
+`tasfiye → sipariş` önceliği orada gerçekten dışlayıcı (ölü ürüne sipariş
+vermek anlamsız). Yine de finans bunu ortaya çıkarana kadar kimse
+sormamıştı; stok önceliği de aynı gözle bir kez incelenmeli.

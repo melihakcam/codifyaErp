@@ -291,3 +291,38 @@ def test_duyarlilik_analizi_sabiti_geri_yukler():
         yil_sayisi=1,
     )
     assert orijinal == pm.TAKIP_MALIYETI_TL
+
+
+# ---------------------------------------------------------------------------
+# Ablasyon — hangi kol ne yapıyor
+# ---------------------------------------------------------------------------
+
+
+def test_ablasyon_limit_kolunu_kapatabiliyor():
+    """`kural_motoru_limitsiz` hiç fatura iptal etmemeli.
+
+    Ablasyonun tek işi bu kolu izole etmek; kol kapalıyken marj kaybı
+    üretiliyorsa izolasyon çalışmıyor demektir ve karşılaştırma yanıltıcı
+    olur.
+    """
+    df = pm.tahsilat_politikasi_karsilastir(
+        profile=kucuk_nalbur_dukkani(),
+        yil_sayisi=1,
+        politikalar=("kural_motoru", "kural_motoru_limitsiz"),
+    )
+
+    assert df.loc["kural_motoru_limitsiz", "iptal_edilen_fatura"] == 0
+    assert df.loc["kural_motoru_limitsiz", "kaybedilen_marj_tl"] == 0.0
+    # Kol açıkken iptal olmalı — yoksa ablasyon hiçbir şeyi ayırmıyordur.
+    assert df.loc["kural_motoru", "iptal_edilen_fatura"] > 0
+
+
+def test_ablasyonda_takip_kolu_yine_calisiyor():
+    """Limit kolu kapatılınca takip de susmamalı — aksi hâlde ablasyon iki
+    kolu birden kaldırmış olur ve sonuç yorumlanamaz."""
+    df = pm.tahsilat_politikasi_karsilastir(
+        profile=kucuk_nalbur_dukkani(),
+        yil_sayisi=1,
+        politikalar=("kural_motoru_limitsiz",),
+    )
+    assert df.loc["kural_motoru_limitsiz", "takip_sayisi"] > 0
