@@ -303,19 +303,18 @@ def test_stok_olu_esigi_yalnizca_yukari_cikar():
     assert yavas > OLU_STOK_MUTLAK_ESIK_GUN, "yavaş üründe eşik yukarı çıkmalı"
 
 
-def test_stoksuzluk_olu_stok_gibi_gorunuyor():
-    """🔴 A2'nin bulduğu kusur: stoksuz kalan ürün "ölü" damgası yiyor.
+def test_stoksuzluk_olu_stok_sayilmiyor():
+    """⭐ §11 düzeltildi: aç kalan ürün ölü ilan edilmiyor.
 
     Elde 2 birim kalmış, 120 gündür hareket yok — çünkü satacak mal yoktu.
     Geçmiş talep hâlâ yüksek (günde 8 birim), yani ürün ölü DEĞİL, aç.
 
-    Sistem tasfiye öneriyor ve tasfiye siparişi bastırdığı için ürün bir
-    daha hiç hareket etmiyor: teşhis kendi kendini doğruluyor.
+    Düzeltme öncesi sistem tasfiye öneriyordu ve tasfiye siparişi
+    bastırdığı için ürün bir daha hiç hareket etmiyordu — teşhis kendi
+    kendini doğruluyordu. Artık ölü stok iddiası ancak **satılabilecek
+    kadar mal varken** kurulabiliyor (`rules.OLU_STOK_ASGARI_STOK_GUN`).
 
-    ⚠️ Bu test mevcut davranışı **belgeliyor**, onaylamıyor. Simülasyonda
-    zararsız (talep tablosu gerçek talebi taşıyor); gerçek veride
-    `hareketler.csv` fiili satıştan geldiği için canlı bir risk.
-    Düzeltme A4 ile birlikte: `BILINEN-EKSIKLER.md` §11.
+    Beklenen: tasfiye değil SİPARİŞ — ürün ölü değil, aç.
     """
     from app.contracts import KararTipi
     from app.domain.stock.decide import ozellikten_karar_uret
@@ -331,11 +330,33 @@ def test_stoksuzluk_olu_stok_gibi_gorunuyor():
     )
     karar = ozellikten_karar_uret(ac_kalmis)
 
-    # Beklenen: net pozisyon (2) ROP'un çok altında → sipariş verilmeli.
-    # Gerçekte: tasfiye kararı siparişi bastırıyor.
-    assert karar.tip is KararTipi.STOK_TASFIYE, (
-        "davranış değiştiyse §11 çözülmüş olabilir — testi ve belgeyi güncelle"
+    assert karar.tip is KararTipi.STOK_SIPARIS, (
+        "aç kalan ürün yeniden sipariş edilmeli, tasfiye edilmemeli"
     )
+
+
+def test_gercek_olu_stok_hala_tasfiye_ediliyor():
+    """Düzeltme fazla ileri gitmemeli: talebi bitmiş ürün hâlâ ölü.
+
+    Elde 400 birim var, 200 gündür hareket yok, günlük talep 0,1 (göreli
+    eşik 90 güne oturuyor). Burada "satacak mal yoktu" mazereti geçersiz —
+    mal duruyor, alan yok.
+
+    ⚠️ İlk yazımda talep 0,01 verilmişti ve test kırıldı: göreli eşik
+    6/0,01 = 600 güne çıkıyor, 200 gün yetmiyor. Kod doğruydu, test yanlıştı
+    — çok yavaş satan bir ürün için 200 gün sessizlik gerçekten normal.
+    """
+    from app.contracts import KararTipi
+    from app.domain.stock.decide import ozellikten_karar_uret
+
+    gercekten_olu = _stok_ozelligi(
+        eldeki_stok=400,
+        ort_gunluk_talep=0.1,
+        talep_std=0.05,
+        son_hareket_gun_once=200,
+        veri_gun_sayisi=365,
+    )
+    assert ozellikten_karar_uret(gercekten_olu).tip is KararTipi.STOK_TASFIYE
 
 
 def test_tedarikci_degisim_artik_uretiliyor():

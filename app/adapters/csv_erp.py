@@ -87,6 +87,17 @@ KOLON_ESLESMELERI: dict[str, tuple[str, ...]] = {
     "tedarikci_id": ("tedarikci_id", "tedarikci_kodu", "cari_kod", "supplier_id", "supplier"),
     "tedarikci_adi": ("tedarikci_adi", "tedarikci", "cari_unvan", "supplier_name"),
     "eldeki_stok": ("eldeki_stok", "stok", "mevcut_stok", "bakiye", "miktar_stok", "on_hand"),
+    # §7: yoldaki mal. ERP'lerde en sık bu adlarla geçiyor.
+    "yoldaki_stok": (
+        "yoldaki_stok",
+        "yolda",
+        "yoldaki",
+        "siparis_edilen",
+        "acik_siparis",
+        "beklenen_giris",
+        "on_order",
+        "in_transit",
+    ),
     "moq": ("moq", "min_siparis", "minimum_siparis_miktari", "min_order_qty"),
     "paket_adedi": ("paket_adedi", "koli_adedi", "paket", "pack_size"),
     "raf_omru_gun": ("raf_omru_gun", "raf_omru", "shelf_life_days"),
@@ -98,6 +109,9 @@ KOLON_ESLESMELERI: dict[str, tuple[str, ...]] = {
 }
 
 VARSAYILANLAR: dict[str, object] = {
+    # ⚠️ 0 varsaymak güvenli taraf ama bedava değil: yoldaki mal görünmezse
+    # aynı sipariş iki kez verilebilir. Müşteride alan varsa doldurulmalı.
+    "yoldaki_stok": 0,
     "moq": 1,
     "paket_adedi": 1,
     "raf_omru_gun": None,
@@ -299,11 +313,14 @@ def envanter_tablosu(
     vardır. `urunler.csv`'deki `eldeki_stok` o bakiyedir ve ölçüm tarihine
     yazılır.
 
-    ⚠️ `yoldaki_stok` (sipariş verilmiş, henüz gelmemiş mal) 0 kabul ediliyor.
-    Çoğu müşteri bunu ayrı bir alanda tutmuyor; tutuyorsa `urunler.csv`'ye
-    `yoldaki_stok` kolonu eklenip burası genişletilmeli. Sıfır varsaymak
-    **güvenli taraf**: sistem yoldaki malı görmezse fazladan sipariş önerir,
-    tersi (olmayan malı var sanmak) stok tükenmesine yol açardı.
+    `yoldaki_stok` (sipariş verilmiş, henüz gelmemiş mal) `urunler.csv`'de
+    varsa **okunuyor**, yoksa 0 kabul ediliyor.
+
+    ⚠️ Sıfır varsaymak **güvenli taraf**: sistem yoldaki malı görmezse
+    fazladan sipariş önerir, tersi (olmayan malı var sanmak) stok tükenmesine
+    yol açardı. Ama güvenli taraf bedava değil — yoldaki mal görünmediğinde
+    aynı sipariş iki kez verilebilir. Müşteride alan varsa mutlaka
+    doldurulmalı (`BILINEN-EKSIKLER.md` §7).
     """
     stok = (
         sku_df["eldeki_stok"]
@@ -315,7 +332,13 @@ def envanter_tablosu(
             "tarih": pd.Timestamp(olcum_tarihi),
             "sku_id": sku_df["sku_id"].to_numpy(),
             "eldeki_stok": pd.to_numeric(stok, errors="coerce").fillna(0).to_numpy(),
-            "yoldaki_stok": np.zeros(len(sku_df)),
+            "yoldaki_stok": (
+                pd.to_numeric(sku_df["yoldaki_stok"], errors="coerce").fillna(0).to_numpy()
+                if "yoldaki_stok" in sku_df.columns
+                else np.zeros(len(sku_df))
+            ),
+            # Sütun `VARSAYILANLAR` sayesinde normalde hep var; `else` dalı
+            # adaptörü doğrudan çağıran testler için duruyor.
         }
     )
 

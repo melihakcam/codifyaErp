@@ -210,3 +210,44 @@ def test_yoldaki_stok_sifir_varsayiliyor(veri_dizini):
     ozellikler = ozellikleri_uret(veri_dizini)
 
     assert all(o.yoldaki_stok == 0 for o in ozellikler)
+
+
+def test_yoldaki_stok_kolonu_okunuyor(tmp_path):
+    """§7 kapanıyor: alan varsa artık okunuyor, yoksa 0 kalıyor.
+
+    Yoldaki malı görmemek "güvenli taraf" diye kabul edilmişti — sistem
+    fazladan sipariş önerir, tersi stok tükenmesine yol açardı. Ama güvenli
+    taraf bedava değil: aynı sipariş iki kez verilebilir.
+    """
+    import pandas as pd
+
+    from app.adapters.csv_erp import envanter_tablosu, urunleri_oku
+
+    (tmp_path / "urunler.csv").write_text(
+        "sku_id,sku_adi,birim_maliyet_tl,satis_fiyati_tl,tedarikci_id,stok,yolda\n"
+        "A1,Tugla,10,15,T1,100,40\n"
+        "A2,Cimento,20,30,T1,50,0\n",
+        encoding="utf-8",
+    )
+    sku_df = urunleri_oku(tmp_path / "urunler.csv")
+    envanter = envanter_tablosu(sku_df, pd.DataFrame(), dt.date(2026, 6, 30))
+
+    yolda = dict(zip(envanter["sku_id"], envanter["yoldaki_stok"], strict=True))
+    assert yolda["A1"] == 40
+    assert yolda["A2"] == 0
+
+
+def test_yoldaki_stok_kolonu_yoksa_sifir(tmp_path):
+    import pandas as pd
+
+    from app.adapters.csv_erp import envanter_tablosu, urunleri_oku
+
+    (tmp_path / "urunler.csv").write_text(
+        "sku_id,sku_adi,birim_maliyet_tl,satis_fiyati_tl,tedarikci_id,stok\n"
+        "A1,Tugla,10,15,T1,100\n",
+        encoding="utf-8",
+    )
+    sku_df = urunleri_oku(tmp_path / "urunler.csv")
+    envanter = envanter_tablosu(sku_df, pd.DataFrame(), dt.date(2026, 6, 30))
+
+    assert envanter["yoldaki_stok"].tolist() == [0]

@@ -195,6 +195,19 @@ OLU_STOK_MUTLAK_ESIK_GUN = 90
 """Hiçbir SKU bunun altında 'ölü' sayılmaz — çok yavaş hareket eden ama sağlıklı
 ürünler için bile makul bir sessizlik payı tanır."""
 
+OLU_STOK_ASGARI_STOK_GUN = 1.0
+"""Ölü stok kararı için elde en az bu kadar günlük talebi karşılayacak mal
+olmalı.
+
+⚠️ Bu kapı olmadan **stoksuzluk ölü stok gibi görünüyor** — sistemin en
+sinsi hatası, çünkü kendini doğruluyor: aç kalan ürün hareket etmez,
+hareketsizlik tasfiyeye yol açar, tasfiye siparişi bastırır, ürün bir daha
+hiç hareket etmez (`BILINEN-EKSIKLER.md` §11).
+
+1 gün bilinçli olarak düşük: amaç gerçek ölü stoğu elemek değil, elinde
+kırıntı kalmış ürünü korumak. Talebi sıfıra yakın gerçek ölü stokta eşik de
+sıfıra yakın olur ve kural normal çalışır."""
+
 OLU_STOK_GORECELI_CARPAN = 6.0
 """Asıl eşik: ürünün kendi tipik satış aralığının (`1/ort_gunluk_talep`) kaç katı
 sessizlik 'ölü' sayılır. Sabit bir gün eşiği (ör. 60) günde 0.05 birim satan bir
@@ -237,7 +250,19 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
     satamamanın maliyetinden daha kötüdür.
     """
     esik_gun = _olu_stok_esigi(ozellik.ort_gunluk_talep)
-    olu_mu = ozellik.eldeki_stok > 0 and ozellik.son_hareket_gun_once >= esik_gun
+    # ⭐ §11'in düzeltmesi: "hareket yok" ile "satacak mal yoktu" ayrımı.
+    #
+    # Eskiden koşul yalnızca `eldeki_stok > 0` idi. Gerçek veride
+    # `son_hareket_gun_once` fiili satıştan türüyor; elinde 2 birim kalmış,
+    # günde 8 birim talep gören bir ürün satamadığı için "120 gündür
+    # hareketsiz" görünüyor ve ölü ilan ediliyordu. Tasfiye siparişi
+    # bastırdığı için ürün bir daha hiç hareket etmiyor, teşhis kendini
+    # doğruluyordu.
+    #
+    # Ölü stok iddiası ancak **satılabilecek kadar mal varken** kurulabilir.
+    asgari_stok = ozellik.ort_gunluk_talep * OLU_STOK_ASGARI_STOK_GUN
+    satilabilir_mal_vardi = ozellik.eldeki_stok > 0 and ozellik.eldeki_stok >= asgari_stok
+    olu_mu = satilabilir_mal_vardi and ozellik.son_hareket_gun_once >= esik_gun
     bagli_sermaye_tl = ozellik.eldeki_stok * ozellik.birim_maliyet_tl
 
     onerilen_iskonto_orani = 0.0
@@ -413,6 +438,7 @@ __all__ = [
     "ABC_KESIM_A",
     "ABC_KESIM_B",
     "HEDEF_SERVIS_SEVIYESI_MATRISI",
+    "OLU_STOK_ASGARI_STOK_GUN",
     "OLU_STOK_GORECELI_CARPAN",
     "OLU_STOK_MUTLAK_ESIK_GUN",
     "VARSAYILAN_SIPARIS_MALIYETI_TL",

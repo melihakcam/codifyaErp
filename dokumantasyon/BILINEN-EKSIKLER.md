@@ -135,11 +135,18 @@ yanlış sonuç üretmiyor.
 
 ---
 
-## 7. 🟢 `yoldaki_stok` CSV adaptöründe 0 varsayılıyor
+## 7. ✅ ÇÖZÜLDÜ — `yoldaki_stok` artık okunuyor
 
 Çoğu ERP bunu ayrı tutmuyor. Sıfır varsaymak güvenli taraf (fazladan
-sipariş önerir, tersi stok tükenmesine yol açardı). Müşteride alan varsa
-`app/adapters/csv_erp.py::envanter_tablosu` genişletilmeli.
+sipariş önerir, tersi stok tükenmesine yol açardı).
+
+**✅ 2026-08-10'da çözüldü (A4).** `urunler.csv`'de kolon varsa okunuyor;
+sekiz yaygın ad tanınıyor (`yolda`, `siparis_edilen`, `acik_siparis`,
+`on_order`, `in_transit`...). Yoksa 0 varsayılmaya devam ediyor.
+
+⚠️ Güvenli taraf bedava değil ve bu artık belgede yazılı: yoldaki mal
+görünmediğinde **aynı sipariş iki kez verilebilir**. Kurulumda bu alanın
+varlığı sorulmalı.
 
 ---
 
@@ -314,7 +321,7 @@ denebilir. İş gücü metriği (§8 seçenek 2) artık gerçekçi bir iddia.
 
 ---
 
-## 11. 🔴 Stoksuzluk, ölü stok gibi görünüyor (gerçek veride)
+## 11. ✅ ÇÖZÜLDÜ — Stoksuzluk, ölü stok gibi görünüyordu
 
 A2 incelemesinin bulduğu şey. §9'un stok kardeşini ararken çıktı — ama
 beklenen yerde değil.
@@ -401,3 +408,20 @@ eşiği aşan alacaklar arasında `vadesi_gecen_tl` ile ağırlıklandırma, ya 
 kuralı. ⚠️ Değişiklikten sonra **yeniden ölçülmeli**; kazanana kadar
 parametre denemek değil, tek bir tasarım değişikliği yapıp sonucu olduğu
 gibi raporlamak.
+
+
+### §11 çözümü (2026-08-10, A4)
+
+`OLU_STOK_ASGARI_STOK_GUN = 1.0` eklendi: ölü stok iddiası ancak elde **en
+az bir günlük talebi karşılayacak mal varken** kurulabiliyor.
+
+    eski: eldeki_stok > 0
+    yeni: eldeki_stok > 0 ve eldeki_stok >= ort_gunluk_talep x 1 gün
+
+Elde 2 birim kalmış, günde 8 birim talep gören ürün artık tasfiye değil
+**sipariş** kararı alıyor. Gerçek ölü stok (400 birim, talep 0,1/gün, 200
+gün sessiz) hâlâ tasfiye ediliyor — düzeltme fazla ileri gitmiyor, iki test
+bunu kilitliyor.
+
+⚠️ Sözleşme değişikliği gerekmedi: `eldeki_stok` ve `ort_gunluk_talep`
+zaten `StockFeatures`'ta vardı. Doğru soru sorulmamış, veri eksik değildi.
