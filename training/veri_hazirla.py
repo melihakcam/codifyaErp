@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from app.contracts import Alan, DecisionCandidate
+from app.contracts import Alan, DecisionCandidate, KararTipi
 from app.llm.explain import egitilmis_istem_govdesi
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -91,10 +91,15 @@ def adaya_cevir(kayit: dict) -> DecisionCandidate:
     Bu dönüşüm sayesinde eğitim verisi, çalışma zamanının **birebir aynı**
     istem kurucusundan (`egitilmis_istem_govdesi`) geçiyor.
     """
+    # ⚠️ `alan` karar tipinden türetiliyor, sabit DEĞİL. Önceden `Alan.STOK`
+    # yazılıydı; finans kaydı geldiğinde `egitilmis_istem_govdesi` yanlış
+    # etiketi (`urun:`) seçerdi ve eğitim istemi çalışma zamanınkinden
+    # ayrışırdı — bu dosyanın var olma sebebinin tam tersi.
+    tip = KararTipi(kayit["karar_tipi"])
     return DecisionCandidate.model_validate(
         {
             "karar_id": uuid4(),
-            "alan": Alan.STOK,
+            "alan": Alan.FINANS if tip.alan == Alan.FINANS.value else Alan.STOK,
             "tip": kayit["karar_tipi"],
             "aksiyon": kayit.get("aksiyon", {}),
             "tahmini_tutar_tl": kayit.get("tahmini_tutar_tl", 0.0),
