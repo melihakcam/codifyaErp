@@ -128,6 +128,34 @@ gerekirse `/v2/` açılır, `/v1/` bir geçiş süresi boyunca yaşamaya devam
 eder. Şu an tek tüketici bu repo içindeki testler/demo olduğu için henüz
 `/v2/` gerekmedi.
 
+### ⚠️ KIRICI DEĞİŞİKLİK — finans ucu artık liste döndürüyor (Tur 8 · B1)
+
+```
+POST /v1/decisions/finance/collection-review
+
+ONCE :  KararSonucu          (tek nesne)
+SIMDI:  list[KararSonucu]    (dizi)
+```
+
+**Neden kırıldı.** Faz 7'de kural motoru düzeltildi: bir müşteri aynı anda
+hem karşılık ayırma hem tahsilat takibi kararı alabiliyor
+(`BILINEN-EKSIKLER.md` §9). Ama HTTP ucu listenin yalnızca **birincisini**
+veriyordu. Somut sonuç: ERP batık bir müşterinin karşılık kararını görüyor,
+**aynı müşterinin tahsilat takibi kararını hiç görmüyordu.** Karar
+üretilmiş, veritabanına yazılmış, ama dışarıya hiç çıkmamış oluyordu.
+
+`/v2/` açılmadı çünkü bu ucun repo dışında tüketicisi yok — yukarıdaki
+kuralın "geçiş süresi" gerekçesi boşta kalıyordu. **Gerçek bir ERP
+bağlandıktan sonra aynı gerekçe geçerli olmayacak**; o noktadan sonra
+kırıcı değişiklik `/v2/` ister.
+
+**Stok ucu değişmedi** (`POST /v1/decisions/stock/reorder-review` hâlâ tek
+nesne döndürür). Stok tarafında bir SKU için birden fazla eşzamanlı karar
+üreten bir kural yok; çoğullaştırmak karşılığı olmayan bir kırılma olurdu.
+
+Cevabın **tüm** kalemleri aynı müşteriye aittir; uç bir müşteriyi
+değerlendirir, birden fazla müşteri döndürmez.
+
 ---
 
 ## Kimlik doğrulama (Faz 7)

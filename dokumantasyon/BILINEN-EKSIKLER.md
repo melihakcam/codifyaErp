@@ -457,3 +457,34 @@ sayım farkı). Ölçüm yine koşuyor ama sonucun güvenilirliği düşer.
 
 **Engellediği:** hâlâ `threshold` modu — çünkü **gerçek müşteri verisi
 yok**. Hat hazır, üç CSV gelir gelmez koşacak. Eksik olan kod değil veri.
+
+
+## 14. 🟡 `finans.kredi_limiti_dusur` demo dünyada hiç üretilmiyor
+
+**Bulan:** Kişi B, Tur 8 · B1 sırasında (2026-08-10).
+
+Sözleşmede dört finans karar tipi var; demo dünyada üçü üretiliyor:
+
+```
+finans.aksiyon_yok         627
+finans.tahsilat_takibi     173
+finans.karsilik_ayir        16
+finans.kredi_limiti_dusur    0   <-- hic
+```
+
+800 müşterinin hiçbiri limit düşürme kararı almıyor. `stok.tedarikci_degisim`
+ile aynı durum — o §-A3'te canlandırılmıştı.
+
+**Engellediği işler:**
+
+- **B1'in kabul ölçütü.** Görev tanımı "üç kararı olan bir müşteri için API
+  üçünü de döndürüyor" diyordu; demo dünyada azami çokluk **2**
+  (800 müşterinin 16'sı, hepsi `karsilik_ayir` + `tahsilat_takibi`). Test
+  sabit sayı yerine dünyadan okunan azami çokluğu kullanıyor, yani limit
+  kararı canlanınca kendiliğinden kapsayacak.
+- **B5 golden set.** Finans örnekleri eklenirken bu tipin örneği olmayacak;
+  gerekçe üretimi o tip için hiç sınanmamış kalır.
+
+⚠️ Kural motoru Kişi A'nın sahası; bu bir bulgu bildirimi, düzeltme değil.
+Limit kolu §10'da "ölçüldü ve kapatıldı" diye geçiyor — bu sıfırın kasıtlı
+mı yoksa eşiklerin demo dünyaya denk gelmemesi mi olduğu **doğrulanmadı**.

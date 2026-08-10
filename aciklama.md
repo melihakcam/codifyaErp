@@ -2605,3 +2605,68 @@ edilemez.
 
 Araç doğruluğundaki +2 daha sağlam duruyor: ısınma sürüklenmesi araç seçimini
 hiç değiştirmemişti, sadece parametreyi oynatmıştı.
+
+---
+
+## Tur 8 · B1: kaybolan kararlar
+
+### Sorun
+
+Bir müşteri aynı anda iki karar alabiliyor: "bu alacağa karşılık ayır" ve
+"bu müşterinin tahsilatını takip et". Kural motoru bunu Faz 7'de düzeltmişti.
+
+Ama **API hâlâ tek karar döndürüyordu.**
+
+```
+kural motoru : [karsilik_ayir, tahsilat_takibi]   iki karar
+API          : karsilik_ayir                       sadece ilki
+```
+
+Yani batık bir müşteri için ERP karşılığı görüyor, **aynı müşterinin
+tahsilat takibini hiç görmüyordu.** Karar üretilmiş, veritabanına yazılmış,
+ama dışarı hiç çıkmamış.
+
+### Ne yaptık
+
+Finans ucu artık **liste** döndürüyor. Bu bir sürüm kırılımı — ama bu ucun
+repo dışında kullanıcısı yok, o yüzden `/v2/` açmadık.
+`ERP-ENTEGRASYON.md`'ye yazdık; gerçek bir ERP bağlandıktan sonra aynı
+gerekçe geçerli olmayacak.
+
+**Stok ucuna dokunmadık** — orada bir ürün için aynı anda birden fazla karar
+üreten kural yok, çoğullaştırmak karşılığı olmayan bir kırılma olurdu.
+
+### Bir kuralı korumak için fazladan iş
+
+Kararları tek tek işlemek en kolayı olurdu. Ama sıralama şöyle olurdu:
+
+```
+karar1 kaydet -> gerekce1 uret -> karar2 kaydet -> gerekce2 uret
+```
+
+Gerekçe1 üretilirken (6 saniye sürüyor) süreç ölse **karar2 hiç
+yazılmamış** olurdu. Oysa ikisi de zaten üretilmişti.
+
+Doğrusu:
+
+```
+karar1 + karar2 kaydet -> commit -> gerekce1 + gerekce2 -> commit
+```
+
+Gecelik iş zaten böyle çalışıyordu, API'yi ona hizaladık. Tekil yol da artık
+kendi kopyasını taşımıyor, çoğul yola bağlandı — yani bu sıra **tek bir
+yerde** yaşıyor.
+
+### Yolda çıkan iki şey
+
+**1. Testler yanlış veritabanına yazıyormuş.** Finans testleri kendi
+`istemci`'sini kuruyordu ve bu, ortak test kurulumunu gölgeliyordu. Sonuç:
+testler geliştirme veritabanına yazıyormuş. Kimse fark etmemiş çünkü hiçbir
+test veritabanını saymıyordu — "kararların hepsi kaydedildi mi" testini
+yazınca sayaç 0 gösterdi. Aynı hata daha önce başka bir dosyada da vardı.
+
+**2. Bir karar tipi hiç üretilmiyor.** `finans.kredi_limiti_dusur` 800
+müşterinin hiçbirinde çıkmıyor. Görev tanımı "üç kararlı müşteri" diyordu
+ama demo dünyada azami **iki** karar var. Testi sabit sayı yerine dünyadan
+okunan azami sayıyla yazdık, o tip canlanınca kendiliğinden kapsayacak.
+`BILINEN-EKSIKLER.md` §14'e yazıldı — kural motoru Melih'in sahası.
