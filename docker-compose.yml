@@ -1,0 +1,37 @@
+# Codifya — tek komutla ayağa kalkan kurulum.
+#
+#     docker compose up -d
+#
+# ⚠️ Ollama ayrı servis. Aynı imaja koymak 1,5 GB modeli her dağıtımda
+# taşımak demekti; ayrıca müşteride Ollama zaten kurulu olabilir.
+#
+# ⚠️ `.env` dosyası REPO'DA YOK ve olmamalı. `.env.ornek`'i kopyalayıp
+# doldurun. Üretimde API_ANAHTARLARI boşsa servis açılmaz (bilinçli).
+
+services:
+  karar-motoru:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      # Ollama konteyner ağı üzerinden — localhost DEĞİL, o konteynerin
+      # kendi içini gösterirdi.
+      OLLAMA_BASE_URL: http://ollama:11434
+    volumes:
+      - codifya-veri:/veri
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-modeller:/root/.ollama
+    # ⚠️ Port dışarı AÇILMIYOR. Ollama'nın kimlik doğrulaması yok; dışarı
+    # açılırsa modele herkes erişir. Yalnızca karar motoru konuşuyor.
+
+volumes:
+  codifya-veri:
+  ollama-modeller:
