@@ -592,7 +592,14 @@ değişikliği B'ye **haber vermek zorunda**, çünkü B o tipleri tüketiyor.
 
 ---
 
-## A1 — Finansın iş değeri sorusunu kapat 🔴
+## A1 — Finansın iş değeri sorusunu kapat ✅ ÖLÇÜLDÜ (2026-08-10)
+
+> **Sonuç: iş gücü iddiası da tutmuyor.** Kural motoru daha çok fatura
+> kurtarıyor ama daha az para; saat başına verimde vasat %22 önde. Teşhis:
+> takip eşiği anomaliye bakıyor, büyüklüğe bakmıyor. Tam tablo ve önerilen
+> tasarım değişikliği: `BILINEN-EKSIKLER.md` §12. Sırada **A4**.
+
+<details><summary>Özgün görev tanımı</summary>
 
 `BILINEN-EKSIKLER.md` §8 hâlâ açık. Limit kolu kapatıldıktan sonra kural
 motoru vasatla **başa baş** (küçük profil %-2,4, büyük profil %-0,3) ama
@@ -608,6 +615,8 @@ koştur, iddianın hangi maliyet aralığında geçerli olduğunu tabloya dök.
 
 **Bitti sayılır:** "sistem, tahsilat ekibinin şu kadar saatini şu kadar
 tahsilata çeviriyor" cümlesi, sayıyla. Maliyet iddiası yoksa yok — zorlama.
+
+</details>
 
 ## A2 — Stok karar önceliğini §9 gözüyle incele ✅ ÇÖZÜLDÜ (2026-08-10)
 

@@ -356,3 +356,48 @@ CSV adaptörünün karşılığı `stok_seviyesi` sütunu.
 `decide.py`'deki `elif` zincirine **eklenmemeli**. Tedarikçi değişimi bir
 karşı taraf kararı; ölü stok tespiti onu geçersiz kılmaz — tıpkı finansta
 karşılık ayırmanın tahsilat takibini geçersiz kılmaması gibi (§9).
+
+
+---
+
+## 12. 🔴 A1 sonucu: iş gücü iddiası da tutmuyor
+
+§8 kapanırken "maliyet iddiası yok ama iş gücü tasarrufu var" denmişti.
+A1 bunu ölçtü ve **o iddia da yanlış çıktı.**
+
+Yanılgının kaynağı: adet saymak.
+
+| | vasat | kural_motoru |
+|---|---|---|
+| takip saati | 40,7 | **39,0** |
+| kurtarılan **fatura** | 74 | **81** |
+| kurtarılan **tutar** | **8.437 TL** | 6.606 TL |
+| saat başına kurtarılan | **207 TL** | 169 TL |
+
+Kural motoru daha çok fatura kurtarıyor ama daha az para: kurtardıkları
+**küçük** faturalar. Saat başına verimde vasat %22 önde.
+
+⚠️ Bu, projenin kendi raporunda bir kez yapılmış hatanın aynısı: metriği
+adet üzerinden kurmak. Yalnızca "81 vs 74" yazan bir rapor, sistemi
+kazanmış gösterirdi.
+
+**Teşhis:** takip eşiği "bu gecikme bu müşteri için olağandışı mı?"
+sorusunu soruyor — **anomali**. Ama "bu benim zamanıma değer mi?" sorusunu
+hiç sormuyor — **büyüklük**. Vasatın düz 30 gün kuralı ayrım yapmadığı
+için büyük alacakları da yakalıyor; kural motoru istatistiksel olarak
+sıradan görünen büyük bir alacağı atlıyor.
+
+Risk skoru (`app/core/policy.py`) kuyruğu tutara göre sıralıyor ama
+**karar verme** aşaması büyüklüğe hiç bakmıyor. Anomali tespiti ile
+önceliklendirme iki ayrı iş ve şu an yalnızca birincisi var.
+
+**Duyarlılık:** sonuç `TAKIP_MALIYETI_TL`'ye bağlı değil — 0 TL'den
+1.000 TL'ye kadar beş noktada da kural motoru kaybediyor (%-3,0 → %-0,4).
+Yani bulgu bir parametre seçiminin sonucu değil.
+
+**Ne yapılmalı:** takip kararına bir büyüklük bileşeni eklenmeli — ör.
+eşiği aşan alacaklar arasında `vadesi_gecen_tl` ile ağırlıklandırma, ya da
+"eşiği aşmasa bile şu tutarın üstündeki gecikmeler takibe girer" ikinci
+kuralı. ⚠️ Değişiklikten sonra **yeniden ölçülmeli**; kazanana kadar
+parametre denemek değil, tek bir tasarım değişikliği yapıp sonucu olduğu
+gibi raporlamak.

@@ -346,3 +346,65 @@ def karsilastirma_limitli() -> pd.DataFrame:
         )
     finally:
         rules.LIMIT_KOLU_AKTIF = orijinal
+
+
+# ---------------------------------------------------------------------------
+# A1 — İş gücü metriği
+# ---------------------------------------------------------------------------
+
+
+def test_kurtarilan_tutar_adetten_ayri_olculuyor():
+    """⭐ A1'in bulduğu tuzak: adet aldatıyor.
+
+    Kural motoru vasattan DAHA ÇOK fatura kurtarıyor (81 vs 74) ama DAHA AZ
+    para (6.606 vs 8.437 TL) — kurtardıkları küçük faturalar. Yalnızca adede
+    bakan bir rapor sistemi olduğundan iyi gösterirdi.
+
+    Bu test iki alanın ayrı ayrı raporlandığını kilitliyor.
+    """
+    f = _fatura_tablosu(
+        [
+            {
+                "musteri_id": "M1",
+                "tarih": "2024-01-01",
+                "vade_tarihi": "2024-02-01",
+                "gercek_odeme_tarihi": None,
+                "tutar_tl": 5000.0,
+            }
+        ]
+    )
+    durum = _durum(f)
+    # Kurtarma olasılıklı; kurtardıysa tutar da yazılmalı, kurtarmadıysa ikisi de sıfır.
+    pm._takip_uygula(durum, "M1", pd.Timestamp("2024-02-10"))
+
+    if durum.kurtarilan_fatura:
+        assert durum.kurtarilan_tutar_tl == 5000.0
+    else:
+        assert durum.kurtarilan_tutar_tl == 0.0
+
+
+def test_takip_saati_sayimdan_turuyor():
+    """İş gücü metriği varsayım değil sayım: eylem sayısı × süre."""
+    f = _fatura_tablosu(
+        [
+            {
+                "musteri_id": "M1",
+                "tarih": "2024-01-01",
+                "vade_tarihi": "2024-02-01",
+                "gercek_odeme_tarihi": "2024-06-01",
+                "tutar_tl": 1000.0,
+            }
+        ]
+    )
+    durum = _durum(f)
+    pm._takip_uygula(durum, "M1", pd.Timestamp("2024-03-01"))
+
+    ozet = pm._maliyet_ozeti(durum, pd.Timestamp("2024-12-31"), marj_orani=0.25)
+    assert ozet["takip_saati"] == pytest.approx(pm.TAKIP_SURESI_DK / 60.0)
+
+
+def test_takip_maliyeti_saatlik_ucretten_turuyor():
+    """İki sayı birbirinden kaymasın: TL, saat × ücret olarak tanımlı."""
+    assert pytest.approx(
+        pm.PERSONEL_SAATLIK_MALIYET_TL * pm.TAKIP_SURESI_DK / 60.0
+    ) == pm.TAKIP_MALIYETI_TL

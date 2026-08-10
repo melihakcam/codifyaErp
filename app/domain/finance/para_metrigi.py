@@ -104,8 +104,23 @@ faturayı kurtarıyordu. Gerçekte ödemeyen müşteri her ay **aynı sebeple**
 Bağımsız çekiliş varsayımı, yeterince ısrarcı her politikayı kazanan yapar —
 ölçüm aracı olarak değersizleştirir."""
 
-TAKIP_MALIYETI_TL = 150.0
-"""Bir tahsilat eyleminin maliyeti: personel zamanı, arama, yazışma, takip.
+TAKIP_SURESI_DK = 20.0
+"""Bir tahsilat eyleminin insan zamanı: dosyayı aç, geçmişi oku, ara,
+konuş, not düş, hatırlatıcı kur.
+
+⭐ **A1'in ana metriği bu.** Para metriği finansta çıkmadı (§8) ama iş
+gücü tarafında sistemin ölçülebilir bir üstünlüğü var: aynı işi daha az
+aramayla yapıyor. Saat, TL'den daha savunulabilir bir birim — çünkü
+`TAKIP_MALIYETI_TL`'nin aksine bir **varsayım değil, bir sayım**: kaç
+arama yapıldığı simülasyonda kesin biliniyor."""
+
+PERSONEL_SAATLIK_MALIYET_TL = 450.0
+"""Tahsilat personelinin yüklenmiş saatlik maliyeti (maaş + yan haklar +
+genel gider). `TAKIP_MALIYETI_TL` buradan türüyor ki iki sayı birbirinden
+kaymasın."""
+
+TAKIP_MALIYETI_TL = PERSONEL_SAATLIK_MALIYET_TL * (TAKIP_SURESI_DK / 60.0)
+"""Bir tahsilat eyleminin parasal maliyeti — 20 dk × 450 TL/saat = 150 TL.
 
 ⚠️ Sonucun en duyarlı olduğu sayı bu. Sıfıra yaklaştıkça "herkesi ara"
 politikası kazanır — seçici olmanın değeri, seçmemenin bedeliyle ölçülüyor.
@@ -148,6 +163,7 @@ class _PolitikaDurumu:
     aktif_limitler: dict[str, float] = field(default_factory=dict)
     takip_sayisi: int = 0
     kurtarilan_fatura: int = 0
+    kurtarilan_tutar_tl: float = 0.0
     iptal_edilen_fatura: int = 0
     iptal_tutari_tl: float = 0.0
     karsilik_karari: int = 0
@@ -195,6 +211,11 @@ def _takip_uygula(
             if durum.rng.random() < olasilik:
                 f.at[i, "gercek_odeme_tarihi"] = en_erken
                 durum.kurtarilan_fatura += 1
+                # ⚠️ Adet değil TUTAR belirleyici. A1'de ölçüldü: kural
+                # motoru vasattan DAHA ÇOK fatura kurtarıyor ama daha AZ
+                # para — kurtardıkları küçük faturalar. Yalnızca adede
+                # bakan bir rapor sistemi olduğundan iyi gösterirdi.
+                durum.kurtarilan_tutar_tl += float(f.at[i, "tutar_tl"])
             continue
 
         kalan = (odeme - bugun).days
@@ -356,7 +377,15 @@ def _maliyet_ozeti(
         "ort_gecikme_gun": float(gecikme_odenen.mean()) if len(odenen) else 0.0,
         "tahsilat_orani": tahsil_edilen / faturalanan if faturalanan > 0 else 0.0,
         "takip_sayisi": float(durum.takip_sayisi),
+        # ⭐ İş gücü metriği (A1): varsayıma değil sayıma dayanıyor.
+        "takip_saati": durum.takip_sayisi * TAKIP_SURESI_DK / 60.0,
         "kurtarilan_fatura": float(durum.kurtarilan_fatura),
+        "kurtarilan_tutar_tl": durum.kurtarilan_tutar_tl,
+        "saat_basina_kurtarilan_tl": (
+            durum.kurtarilan_tutar_tl / (durum.takip_sayisi * TAKIP_SURESI_DK / 60.0)
+            if durum.takip_sayisi > 0
+            else 0.0
+        ),
         "iptal_edilen_fatura": float(durum.iptal_edilen_fatura),
         "karsilik_karari": float(durum.karsilik_karari),
         "limit_karari": float(durum.limit_karari),
@@ -581,9 +610,11 @@ def limit_kolu_taramasi_calistir(
 __all__ = [
     "BATAK_KURTARMA_OLASILIGI",
     "BATAK_KURTARMA_YARILANMA_GUN",
+    "PERSONEL_SAATLIK_MALIYET_TL",
     "POLITIKALAR",
     "TAKIP_HIZLANDIRMA_ORANI",
     "TAKIP_MALIYETI_TL",
+    "TAKIP_SURESI_DK",
     "TAKIP_TEPKI_GUN",
     "VASAT_TAKIP_ESIGI_GUN",
     "YILLIK_FINANSMAN_ORANI",
