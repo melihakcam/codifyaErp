@@ -190,3 +190,26 @@ alanı hâlâ çağıranın beyanı.
 
 **İnsan kullanıcılar** (onay ekranı) `/onay/giris` sayfasından anahtarı bir
 kez girer; anahtar HttpOnly çerezde 12 saat tutulur.
+
+
+## Üretim sertleştirmesi (B4)
+
+```
+API_ANAHTARLARI=erp-uretim:erp-sistemi:sistem, k2:esmanur:yonetici
+ORTAM=uretim
+CEREZ_GUVENLI=true          # TLS arkasındaysa; şemadan da tespit edilir
+HIZ_SINIRI_DAKIKADA=300     # anahtar başına; 0 = sınır yok
+DOCS_KIMLIK_ISTESIN=true    # /docs ve /openapi.json korumalı
+ONAY_YONETICI_ESIGI_TL=0    # >0 ise eşik üstünü yalnızca yonetici onaylar
+```
+
+**Anahtar biçimi:** `anahtar` | `anahtar:kullanici` | `anahtar:kullanici:rol`
+Rol verilmezse `operator`. Denetim kaydındaki isim **anahtardan** gelir;
+istek gövdesindeki `kullanici` alanı doğrulama açıkken yok sayılır.
+
+⚠️ Hız sınırı bellekte tutuluyor — birden çok worker ile çalıştırılırsa
+gerçek sınır worker sayısıyla çarpılır.
+
+⚠️ `/health` korumasız (yük dengeleyici için, iş verisi yok).
+`/health/db` de korumasız ama `kayitli_karar` alanını yalnızca kimliği
+doğrulanmış çağırana veriyor.

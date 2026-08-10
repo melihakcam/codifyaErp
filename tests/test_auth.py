@@ -441,3 +441,74 @@ def test_gelistirmede_kisa_anahtar_serbest():
     from app.core.config import Ayarlar
 
     kimlik_yapilandirmasini_dogrula(Ayarlar(ortam="gelistirme", api_anahtarlari="kisa"))
+# ---------------------------------------------------------------------------
+# B4 — Üretim sertleştirmesi
+# ---------------------------------------------------------------------------
+
+
+def test_docs_kimlik_istiyor(anahtarli_istemci: TestClient):
+    """Şema, sistemin hangi kararları verdiğini satır satır anlatıyor."""
+    assert anahtarli_istemci.get("/openapi.json").status_code == 401
+    assert anahtarli_istemci.get("/docs").status_code == 401
+
+    with_key = {"X-API-Key": ANAHTAR}
+    assert anahtarli_istemci.get("/openapi.json", headers=with_key).status_code == 200
+    assert anahtarli_istemci.get("/docs", headers=with_key).status_code == 200
+
+
+def test_docs_kimlik_kapaliyken_acik(istemci: TestClient):
+    """Geliştirmede Swagger anahtarsız açılmalı."""
+    assert istemci.get("/openapi.json").status_code == 200
+
+
+def test_health_db_karar_sayisini_anahtarsiz_vermiyor(anahtarli_istemci: TestClient):
+    """⚠️ `kayitli_karar` iş verisi: şirketin işlem hacmini ele veriyor.
+
+    Uç açık kalıyor (izleme bağlantıyı sorabilmeli) ama sayı kimliği
+    doğrulanmış çağırana veriliyor.
+    """
+    anonim = anahtarli_istemci.get("/health/db")
+    assert anonim.status_code == 200
+    assert "kayitli_karar" not in anonim.json()
+    assert anonim.json()["durum"] == "baglandi"
+
+    kimlikli = anahtarli_istemci.get("/health/db", headers={"X-API-Key": ANAHTAR})
+    assert "kayitli_karar" in kimlikli.json()
+
+
+def test_hiz_siniri_asilinca_429(api_motoru: Engine):
+    """Anahtar sızarsa sınırsız istek gitmemeli."""
+    fabrika = sessionmaker(bind=api_motoru, expire_on_commit=False)
+
+    def oturum_ver() -> Iterator[Session]:
+        with fabrika() as oturum:
+            yield oturum
+
+    from app.main import _ISTEK_GECMISI
+
+    # ⚠️ Sayaç modül düzeyinde ve testler arasında paylaşılıyor: aynı anahtarla
+    # daha önce koşan testlerin istekleri pencerede duruyor. Başta da
+    # temizlenmezse bu test onların artığını ölçer.
+    _ISTEK_GECMISI.clear()
+
+    app.dependency_overrides[oturum_al] = oturum_ver
+    app.dependency_overrides[ayarlar] = lambda: Ayarlar(
+        api_anahtarlari=ANAHTAR, hiz_siniri_dakikada=3
+    )
+    try:
+        istemci = TestClient(app)
+        basliklar = {"X-API-Key": ANAHTAR}
+        kodlar = [istemci.get("/health", headers=basliklar).status_code for _ in range(5)]
+    finally:
+        app.dependency_overrides.clear()
+        _ISTEK_GECMISI.clear()
+
+    assert kodlar[:3] == [200, 200, 200]
+    assert kodlar[3] == 429
+
+
+def test_hiz_siniri_kimlik_kapaliyken_uygulanmiyor(istemci: TestClient):
+    """Sınır, servis dışarı açıldığında anlam kazanıyor — o da anahtar
+    tanımlı olduğu durum. Geliştirmede kapalı."""
+    kodlar = [istemci.get("/health").status_code for _ in range(20)]
+    assert set(kodlar) == {200}

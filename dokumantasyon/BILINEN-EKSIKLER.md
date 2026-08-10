@@ -613,3 +613,53 @@ ile aynı durum — o §-A3'te canlandırılmıştı.
 ⚠️ Kural motoru Kişi A'nın sahası; bu bir bulgu bildirimi, düzeltme değil.
 Limit kolu §10'da "ölçüldü ve kapatıldı" diye geçiyor — bu sıfırın kasıtlı
 mı yoksa eşiklerin demo dünyaya denk gelmemesi mi olduğu **doğrulanmadı**.
+
+
+---
+
+## 17. ✅ B4 + B6: üretim sertleştirmesi ve gecelik iş ölçümü
+
+### B4 — dört soru, dört cevap
+
+| soru | cevap |
+|---|---|
+| TLS çerezi | `Secure` bayrağı artık **isteğin şemasından de** çıkarılıyor (`cerez_guvenli or scheme == https`) |
+| `/docs`, `/openapi.json` | Kimlik istiyor (`docs_kimlik_istesin`, varsayılan açık) |
+| Hız sınırı | `hiz_siniri_dakikada = 300`, anahtar başına, kayan pencere |
+| `/health/db` karar sayısı | Uç açık kaldı, **sayı kimliğe bağlandı** |
+
+⚠️ Çerez bayrağında iki sessiz arıza vardı ve ikisi de kapandı: ayarı elle
+`True` yapmayı unutan bir TLS kurulumunda çerez korumasız gidiyordu; ayarı
+`True` yapıp HTTP'de çalışan bir geliştirme kurulumunda ise tarayıcı çerezi
+hiç göndermiyor ve ekran sessizce çalışmıyordu.
+
+⚠️ Hız sınırı **bellekte** tutuluyor. Tek süreçte doğru; birden çok worker
+ile gerçek sınır worker sayısıyla çarpılır. Ölçekli kurulumda Redis'e
+taşınmalı — kod içindeki not silinmeden çoğaltılmasın.
+
+⚠️ Sınır yalnızca kimlik doğrulama **açıkken** uygulanıyor. Sınır, servis
+dışarı açıldığında anlam kazanıyor ve o da tam olarak anahtar tanımlı olduğu
+durum; geliştirmede kapalı kalması testleri rahat bırakıyor.
+
+### B6 — gecelik iş, iki alandan sonra
+
+| | ölçüm |
+|---|---|
+| karar sayısı | 2.826 stok + 826 finans = **3.652** |
+| karar üretimi | **68 sn** (59 sn simülasyon + ~4 sn karar mantığı) |
+| tepe RSS | **498 MB** (hedef < 4 GB) |
+| gerekçe bütçesi | 25 × ~7 sn ≈ 175 sn |
+| **toplam tahmin** | **~4 dk** (hedef < 10 dk) |
+
+`gecelik_gerekce_ust_n = 25` **değiştirilmedi** — bütçenin yarısından
+fazlası boşta. İki alan ve çoklu karar taramayı büyüttü ama darboğaz
+gerekçe üretimi, karar üretimi değil.
+
+⚠️ **İlk ölçümüm yanlıştı ve düzeltmesi öğretici.** `tracemalloc` açıkken
+süre 297 sn çıktı; profilci her tahsisi izlediği için ölçümü ~5 kat
+şişirmişti. Profilcisiz gerçek süre 68 sn. Ölçüm aracının kendisi ölçülen
+şeyi bozabiliyor — bugünün dördüncü "metrik tek başına yalan söyler"
+vakası.
+
+⚠️ 59 saniyenin tamamı **demo simülasyonu**, karar mantığı değil. Gerçek
+veride onun yerini CSV okuma alacak ve süre büyük olasılıkla düşecek.

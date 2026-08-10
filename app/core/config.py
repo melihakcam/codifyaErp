@@ -58,6 +58,21 @@ class Ayarlar(BaseSettings):
     # sistem eşik üstünü insana soruyor, bu ayar da "hangi insana" diyor.
     onay_yonetici_esigi_tl: float = 0.0
 
+    # --- Üretim sertleştirmesi (B4) ---
+    # Anahtar başına dakikada izin verilen istek. 0 = sınır yok.
+    #
+    # ⚠️ Sınırlama yalnızca kimlik doğrulama AÇIKKEN uygulanıyor. Sebebi:
+    # sınır, servis dışarı açıldığında anlam kazanıyor ve o da tam olarak
+    # anahtar tanımlandığı durum. Geliştirmede kapalı kalması testleri ve
+    # `--reload` döngüsünü rahat bırakıyor.
+    hiz_siniri_dakikada: int = 300
+
+    # `/docs`, `/redoc` ve `/openapi.json` kimlik istesin mi?
+    # Varsayılan True: şema, sistemin hangi kararları verdiğini ve hangi
+    # alanları okuduğunu satır satır anlatıyor. İç ağda bile gereksiz yere
+    # açık durmasının bir faydası yok.
+    docs_kimlik_istesin: bool = True
+
     # --- Otonomi ---
     # ⚠️ shadow modda ölçülmüş doğruluk raporu olmadan threshold'a geçilmez.
     autonomy_level: OtonomiSeviyesi = OtonomiSeviyesi.SHADOW

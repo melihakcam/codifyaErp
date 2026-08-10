@@ -21,7 +21,7 @@ from __future__ import annotations
 from html import escape
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.core.auth import CEREZ_ADI, anahtar_gecerli_mi
@@ -104,6 +104,7 @@ def giris_sayfasi(ayar: AyarDep, hedef: str | None = None) -> HTMLResponse:
 
 @router.post("/giris", response_model=None)
 def giris_yap(
+    istek: Request,
     ayar: AyarDep,
     anahtar: Annotated[str, Form()],
     hedef: Annotated[str | None, Form()] = None,
@@ -119,13 +120,19 @@ def giris_yap(
         )
 
     cevap = RedirectResponse(url=guvenli_hedef, status_code=303)
+    # ⚠️ B4: `Secure` bayrağı isteğin şemasından da çıkarılıyor. Ayarı
+    # elle True yapmayı unutan bir TLS kurulumunda çerez korumasız giderdi;
+    # ayarı elle True yapıp HTTP'de çalışan bir geliştirme kurulumunda ise
+    # tarayıcı çerezi hiç göndermez ve ekran sessizce çalışmaz. İkisi de
+    # sessiz arıza — şemaya bakmak ikisini de kapatıyor.
+    guvenli = ayar.cerez_guvenli or istek.url.scheme == "https"
     cevap.set_cookie(
         CEREZ_ADI,
         anahtar.strip(),
         max_age=CEREZ_OMRU_SN,
         httponly=True,  # sayfadaki JS anahtarı okuyamasın
         samesite="strict",  # başka siteden gelen istekte çerez gitmesin (CSRF)
-        secure=ayar.cerez_guvenli,
+        secure=guvenli,
     )
     return cevap
 
