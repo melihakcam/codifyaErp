@@ -69,6 +69,7 @@ import httpx
 from app.contracts import (
     Alan,
     DecisionCandidate,
+    FinansOzellikleri,
     FiredRule,
     GuardSonucu,
     KararTipi,
@@ -119,7 +120,17 @@ def _metni_maskele(metin: str, satir: dict[str, Any]) -> str:
     sanıp geçerli bir metni reddeder.
     """
     o = satir["ozellikler"]
-    for deger in (o.get("sku_adi"), o.get("tedarikci_adi"), o.get("sku_id"), o.get("tedarikci_id")):
+    # ⚠️ Finans alanları da maskeleniyor: müşteri adı ve kimliği rakam
+    # içerebilir ("Kocaeli Usta Müşterisi 2") ve maskelenmezse guard onları
+    # uydurma sayı sanıp geçerli metni reddeder.
+    for deger in (
+        o.get("sku_adi"),
+        o.get("tedarikci_adi"),
+        o.get("sku_id"),
+        o.get("tedarikci_id"),
+        o.get("musteri_adi"),
+        o.get("musteri_id"),
+    ):
         if isinstance(deger, str) and deger:
             metin = metin.replace(deger, " ")
     return metin
@@ -160,14 +171,29 @@ def _tr_bicimli_sayi(deger: float) -> str:
 
 
 def _karar_adayi_olustur(satir: dict[str, Any]) -> DecisionCandidate:
+    """JSONL satırından `DecisionCandidate`.
+
+    ⚠️ `alan` ve özellik tipi **karar tipinden** çıkarılıyor, sabit değil.
+    Önceden ikisi de stoka çakılıydı (`Alan.STOK`, `StockFeatures`) ve
+    finans satırı geldiğinde pydantic "sku_adi, moq, paket_adedi eksik"
+    diye patlıyordu. `app/llm/explain.py`'de aynı kusurun üç örneği
+    bulunmuştu (`BILINEN-EKSIKLER.md` §18); bu beşincisi ve son katman.
+    """
+    tip = KararTipi(satir["karar_tipi"])
+    finans_mi = tip.alan == Alan.FINANS.value
+    ozellikler = (
+        FinansOzellikleri.model_validate(satir["ozellikler"])
+        if finans_mi
+        else StockFeatures.model_validate(satir["ozellikler"])
+    )
     return DecisionCandidate(
-        alan=Alan.STOK,
-        tip=KararTipi(satir["karar_tipi"]),
+        alan=Alan.FINANS if finans_mi else Alan.STOK,
+        tip=tip,
         aksiyon=satir["aksiyon"],
         tahmini_tutar_tl=satir["tahmini_tutar_tl"],
         guven=satir["guven"],
         tetiklenen_kurallar=[FiredRule.model_validate(k) for k in satir["tetiklenen_kurallar"]],
-        ozellikler=StockFeatures.model_validate(satir["ozellikler"]),
+        ozellikler=ozellikler,
     )
 
 
@@ -645,7 +671,12 @@ def gerekceleri_uret(
 
         sonuclar.append(
             {
-                "sku_id": satir["sku_id"],
+                # ⚠️ Kimlik alanı alana göre değişiyor. `sku_id` sabit
+                # okunuyordu ve finans satırında `KeyError` veriyordu.
+                # `build_dataset` her iki alan için `kalem_id` yazıyor;
+                # eski dosyalarda o yok, o yüzden `sku_id`'ye düşülüyor.
+                "kalem_id": satir.get("kalem_id") or satir.get("sku_id"),
+                "sku_id": satir.get("sku_id"),
                 "tarih": satir["tarih"],
                 "karar_tipi": satir["karar_tipi"],
                 "metin": metin,
