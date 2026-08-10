@@ -204,12 +204,22 @@ def test_duzeltme_aksiyonu_feedbacke_yazilir(istemci: TestClient, api_oturumu: S
     assert geri.duzeltilmis_aksiyon == {"siparis_miktari": 800}
 
 
-def test_kullanici_zorunlu(istemci: TestClient):
-    """Kararı kimin verdiği bilinmeden denetim izi eksik kalır."""
+def test_kullanici_bos_birakilinca_varsayilana_dusuyor(istemci: TestClient):
+    """⚠️ Bu test B3'te değişti ve sebebi öğretici.
+
+    Önceden `kullanici` alanı zorunluydu (422) — "kararı kimin verdiği
+    bilinmeden denetim izi eksik kalır" gerekçesiyle. Ama o zorunluluk sahte
+    bir güvence veriyordu: alan serbest metindi, kutuya "genel müdür" yazan
+    herkes denetim kaydına öyle geçiyordu.
+
+    B3'te isim **anahtardan** gelmeye başladı. Doğrulama açıkken gövdedeki
+    alan yok sayılıyor; kapalıyken (bu test) beyana düşülüyor ve boşsa
+    varsayılan yazılıyor. Zorunlu tutmanın bir kıymeti kalmadı.
+    """
     karar_id = _karar_uret(istemci)["aday"]["karar_id"]
 
     cevap = istemci.post(f"/v1/approvals/{karar_id}", json={"eylem": "onayla"})
-    assert cevap.status_code == 422
+    assert cevap.status_code == 200
 
 
 def test_onay_karar_veren_ve_zamani_kaydeder(istemci: TestClient, api_oturumu: Session):

@@ -47,6 +47,7 @@ servisi açıkta bırakmaz.
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -57,6 +58,30 @@ API_ANAHTAR_BASLIGI = "X-API-Key"
 CEREZ_ADI = "codifya_anahtar"
 
 URETIM_ORTAMI = "uretim"
+
+
+@dataclass(frozen=True)
+class Kimlik:
+    """Doğrulanmış çağıranın kimliği.
+
+    ⚠️ `dogrulandi=False` iken `ad` **beyandır, kanıt değildir**. Kimlik
+    doğrulama kapalıyken (geliştirme) denetim kaydına yine bir isim yazmak
+    gerekiyor; o isim çağıranın kendi söylediği. Alanın adı bunu saklamasın
+    diye ayrı tutuluyor — denetim raporunda "kim yaptı" sorusunun cevabı
+    ancak `dogrulandi=True` iken bağlayıcıdır.
+    """
+
+    ad: str
+    rol: str = "operator"
+    dogrulandi: bool = False
+
+    @property
+    def yonetici_mi(self) -> bool:
+        return self.rol == "yonetici"
+
+
+ANONIM = Kimlik(ad="operator", rol="operator", dogrulandi=False)
+"""Kimlik doğrulama kapalıyken kullanılan varsayılan."""
 
 
 class UiKimlikGerekli(Exception):
@@ -114,7 +139,7 @@ def kimlik_yapilandirmasini_dogrula(ayar: Ayarlar) -> None:
         )
 
 
-def _dogrula(request: Request, ayar: Ayarlar, ui_mi: bool) -> str:
+def _dogrula(request: Request, ayar: Ayarlar, ui_mi: bool) -> Kimlik:
     gecerli_anahtarlar = _anahtar_kumesi(ayar)
 
     if not gecerli_anahtarlar:
@@ -125,11 +150,15 @@ def _dogrula(request: Request, ayar: Ayarlar, ui_mi: bool) -> str:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Kimlik doğrulama yapılandırılmamış; servis istek kabul etmiyor.",
             )
-        return "kimlik_dogrulama_kapali"
+        return ANONIM
 
     sunulan = _istekten_anahtar_oku(request)
     if sunulan is not None and anahtar_gecerli_mi(sunulan, gecerli_anahtarlar):
-        return "api_anahtari"
+        # ⚠️ Sözlükten okumak sabit zamanlı DEĞİL, ama doğrulama zaten
+        # `anahtar_gecerli_mi` ile yapıldı; buradaki arama yalnızca adı ve
+        # rolü bulmak için ve ancak geçerli bir anahtarla buraya gelinir.
+        ad, rol = ayar.api_kimlikleri.get(sunulan, ("bilinmeyen", "operator"))
+        return Kimlik(ad=ad, rol=rol, dogrulandi=True)
 
     if ui_mi:
         raise UiKimlikGerekli
@@ -145,25 +174,27 @@ def _dogrula(request: Request, ayar: Ayarlar, ui_mi: bool) -> str:
 
 def kimlik_dogrula(
     request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]
-) -> str:
+) -> Kimlik:
     """JSON uçları için kimlik kontrolü. Başarısızsa 401."""
     return _dogrula(request, ayar, ui_mi=False)
 
 
 def kimlik_dogrula_ui(
     request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]
-) -> str:
+) -> Kimlik:
     """Onay ekranı için kimlik kontrolü. Başarısızsa giriş sayfasına yönlendirir."""
     return _dogrula(request, ayar, ui_mi=True)
 
 
-KimlikDep = Annotated[str, Depends(kimlik_dogrula)]
-KimlikUiDep = Annotated[str, Depends(kimlik_dogrula_ui)]
+KimlikDep = Annotated[Kimlik, Depends(kimlik_dogrula)]
+KimlikUiDep = Annotated[Kimlik, Depends(kimlik_dogrula_ui)]
 
 
 __all__ = [
+    "ANONIM",
     "API_ANAHTAR_BASLIGI",
     "CEREZ_ADI",
+    "Kimlik",
     "KimlikDep",
     "KimlikUiDep",
     "UiKimlikGerekli",

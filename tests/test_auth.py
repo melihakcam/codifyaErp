@@ -15,7 +15,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.auth import (
@@ -286,3 +286,113 @@ def test_bos_ayar_bos_kume():
 def test_ui_kimlik_gerekli_istisnasi_ayri_tip():
     """UI yolu 401 yerine yönlendirme üretebilsin diye ayrı istisna kullanır."""
     assert issubclass(UiKimlikGerekli, Exception)
+
+
+# ---------------------------------------------------------------------------
+# B3 — Kimlik kişiyi de taşıyor
+# ---------------------------------------------------------------------------
+
+KIMLIKLI_ANAHTAR = "k-esmanur-9876543210"
+OPERATOR_ANAHTARI = "k-ali-1234567890"
+
+
+def _kimlikli_ayar() -> Ayarlar:
+    return Ayarlar(
+        api_anahtarlari=f"{KIMLIKLI_ANAHTAR}:esmanur:yonetici, {OPERATOR_ANAHTARI}:ali",
+        # ⚠️ 1 TL gerçekçi değil, kasıtlı: demo kararının tutarı ne olursa
+        # olsun eşiğin üstünde kalsın ve test atlanmasın. Eşiği gerçekçi
+        # tutmak, testi dünyanın rastgele bir sayısına bağımlı kılardı.
+        onay_yonetici_esigi_tl=1.0,
+    )
+
+
+@pytest.fixture
+def kimlikli_istemci(api_motoru: Engine) -> Iterator[TestClient]:
+    fabrika = sessionmaker(bind=api_motoru, expire_on_commit=False)
+
+    def oturum_ver() -> Iterator[Session]:
+        with fabrika() as oturum:
+            yield oturum
+
+    app.dependency_overrides[oturum_al] = oturum_ver
+    app.dependency_overrides[ayarlar] = _kimlikli_ayar
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_anahtar_ad_ve_rol_tasiyor():
+    ayar = _kimlikli_ayar()
+
+    assert ayar.api_kimlikleri[KIMLIKLI_ANAHTAR] == ("esmanur", "yonetici")
+    # Rol verilmezse operator.
+    assert ayar.api_kimlikleri[OPERATOR_ANAHTARI] == ("ali", "operator")
+
+
+def test_ad_verilmezse_bilinmeyen():
+    ayar = Ayarlar(api_anahtarlari="sadece-anahtar")
+    assert ayar.api_kimlikleri["sadece-anahtar"] == ("bilinmeyen", "operator")
+
+
+def test_onayda_isim_anahtardan_geliyor(kimlikli_istemci: TestClient, api_oturumu: Session):
+    """⭐ B3'ün ana iddiası: çağıran denetim kaydındaki ismi seçemiyor."""
+    from app.models import Feedback
+
+    cevap = kimlikli_istemci.post(
+        "/v1/decisions/stock/reorder-review", headers={"X-API-Key": KIMLIKLI_ANAHTAR}
+    )
+    karar_id = cevap.json()["aday"]["karar_id"]
+
+    # Gövdede başka bir isim iddia ediliyor — yok sayılmalı.
+    sonuc = kimlikli_istemci.post(
+        f"/v1/approvals/{karar_id}",
+        json={"eylem": "onayla", "kullanici": "genel mudur"},
+        headers={"X-API-Key": KIMLIKLI_ANAHTAR},
+    )
+    assert sonuc.status_code == 200
+
+    geri_bildirim = api_oturumu.scalars(select(Feedback)).one()
+    assert geri_bildirim.kullanici == "esmanur"
+    assert geri_bildirim.kullanici != "genel mudur"
+
+
+def test_esik_ustunu_operator_onaylayamiyor(kimlikli_istemci: TestClient):
+    """Otonomi kademelerinin insan tarafındaki karşılığı."""
+    cevap = kimlikli_istemci.post(
+        "/v1/decisions/stock/reorder-review", headers={"X-API-Key": OPERATOR_ANAHTARI}
+    )
+    karar_id = cevap.json()["aday"]["karar_id"]
+
+    sonuc = kimlikli_istemci.post(
+        f"/v1/approvals/{karar_id}",
+        json={"eylem": "onayla"},
+        headers={"X-API-Key": OPERATOR_ANAHTARI},
+    )
+    assert sonuc.status_code == 403
+    assert "yönetici" in sonuc.json()["detail"]
+
+
+def test_esik_ustunu_yonetici_onaylayabiliyor(kimlikli_istemci: TestClient):
+    cevap = kimlikli_istemci.post(
+        "/v1/decisions/stock/reorder-review", headers={"X-API-Key": KIMLIKLI_ANAHTAR}
+    )
+    karar_id = cevap.json()["aday"]["karar_id"]
+
+    sonuc = kimlikli_istemci.post(
+        f"/v1/approvals/{karar_id}",
+        json={"eylem": "onayla"},
+        headers={"X-API-Key": KIMLIKLI_ANAHTAR},
+    )
+    assert sonuc.status_code == 200
+
+
+def test_kimlik_kapaliyken_kisit_yok(istemci: TestClient):
+    """Doğrulama kapalıyken rol bilinmiyor; herkesi yetkisiz saymak
+    geliştirmeyi kilitler, herkesi yönetici saymak kontrolü sahte kılar."""
+    karar_id = istemci.post("/v1/decisions/stock/reorder-review").json()["aday"]["karar_id"]
+
+    sonuc = istemci.post(
+        f"/v1/approvals/{karar_id}", json={"eylem": "onayla", "kullanici": "melih"}
+    )
+    assert sonuc.status_code == 200

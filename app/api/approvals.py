@@ -22,11 +22,13 @@ from enum import StrEnum
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 
 from app.contracts import Alan, GuardSonucu, KararTipi, PolitikaSonucu
+from app.core.auth import Kimlik, KimlikDep
+from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
 from app.models import Approval, Decision, Feedback, GeriBildirimTuru, OnayDurumu
 
@@ -79,7 +81,14 @@ class OnayIstegi(BaseModel):
     """Kuyruktaki bir karara verilen insan kararı."""
 
     eylem: OnayEylemi
-    kullanici: str = Field(min_length=1, description="Kararı veren kişi — denetim için zorunlu")
+    kullanici: str = Field(
+        default="",
+        description=(
+            "Kararı veren kişi. ⚠️ Kimlik doğrulama AÇIKKEN bu alan YOK "
+            "SAYILIR — isim anahtardan gelir. Yalnızca doğrulama kapalıyken "
+            "(geliştirme) kullanılır."
+        ),
+    )
     duzeltilmis_aksiyon: dict[str, float | int | str | None] | None = None
     yorum: str | None = None
 
@@ -150,6 +159,50 @@ def kuyrugu_listele(
     ]
 
 
+def _karar_veren(kimlik: Kimlik, istek: OnayIstegi) -> str:
+    """Denetim kaydına yazılacak isim.
+
+    ⭐ Kimlik doğrulanmışsa **anahtardan** geliyor ve çağıran değiştiremiyor.
+    Önceden bu alan tamamen serbest metindi: onay ekranındaki kutuya "genel
+    müdür" yazan herkes denetim kaydına öyle geçiyordu
+    (`BILINEN-EKSIKLER.md` §2'nin kalan sınırı).
+
+    Doğrulama kapalıyken beyana düşülüyor — o zaman zaten kimseyi
+    tanımıyoruz ve boş bırakmak denetim kaydını büsbütün değersizleştirir.
+    """
+    if kimlik.dogrulandi:
+        return kimlik.ad
+    return istek.kullanici.strip() or "operator"
+
+
+def _yetki_dogrula(kimlik: Kimlik, karar, ayar: Ayarlar) -> None:
+    """Tutar eşiği üstündeki kararı yalnızca yönetici onaylayabilir.
+
+    ⭐ Otonomi kademelerinin **insan tarafındaki** karşılığı: sistem eşik
+    üstünü insana soruyor, bu kontrol de "hangi insana" diyor. Eşik 0 ise
+    kısıt yok (varsayılan) — kurulum kararı, kod kararı değil.
+
+    ⚠️ Kimlik doğrulama kapalıyken kontrol de yapılmıyor: kimin ne rolde
+    olduğunu bilmiyoruz ve herkesi "yetkisiz" saymak geliştirmeyi kilitler,
+    herkesi "yönetici" saymak ise kontrolü sahte kılar. Kapalıysa kısıt
+    yoktur ve `/health` bunu zaten söylüyor.
+    """
+    esik = ayar.onay_yonetici_esigi_tl
+    if not kimlik.dogrulandi or esik <= 0:
+        return
+    if karar.tahmini_tutar_tl > esik and not kimlik.yonetici_mi:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"{karar.tahmini_tutar_tl:,.0f} TL tutarındaki karar için "
+                f"yönetici yetkisi gerekiyor (eşik: {esik:,.0f} TL)."
+            ),
+        )
+
+
+AyarDep = Annotated[Ayarlar, Depends(ayarlar)]
+
+
 @router.post(
     "/{karar_id}",
     response_model=OnaySonucu,
@@ -159,6 +212,8 @@ def karari_sonuclandir(
     karar_id: UUID,
     istek: OnayIstegi,
     oturum: OturumDep,
+    kimlik: KimlikDep,
+    ayar: AyarDep,
 ) -> OnaySonucu:
     """İnsan kararını uygular: `approval` durumunu günceller, `feedback` yazar.
 
@@ -185,19 +240,24 @@ def karari_sonuclandir(
             ),
         )
 
+    karar = oturum.get(Decision, karar_id)
+    if karar is not None:
+        _yetki_dogrula(kimlik, karar, ayar)
+
     durum, geri_bildirim_turu = _EYLEM_ESLEMESI[istek.eylem]
     simdi = datetime.now()
+    karar_veren = _karar_veren(kimlik, istek)
 
     onay.durum = durum
     onay.karar_zamani = simdi
-    onay.karar_veren = istek.kullanici
+    onay.karar_veren = karar_veren
 
     geri_bildirim = Feedback(
         karar_id=karar_id,
         tur=geri_bildirim_turu,
         duzeltilmis_aksiyon=istek.duzeltilmis_aksiyon,
         yorum=istek.yorum,
-        kullanici=istek.kullanici,
+        kullanici=karar_veren,
         zaman=simdi,
     )
     oturum.add(geri_bildirim)

@@ -11,6 +11,7 @@ müşteri olduğunu bilemiyordu.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -100,3 +101,68 @@ def test_geri_alinamaz_karar_ekranda_isaretli(istemci: TestClient, api_oturumu: 
 
     _finans_karari_kuyruga_koy(api_oturumu)
     assert "geri alinamaz" in istemci.get("/onay/liste").text
+
+
+# ---------------------------------------------------------------------------
+# B2 — Kuyruk kalem bazında gruplanıyor
+# ---------------------------------------------------------------------------
+
+
+def test_ayni_musterinin_kararlari_tek_grupta(istemci: TestClient, api_oturumu: Session):
+    """⭐ B2'nin ana iddiası: operatör ilişkiyi görebilmeli.
+
+    Faz 7'de finans kararları çoğullaştı; bir müşteri aynı anda karşılık +
+    limit + takip kararı alabiliyor. Kuyrukta üç ayrı satır olarak
+    göründüklerinde operatör bunların aynı müşteriye ait olduğunu
+    göremiyordu.
+    """
+    from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret
+
+    # Demo dünyasında en çok karar üreten müşteriyi bul — sabit bir müşteri
+    # kimliği yazmak, dünya değişince testi sessizce anlamsızlaştırırdı.
+    en_cok = max(
+        (ozellikten_kararlar_uret(o) for o in _demo_ozellikleri()),
+        key=len,
+    )
+    if len(en_cok) < 2:
+        pytest.skip("demo dünyasında çoklu karar üreten müşteri yok")
+
+    for aday in en_cok:
+        politika = politika_uygula(aday, ayarlar())
+        api_oturumu.add(Decision.sozlesmeden(aday, politika))
+        api_oturumu.add(Approval(karar_id=aday.karar_id, durum=OnayDurumu.BEKLIYOR))
+    api_oturumu.commit()
+
+    sayfa = istemci.get("/onay/liste").text
+
+    # Kalem adı bir kez başlıkta; kararlar onun altında ayrı satırlar.
+    assert sayfa.count(en_cok[0].ozellikler.gorunen_ad) == 1
+    assert f"{len(en_cok)} karar" in sayfa
+    for aday in en_cok:
+        assert str(aday.karar_id) in sayfa
+
+
+def test_kararlar_birlestirilmiyor_ayri_onaylanabiliyor(
+    istemci: TestClient, api_oturumu: Session
+):
+    """Gruplama sunum; veri modeli değil. Üçü ayrı onaylanabilmeli —
+    operatör "karşılık ayır ama aramaya devam et" diyebilmeli."""
+    from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret
+
+    en_cok = max((ozellikten_kararlar_uret(o) for o in _demo_ozellikleri()), key=len)
+    if len(en_cok) < 2:
+        pytest.skip("demo dünyasında çoklu karar üreten müşteri yok")
+
+    for aday in en_cok:
+        politika = politika_uygula(aday, ayarlar())
+        api_oturumu.add(Decision.sozlesmeden(aday, politika))
+        api_oturumu.add(Approval(karar_id=aday.karar_id, durum=OnayDurumu.BEKLIYOR))
+    api_oturumu.commit()
+
+    # Yalnızca birincisini onayla.
+    cevap = istemci.post(f"/onay/{en_cok[0].karar_id}/onayla", data={"kullanici": "esmanur"})
+    assert cevap.status_code == 200
+
+    kalan = {k["karar_id"] for k in istemci.get("/v1/approvals").json()}
+    assert str(en_cok[0].karar_id) not in kalan
+    assert str(en_cok[1].karar_id) in kalan

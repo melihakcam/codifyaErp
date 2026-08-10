@@ -30,7 +30,7 @@ from html import escape
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse
 
 from app.api.approvals import (
@@ -41,9 +41,12 @@ from app.api.approvals import (
     kuyrugu_listele,
 )
 from app.core.auth import KimlikUiDep
+from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
 
 router = APIRouter(prefix="/onay", tags=["onay ekranı"], include_in_schema=False)
+
+AyarDep = Annotated[Ayarlar, Depends(ayarlar)]
 
 _SAYFA_ISKELETI = """<!doctype html>
 <html lang="tr">
@@ -64,6 +67,12 @@ _SAYFA_ISKELETI = """<!doctype html>
   .alan { font-size: 0.8rem; text-transform: uppercase; color: #555; letter-spacing: 0.05em; }
   .kalem { font-weight: 600; }
   .kalici { color: #b71c1c; font-size: 0.8rem; display: block; }
+  .grup { margin: 1.5rem 0; border: 1px solid #e0e0e0; border-radius: 6px;
+          padding: 0.5rem 0.8rem 0.8rem; }
+  .baslik { font-size: 1rem; margin: 0.3rem 0 0.6rem; display: flex;
+            align-items: baseline; gap: 0.6rem; }
+  .rozet { background: #eee; border-radius: 10px; padding: 0.1rem 0.5rem;
+           font-size: 0.75rem; color: #444; font-weight: normal; }
   .ust { display: flex; justify-content: space-between; align-items: baseline; }
 </style>
 </head>
@@ -86,6 +95,29 @@ def _kullanici_dogrula(kullanici: str) -> str:
     return kullanici or "operator"
 
 
+def _grupla(kalemler: list[KuyrukKalemi]) -> list[tuple[str, str, list[KuyrukKalemi]]]:
+    """Kararları (alan, kalem_adı) çiftine göre gruplar, sırayı korur.
+
+    ⚠️ Sıralama `kuyrugu_listele`'den geliyor (risk skoru azalan) ve
+    **bozulmuyor**: grup, ilk kararının sırasını devralıyor. En riskli karar
+    hâlâ en üstte; yalnızca aynı kaleme ait kardeşleri yanına toplanıyor.
+
+    Gruplamak neden gerekti: Faz 7'de finans kararları çoğullaştı
+    (`ozellikten_kararlar_uret`) ve bir müşteri aynı anda karşılık + limit +
+    takip kararı alabiliyor. Kuyrukta üç ayrı satır olarak göründüklerinde
+    operatör bunların aynı müşteriye ait olduğunu göremiyordu
+    (`BILINEN-EKSIKLER.md` §9).
+
+    ⚠️ Kararlar **birleştirilmiyor**. Üçü ayrı karar, ayrı onaylanabilir;
+    değişen yalnızca sunum. Birleştirmek, operatörün "karşılık ayır ama
+    aramaya devam et" diyebilmesini engellerdi.
+    """
+    gruplar: dict[tuple[str, str], list[KuyrukKalemi]] = {}
+    for kalem in kalemler:
+        gruplar.setdefault((kalem.alan.value, kalem.kalem_adi), []).append(kalem)
+    return [(alan, ad, grup) for (alan, ad), grup in gruplar.items()]
+
+
 def _satir_html(kalem: KuyrukKalemi) -> str:
     aksiyon_ozet = ", ".join(f"{k}={v}" for k, v in kalem.aksiyon.items())
     gerekce = escape(kalem.gerekce_metni) if kalem.gerekce_metni else "<em>henuz uretilmedi</em>"
@@ -95,10 +127,6 @@ def _satir_html(kalem: KuyrukKalemi) -> str:
     kalici = "" if kalem.geri_alinabilir else '<span class="kalici">geri alinamaz</span>'
     return f"""
     <tr>
-      <td>
-        <span class="alan">{escape(kalem.alan.value)}</span><br>
-        <span class="kalem">{escape(kalem.kalem_adi)}</span>
-      </td>
       <td>{escape(kalem.tip.value)}{kalici}</td>
       <td>{escape(aksiyon_ozet)}</td>
       <td>{kalem.tahmini_tutar_tl:,.0f} TL</td>
@@ -114,18 +142,39 @@ def _satir_html(kalem: KuyrukKalemi) -> str:
     </tr>"""
 
 
+def _grup_html(alan: str, kalem_adi: str, grup: list[KuyrukKalemi]) -> str:
+    """Bir kalemin tüm kararları — tek başlık, ayrı satırlar."""
+    coklu = (
+        f'<span class="rozet">{len(grup)} karar</span>' if len(grup) > 1 else ""
+    )
+    satirlar = "".join(_satir_html(k) for k in grup)
+    return f"""
+    <div class="grup">
+      <h2 class="baslik">
+        <span class="alan">{escape(alan)}</span>
+        <span class="kalem">{escape(kalem_adi)}</span>{coklu}
+      </h2>
+      <table>
+        <tr><th>Tip</th><th>Aksiyon</th><th>Tutar</th><th>Guven</th><th>Risk</th>
+            <th>Gerekce</th><th></th></tr>
+        {satirlar}
+      </table>
+    </div>"""
+
+
 def _liste_html(oturum) -> str:
     kalemler = kuyrugu_listele(oturum)
     if not kalemler:
         return '<p id="durum">Kuyruk bos - bekleyen karar yok.</p>'
-    satirlar = "".join(_satir_html(k) for k in kalemler)
+
+    gruplar = _grupla(kalemler)
+    govde = "".join(_grup_html(alan, ad, grup) for alan, ad, grup in gruplar)
+    # ⚠️ "N karar onay bekliyor" ifadesi korunuyor: hem eski testler hem
+    # operatörün alıştığı cümle bu. Kalem sayısı yanına ekleniyor, yerine
+    # geçmiyor — bir müşteri üç karar üretebildiği için ikisi artık farklı.
     return f"""
-    <p id="durum">{len(kalemler)} karar onay bekliyor.</p>
-    <table>
-      <tr><th>Kalem</th><th>Tip</th><th>Aksiyon</th><th>Tutar</th><th>Guven</th><th>Risk</th>
-          <th>Gerekce</th><th></th></tr>
-      {satirlar}
-    </table>"""
+    <p id="durum">{len(kalemler)} karar onay bekliyor ({len(gruplar)} kalem).</p>
+    {govde}"""
 
 
 # `_kimlik` parametreleri kullanılmıyor ama SİLİNMEMELİ: FastAPI bağımlılığı
@@ -142,17 +191,25 @@ def liste_parcasi(oturum: OturumDep, _kimlik: KimlikUiDep) -> HTMLResponse:
 
 @router.post("/{karar_id}/onayla", response_class=HTMLResponse, include_in_schema=False)
 def onayla(
-    karar_id: UUID, kullanici: Annotated[str, Form()], oturum: OturumDep, _kimlik: KimlikUiDep
+    karar_id: UUID,
+    kullanici: Annotated[str, Form()],
+    oturum: OturumDep,
+    kimlik: KimlikUiDep,
+    ayar: AyarDep,
 ) -> HTMLResponse:
     istek = OnayIstegi(eylem=OnayEylemi.ONAYLA, kullanici=_kullanici_dogrula(kullanici))
-    karari_sonuclandir(karar_id, istek, oturum)
+    karari_sonuclandir(karar_id, istek, oturum, kimlik, ayar)
     return HTMLResponse(_liste_html(oturum))
 
 
 @router.post("/{karar_id}/reddet", response_class=HTMLResponse, include_in_schema=False)
 def reddet(
-    karar_id: UUID, kullanici: Annotated[str, Form()], oturum: OturumDep, _kimlik: KimlikUiDep
+    karar_id: UUID,
+    kullanici: Annotated[str, Form()],
+    oturum: OturumDep,
+    kimlik: KimlikUiDep,
+    ayar: AyarDep,
 ) -> HTMLResponse:
     istek = OnayIstegi(eylem=OnayEylemi.REDDET, kullanici=_kullanici_dogrula(kullanici))
-    karari_sonuclandir(karar_id, istek, oturum)
+    karari_sonuclandir(karar_id, istek, oturum, kimlik, ayar)
     return HTMLResponse(_liste_html(oturum))

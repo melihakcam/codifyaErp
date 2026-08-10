@@ -43,12 +43,20 @@ class Ayarlar(BaseSettings):
     # Liste olması bilinçli: anahtar döndürmek (rotation) yeni anahtarı
     # ekleyip ERP'yi geçirdikten sonra eskisini silmek demek. Tek anahtarlı
     # bir alan, döndürme anında kesinti zorunlu kılardı.
+    # Biçim: `anahtar` | `anahtar:kullanici` | `anahtar:kullanici:rol`
+    # Örnek: "erp-xyz:erp-sistemi:sistem, k2:esmanur:yonetici, k3:ali"
+    # Rol verilmezse `operator` sayılır.
     api_anahtarlari: str = ""
 
     # Çerez `Secure` bayrağı — TLS arkasında ZORUNLU olarak True yapılmalı.
     # Varsayılan False, çünkü geliştirme `http://127.0.0.1` üzerinden gidiyor
     # ve `Secure` çerezi tarayıcı hiç göndermez; ekran sessizce çalışmaz.
     cerez_guvenli: bool = False
+
+    # Bu tutarın üstündeki kararları yalnızca `yonetici` rolü onaylayabilir.
+    # 0 = kısıt yok. Otonomi kademelerinin insan tarafındaki karşılığı:
+    # sistem eşik üstünü insana soruyor, bu ayar da "hangi insana" diyor.
+    onay_yonetici_esigi_tl: float = 0.0
 
     # --- Otonomi ---
     # ⚠️ shadow modda ölçülmüş doğruluk raporu olmadan threshold'a geçilmez.
@@ -120,6 +128,28 @@ class Ayarlar(BaseSettings):
     sim_veri_koku: Path = PROJE_KOKU / "data" / "sim"
 
     @property
+    def api_kimlikleri(self) -> dict[str, tuple[str, str]]:
+        """`anahtar → (kullanıcı adı, rol)` eşlemesi.
+
+        ⚠️ Anahtarın kendisi sözlük **anahtarı**; adı ve rolü değeri. Böylece
+        doğrulama tek bir arama, ve kim olduğu doğrulamanın yan ürünü —
+        ayrıca sorulması gereken bir soru değil.
+        """
+        kimlikler: dict[str, tuple[str, str]] = {}
+        for parca in self.api_anahtarlari.split(","):
+            parca = parca.strip()
+            if not parca:
+                continue
+            alanlar = [a.strip() for a in parca.split(":")]
+            anahtar = alanlar[0]
+            if not anahtar:
+                continue
+            ad = alanlar[1] if len(alanlar) > 1 and alanlar[1] else "bilinmeyen"
+            rol = alanlar[2] if len(alanlar) > 2 and alanlar[2] else "operator"
+            kimlikler[anahtar] = (ad, rol)
+        return kimlikler
+
+    @property
     def api_anahtar_kumesi(self) -> frozenset[str]:
         """`api_anahtarlari` metnini kümeye çevirir.
 
@@ -127,7 +157,7 @@ class Ayarlar(BaseSettings):
         string'i geçerli bir anahtar hâline getirirdi — anahtarsız her istek
         kabul edilirdi.
         """
-        return frozenset(p.strip() for p in self.api_anahtarlari.split(",") if p.strip())
+        return frozenset(self.api_kimlikleri)
 
 
 @lru_cache
