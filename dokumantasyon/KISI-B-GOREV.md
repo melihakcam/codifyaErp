@@ -655,7 +655,7 @@ paketin bağımsızlığı buna bağlı. Devir kararını Melih verecek.
 
 ---
 
-## B1 — Finans API'si çoklu kararı yansıtmıyor 🔴
+## B1 — Finans API'si çoklu kararı yansıtmıyor ✅ ÇÖZÜLDÜ (Kişi B, 2026-08-10)
 
 Faz 7'de `ozellikten_kararlar_uret` liste döndürür oldu: bir müşteri aynı
 anda karşılık + takip kararı alabiliyor (`BILINEN-EKSIKLER.md` §9).
@@ -674,7 +674,7 @@ Sürüm kırılımı olacaksa `ERP-ENTEGRASYON.md`'ye yaz.
 **Bitti sayılır:** üç kararı olan bir müşteri için API üçünü de döndürüyor,
 testi var.
 
-## B2 — Onay kuyruğu kalem bazında gruplanmalı 🔴
+## B2 — Onay kuyruğu kalem bazında gruplanmalı ✅ ÇÖZÜLDÜ (2026-08-10)
 
 Aynı değişikliğin ekran tarafı: bir müşteri kuyrukta 2-3 ayrı satır olarak
 görünüyor, operatör bunların aynı müşteriye ait olduğunu göremiyor.
@@ -686,7 +686,7 @@ Sorun sunum, veri modeli değil.
 **Bitti sayılır:** üç kararlı müşteri tek başlık altında, üç ayrı onay
 düğmesiyle. Kalıp: `tests/test_ui_finans.py`.
 
-## B3 — Kişi bazlı yetki 🔴
+## B3 — Kişi bazlı yetki ✅ ÇÖZÜLDÜ (2026-08-10)
 
 `BILINEN-EKSIKLER.md` §2'nin kalan sınırı. API anahtarı **sistemi**
 doğruluyor, kişiyi değil: onay ekranındaki kutuya "genel müdür" yazan
@@ -699,7 +699,7 @@ herkes denetim kaydına öyle geçiyor.
 değiştirilemiyor. Tutar eşiğine göre rol kısıtı (ör. 100k üstünü yalnızca
 `yonetici`) ayrıca tartışılmalı — otonomi kademelerinin insan karşılığı bu.
 
-## B4 — Üretim sertleştirmesi 🟡
+## B4 — Üretim sertleştirmesi ✅ ÇÖZÜLDÜ (2026-08-10)
 
 Kimlik doğrulama var, üretim kurulumunun geri kalanı denenmedi:
 
@@ -711,7 +711,7 @@ Kimlik doğrulama var, üretim kurulumunun geri kalanı denenmedi:
 **Bitti sayılır:** her madde için "şöyle çözüldü" ya da "şu yüzden kabul
 edildi". Cevapsız madde kalmasın.
 
-## B5 — Model finansı hiç görmedi 🔴
+## B5 — Model finansı hiç görmedi ✅ ÇÖZÜLDÜ (tur6, 2026-08-10)
 
 Gerekçe modeli yalnızca stok kararlarıyla eğitildi. Finans kararları için
 gerekçe üretimi **hiç ölçülmedi**: guard finans sayılarıyla sınanmadı,
@@ -743,7 +743,7 @@ Canlıda finans kararı geldiğinde model tanımadığı bir girdi görüyor —
 **Bitti sayılır:** "finans gerekçelerinde guard reddedilme oranı %X"
 şeklinde bir sayı. Yüksekse bu bir bulgu, başarısızlık değil.
 
-## B6 — Gecelik iş + benchmark yeniden ölçümü 🟡
+## B6 — Gecelik iş + benchmark yeniden ölçümü ✅ ÖLÇÜLDÜ (2026-08-10)
 
 İki şey değişti ve ikisi de taramayı büyüttü: ikinci alan (finans) ve
 müşteri başına çoklu karar. `gecelik_gerekce_ust_n = 25` tek alan / tek

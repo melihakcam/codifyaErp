@@ -667,7 +667,7 @@ veride onun yerini CSV okuma alacak ve süre büyük olasılıkla düşecek.
 
 ---
 
-## 18. 🔴 B5: model finansı görmüyordu — ama sebebi eğitim değildi
+## 18. ✅ ÇÖZÜLDÜ — B5: model finansı görmüyordu (tur6 ile kapandı)
 
 Görev tanımı şuydu: "gerekçe modeli yalnızca stok kararlarıyla eğitildi,
 finans için hiç ölçülmedi." Doğruydu. **Sebebi yanlış tahmin edilmişti.**
@@ -729,3 +729,39 @@ ama ölçtüğü şey "eğitim gerekli mi" değil, "hat çalışıyor mu" oldu. 
 **Bir sonraki tur için kapı:** guard reddetme oranı değil, **istem sızıntısı
 oranı** (`karar:` / `Gerekce:` / `VERILER` içeren çıktı yüzdesi) ve insan
 okunabilirliği. Sayı doğruluğu zaten guard'ın işi.
+
+
+---
+
+## 19. 🟡 İki finans karar tipi tur6'da öğrenilmedi
+
+tur6 ölçümü (39 karar, tur5 karşılaştırmalı):
+
+| | tur5 | tur6 |
+|---|---|---|
+| istem sızıntısı | %15,4 | **%0,0** |
+| guard geçti | %94,9 | %66,7 |
+| şablona düştü | %0,0 | %30,8 |
+
+**Asıl hedef tutturuldu:** istem kusma tamamen bitti ve stok tarafı
+bozulmadı (`stok.*` guard %100, sızıntı %0). `finans.tahsilat_takibi`
+tur5'te %50 sızdırıyordu, artık %0.
+
+**Ama iki tip öğrenilmedi:**
+
+| karar tipi | guard | şablon | eşsiz örnek |
+|---|---|---|---|
+| `finans.karsilik_ayir` | %0 | %83 | 137 |
+| `finans.kredi_limiti_dusur` | %0 | %100 | 111 |
+
+Sebep önceden biliniyordu: dengeleyici bu iki tipi ~10 kat çoğaltıyor.
+Tekrar yeni bilgi eklemiyor — 111 örnekle öğrenilen bir tip öğrenilmemiş
+sayılır.
+
+⚠️ **Zararsız ama körelmiş.** O iki tipte model uydurma sayı üretiyor,
+guard yakalıyor, sistem şablona düşüyor. Şablon doğru — düz ama yanlış
+değil. Kullanıcıya çöp gitmiyor.
+
+**Çözüm yeni eğitim turu DEĞİL, daha fazla eşsiz örnek.** Ölçüm noktası
+sıklaştırılıp (30 gün → 15) ufuk uzatılırsa (2 → 3 yıl) bu iki tipin
+örnek sayısı birkaç katına çıkar. Bir sonraki tur ancak o zaman anlamlı.
