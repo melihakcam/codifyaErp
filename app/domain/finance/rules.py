@@ -51,6 +51,7 @@ import math
 from scipy.stats import norm
 
 from app.contracts import ABCSinifi, FinansOzellikleri, XYZSinifi
+from app.core.isletme_profili import FinansProfili, profil
 
 # ---------------------------------------------------------------------------
 # Hedef tahsilat oranı — ABC/XYZ matrisi
@@ -163,7 +164,9 @@ aramak, müşteriyi gereksiz yere rahatsız etmek olur; kol "büyük ve gecikmi�
 diyor, "büyük" demiyor."""
 
 
-def takip_gerekcesi(ozellik: FinansOzellikleri, takip_esigi: float) -> dict:
+def takip_gerekcesi(
+    ozellik: FinansOzellikleri, takip_esigi: float, p: FinansProfili | None = None
+) -> dict:
     """Takip gerekli mi ve **hangi kol** tetikledi?
 
     İki kol ORTOGONAL ve ikisi de ayrı sorulara cevap veriyor:
@@ -175,16 +178,17 @@ def takip_gerekcesi(ozellik: FinansOzellikleri, takip_esigi: float) -> dict:
     müşteri normalde 20 günde öder, 60 gündür ödemiyor" ile "bu alacak
     82.000 TL ve 40 gündür gecikmede" farklı cümleler, farklı aksiyonlar.
     """
+    fp = _fp(p)
     anomali = ozellik.en_eski_gecikme_gun > takip_esigi and ozellik.vadesi_gecen_tl > 0
     maddiyet = (
-        ozellik.vadesi_gecen_tl >= MADDI_TAKIP_ESIGI_TL
-        and ozellik.en_eski_gecikme_gun >= MADDI_ASGARI_GECIKME_GUN
+        ozellik.vadesi_gecen_tl >= fp.maddi_takip_esigi_tl
+        and ozellik.en_eski_gecikme_gun >= fp.maddi_asgari_gecikme_gun
     )
     return {
         "anomali": bool(anomali),
         "maddiyet": bool(maddiyet),
         "gerekli": bool(anomali or maddiyet),
-        "maddi_takip_esigi_tl": round(MADDI_TAKIP_ESIGI_TL, 2),
+        "maddi_takip_esigi_tl": round(fp.maddi_takip_esigi_tl, 2),
     }
 
 
@@ -226,7 +230,19 @@ KARSILIK_KADEMELERI: tuple[tuple[int, float], ...] = (
 tam karşılık: bir yıldır ödenmemiş alacak pratikte tahsil edilmiyor."""
 
 
-def _karsilik_esigi(ort_odeme_gecikmesi_gun: float) -> float:
+def _fp(p: FinansProfili | None = None) -> FinansProfili:
+    """Etkin finans profili.
+
+    ⚠️ Parametre olarak geçilebilmesi bilinçli: ölçüm betikleri (para
+    metriği taramaları) farklı profilleri yan yana koşturuyor ve global
+    duruma dokunmadan yapabilmeli. Verilmezse etkin profil.
+    """
+    return p if p is not None else profil().finans
+
+
+def _karsilik_esigi(
+    ort_odeme_gecikmesi_gun: float, p: FinansProfili | None = None
+) -> float:
     """Karşılık ayırma eşiği — göreceli, ama bir tabanın altına inmez.
 
     ⚠️ Faz 7'de düzeltildi. Önceden `min(180, ort_gecikme x 4)` idi ve
@@ -251,10 +267,11 @@ def _karsilik_esigi(ort_odeme_gecikmesi_gun: float) -> float:
     Göreceli çarpan yine de duruyor — ama artık yalnızca eşiği **yukarı**
     taşıyabiliyor: çok yavaş ödeyen bir segmentte 90 gün normal olabilir.
     """
+    fp = _fp(p)
     if ort_odeme_gecikmesi_gun <= 0:
-        return float(KARSILIK_MUTLAK_ESIK_GUN)
-    goreceli = ort_odeme_gecikmesi_gun * KARSILIK_GORECELI_CARPAN
-    return float(min(KARSILIK_MUTLAK_ESIK_GUN, max(KARSILIK_TABAN_ESIK_GUN, goreceli)))
+        return float(fp.karsilik_mutlak_esik_gun)
+    goreceli = ort_odeme_gecikmesi_gun * fp.karsilik_goreceli_carpan
+    return float(min(fp.karsilik_mutlak_esik_gun, max(fp.karsilik_taban_esik_gun, goreceli)))
 
 
 def karsilik_orani_hesapla(gecikme_gun: int) -> float:
@@ -265,13 +282,13 @@ def karsilik_orani_hesapla(gecikme_gun: int) -> float:
     return 0.0
 
 
-def karsilik_degerlendir(ozellik: FinansOzellikleri) -> dict:
+def karsilik_degerlendir(ozellik: FinansOzellikleri, p: FinansProfili | None = None) -> dict:
     """Karşılık ayrılmalı mı, ne kadar?
 
     Dönen sözlük `FiredRule.degerler`'e doğrudan verilebilir — içindeki her
     sayı guard'ın izinli kümesine girer.
     """
-    esik = _karsilik_esigi(ozellik.ort_odeme_gecikmesi_gun)
+    esik = _karsilik_esigi(ozellik.ort_odeme_gecikmesi_gun, p)
     oran = karsilik_orani_hesapla(ozellik.en_eski_gecikme_gun)
     tutar = ozellik.vadesi_gecen_tl * oran
 
@@ -378,7 +395,7 @@ def musteri_risk_skoru(ozellik: FinansOzellikleri) -> float:
     return float(round(skor * 100, 2))
 
 
-def kesinti_orani_hesapla(skor: float) -> float:
+def kesinti_orani_hesapla(skor: float, p: FinansProfili | None = None) -> float:
     """Risk skorundan limit kesinti oranı — eşikte 0, skor 0'da tavan.
 
     Ayrı fonksiyon olması bilinçli: kademenin şekli tek satırda görülebilsin
@@ -386,19 +403,21 @@ def kesinti_orani_hesapla(skor: float) -> float:
     iki müşteriye çok farklı davranan bir kural, skorun ölçüm gürültüsünü
     iş kararına çevirir.
     """
-    if skor >= LIMIT_DUSURME_SKOR_ESIGI:
+    fp = _fp(p)
+    if skor >= fp.limit_dusurme_skor_esigi:
         return 0.0
-    sertlik = (LIMIT_DUSURME_SKOR_ESIGI - skor) / LIMIT_DUSURME_SKOR_ESIGI
-    return MAKS_LIMIT_KESINTI_ORANI * max(0.0, min(1.0, sertlik))
+    sertlik = (fp.limit_dusurme_skor_esigi - skor) / fp.limit_dusurme_skor_esigi
+    return fp.maks_limit_kesinti_orani * max(0.0, min(1.0, sertlik))
 
 
-def limit_degerlendir(ozellik: FinansOzellikleri) -> dict:
+def limit_degerlendir(ozellik: FinansOzellikleri, p: FinansProfili | None = None) -> dict:
     """Kredi limiti düşürülmeli mi, ne kadara?"""
+    fp = _fp(p)
     skor = musteri_risk_skoru(ozellik)
     asim = ozellik.limit_asimi_tl
 
     # Riskli müşteride limit, skorun eşiğe uzaklığıyla ORANTILI kısılır.
-    onerilen = ozellik.kredi_limiti_tl * (1.0 - kesinti_orani_hesapla(skor))
+    onerilen = ozellik.kredi_limiti_tl * (1.0 - kesinti_orani_hesapla(skor, fp))
 
     # ⚠️ Kol kapalıyken skor ve öneri YİNE hesaplanıyor, yalnızca
     # `limit_dusurulmeli` bastırılıyor. Sebebi: `musteri_risk_skoru` gerekçe
@@ -408,7 +427,7 @@ def limit_degerlendir(ozellik: FinansOzellikleri) -> dict:
         "musteri_risk_skoru": skor,
         "limit_asimi_tl": asim,
         "onerilen_kredi_limiti_tl": round(onerilen, 2),
-        "limit_dusurulmeli": bool(LIMIT_KOLU_AKTIF and skor < LIMIT_DUSURME_SKOR_ESIGI),
+        "limit_dusurulmeli": bool(fp.limit_kolu_aktif and skor < fp.limit_dusurme_skor_esigi),
     }
 
 

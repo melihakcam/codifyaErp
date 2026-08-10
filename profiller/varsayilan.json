@@ -1,0 +1,28 @@
+{
+  "ad": "varsayilan",
+  "sektor": "genel",
+  "stok": {
+    "olu_stok_mutlak_esik_gun": 90,
+    "olu_stok_goreceli_carpan": 6.0,
+    "olu_stok_asgari_stok_gun": 1.0,
+    "yillik_elde_tutma_orani": 0.25,
+    "siparis_maliyeti_tl": 250.0,
+    "stoktukenmesi_ceza_carpani": 2.5,
+    "tedarikci_degisim_skor_esigi": 50.0,
+    "tedarikci_degisim_asgari_siparis": 5
+  },
+  "finans": {
+    "karsilik_mutlak_esik_gun": 180,
+    "karsilik_taban_esik_gun": 90,
+    "karsilik_goreceli_carpan": 4.0,
+    "limit_kolu_aktif": true,
+    "limit_dusurme_skor_esigi": 45.0,
+    "maks_limit_kesinti_orani": 0.5,
+    "limit_ciro_carpani": 2.0,
+    "personel_saatlik_maliyet_tl": 450.0,
+    "takip_suresi_dk": 20.0,
+    "yillik_finansman_orani": 0.45,
+    "maddi_takip_ufku_gun": 30,
+    "maddi_asgari_gecikme_gun": 7
+  }
+}

@@ -139,6 +139,21 @@ class Ayarlar(BaseSettings):
     # Bir günde açılan siparişlerin toplamı bu tutarı aşarsa uyarı.
     tetik_gunluk_siparis_limiti_tl: float = 250_000.0
 
+    # --- İşletme profili (Faz 9) ---
+    # Müşteriye göre değişen İŞ parametreleri burada değil, ayrı bir JSON
+    # dosyasında (bkz. `app/core/isletme_profili.py`). Bu ayar yalnızca o
+    # dosyanın yerini söylüyor.
+    #
+    # ⚠️ Ayrım bilinçli: bu dosya KURULUMA göre değişen şeyleri tutuyor
+    # (veritabanı adresi, LLM modeli, anahtarlar). Profil ise İŞE göre
+    # değişenleri (ölü stok eşiği, finansman oranı, personel maliyeti).
+    # İkisini karıştırmak "bu sayıyı kim değiştirebilir" sorusunu
+    # belirsizleştirir — profili iş sahibi, burayı sistem yöneticisi
+    # değiştirir.
+    #
+    # Boşsa varsayılan profil kullanılır; davranış bugünküyle birebir aynı.
+    isletme_profili_yolu: str = ""
+
     # --- Simülasyon verisi ---
     sim_veri_koku: Path = PROJE_KOKU / "data" / "sim"
 
