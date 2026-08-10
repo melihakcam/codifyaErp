@@ -425,3 +425,35 @@ bunu kilitliyor.
 
 ⚠️ Sözleşme değişikliği gerekmedi: `eldeki_stok` ve `ort_gunluk_talep`
 zaten `StockFeatures`'ta vardı. Doğru soru sorulmamış, veri eksik değildi.
+
+
+---
+
+## 13. 🟡 Geriye dönük test hattı hazır, gerçek veri hâlâ yok
+
+A4'ün ana teslimatı: `app/adapters/geriye_donuk.py`. Sistem geçmiş
+tarihlerde koşturulup kararları gerçekleşenle karşılaştırılabiliyor.
+
+**Ne ölçüyor:** "sistem riski önceden gördü mü?" — tükenme yaşandı ve
+sistem öncesinde sipariş dediyse *yakaladı*, sessiz kaldıysa *kaçırdı*.
+
+⚠️ **Ne ölçemiyor:** "sipariş verilseydi ne olurdu?" Geçmişte o sipariş
+verilmedi; sonucu gözlenemez. Bu yüzden çıkan sayı bir **duyarlılık
+(recall)** ölçüsü, doğruluk değil.
+
+⚠️ **Duyarlılık tek başına okunamaz.** İlk deneme koşusunda duyarlılık
+1,00 çıktı — ama sipariş önerisi oranı da 1,00'dı. Yani sistem her ölçüm
+noktasında "sipariş ver" diyordu; sayı iyiliği değil ayrımsızlığı
+gösteriyordu. Rapora her zaman iki sayı birlikte yazılmalı.
+
+**Yeni gereksinim:** `hareketler.csv` artık geriye dönük test için
+**`hareket_tipi` kolonunu zorunlu** kılıyor. Geçmiş stok bugünkü bakiyeden
+geriye yürünerek kuruluyor; giriş hareketleri olmadan bu hesap yapılamaz.
+Kolon yoksa modül açık hata veriyor — sessizce yanlış sayı üretmiyor.
+
+**Veri kalitesi sinyali:** `negatif_stok_gun`. Yeniden kurulan stok
+negatife düşüyorsa bakiye ile hareketler tutarsızdır (eksik giriş kaydı,
+sayım farkı). Ölçüm yine koşuyor ama sonucun güvenilirliği düşer.
+
+**Engellediği:** hâlâ `threshold` modu — çünkü **gerçek müşteri verisi
+yok**. Hat hazır, üç CSV gelir gelmez koşacak. Eksik olan kod değil veri.

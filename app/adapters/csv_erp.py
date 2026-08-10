@@ -109,6 +109,10 @@ KOLON_ESLESMELERI: dict[str, tuple[str, ...]] = {
 }
 
 VARSAYILANLAR: dict[str, object] = {
+    # Stok kolonu isteğe bağlı sayılıyor: bazı ERP'ler bakiyeyi ayrı bir
+    # dosyada tutuyor. Yoksa 0 — sistem her ürünü stoksuz görür ve sipariş
+    # önerir, ki yanlış yönde hata yapmaktan iyidir.
+    "eldeki_stok": 0,
     # ⚠️ 0 varsaymak güvenli taraf ama bedava değil: yoldaki mal görünmezse
     # aynı sipariş iki kez verilebilir. Müşteride alan varsa doldurulmalı.
     "yoldaki_stok": 0,

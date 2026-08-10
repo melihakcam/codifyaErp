@@ -658,7 +658,14 @@ tespiti onu geçersiz kılmaz. Ortogonal kol, ortogonal üretilir
 
 </details>
 
-## A4 — Gerçek veri hattı 🔴
+## A4 — Gerçek veri hattı ✅ HAT HAZIR (2026-08-10)
+
+> §7 ve §11 kapandı, geriye dönük test hattı yazıldı
+> (`app/adapters/geriye_donuk.py`, 7 test). **Eksik olan kod değil veri** —
+> üç CSV gelir gelmez koşuyor. Ayrıntı: `BILINEN-EKSIKLER.md` §13.
+> Sırada **A5**.
+
+<details><summary>Özgün görev tanımı</summary>
 
 `BILINEN-EKSIKLER.md` §4 ve §7. Tüm ölçümler simülasyonda; bu, `threshold`
 moduna geçişi engelleyen tek şey.
@@ -670,6 +677,8 @@ varsayılmasının etkisini ölç.
 
 **Bitti sayılır:** geçmiş 12 aylık veriyle geriye dönük test koşabilecek
 bir hat. Veri henüz yoksa **hattın kendisi** ve eksik olanın listesi.
+
+</details>
 
 ## A5 — Limit kolunun yeniden açılma koşulu 🟡
 
