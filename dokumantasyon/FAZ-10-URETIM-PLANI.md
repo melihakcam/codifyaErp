@@ -67,14 +67,17 @@ uv run python -m app.forecast.olcum
 
 ### ⚠️ Kural motorunu doğrudan ilgilendiren bulgu
 
-Katalog **aralıklı talep** ağırlıklı: kalemlerin **%77'si** (1531/2000)
+Katalog **aralıklı talep** ağırlıklı: kalemlerin **%76'sı** (1525/2000)
 günde 0,3'ten az satıyor. Toplam MASE bu kütlenin ortalaması olduğu için tek
 başına okunamıyor; rapor katman kırılımını zorunlu basıyor.
 
-Klasik üssel düzleştirme yalnızca hızlı kalemlerde tabanı geçiyor (0,92),
-yavaş katmanda **%71 kötü** (1,71) — çoğu günü sıfır olan seriler için
+Klasik üssel düzleştirme yalnızca hızlı kalemlerde tabanı geçiyor (0,89),
+yavaş katmanda **%55 kötü** (1,55) — çoğu günü sıfır olan seriler için
 yanlış model ailesi. Simülatörün kendisi de o kalemler için ayrı bir
 "aralıklı talep" süreci kullanıyor.
+
+⚠️ Bu sayılar B10.2'deki kesme penceresi düzeltmesinden **sonraki** koşudan;
+öncekiler geçersiz.
 
 **Üretim emri kuralı yazarken bunun karşılığı şu:** tahmin tek bir sayı
 olarak kullanılamaz. `TalepTahmini` bu yüzden bandı **zorunlu** tutuyor;
@@ -82,24 +85,29 @@ emniyet payı `toplam_bandi()` üst sınırına bakarak seçilmeli.
 
 ---
 
-## ✅ Adım 2b (B10.2) — BİTTİ (B, 2026-08-11)
+## ✅ Adım 2b (B10.2) — BİTTİ (2026-08-11)
 
-`app/forecast/aralikli.py`: Croston + SBA. Ayrıntı ve tam tablolar
-`KISI-B-GOREV.md`'de. İki şey plan açısından bağlayıcı:
+`app/forecast/aralikli.py`: Croston + SBA. Tam tablolar `KISI-B-GOREV.md`'de.
+⚠️ İki taraf bu işi **paralel** yaptı; birleştirildi.
 
-**1. Adım 1-2'nin belgelenen tablosu geçersiz.** Yavaş katmanda mevsimsel
-naifin 0,52'si depodaki kodla yeniden üretilemedi (değişiklik öncesi koda
-dönülüp doğrulandı — fark yeni modellerden gelmiyor). Geçerli sayılar
-`olcum.py::KATMAN_UYARISI`'nda; bu belgenin üstündeki bölüm de düzeltildi.
+Plan açısından bağlayıcı üç şey:
 
-**2. Ölçüt değişti.** Günlük MASE aralıklı seride "her gün sıfır" tahminini
-ödüllendiriyor — üretim emri o tahmini kullanamaz. Ölçüm artık **ufuk
-toplamı bağıl hatası** ve **bant kapsaması** da basıyor; karar dayanağı
-onlar. O ölçütte **SBA üç katmanda da en iyi** (0,18 / 0,56 / 1,46).
+**1. Ölçüm penceresi düzeltildi.** Kesmeler serinin kuyruğundan alınıyordu ve
+o dönemde talep düşük olduğu için HER yöntem yukarı yanlı görünüyordu.
+Kesmeler seriye yayıldı; önceki tüm tahmin sayıları geçersiz.
 
-**Adım 3'e giren karar:** üretim emri kuralı `aralikli.sba` çağırsın.
+**2. Ölçüt değişti.** MASE aralıklı seride "her gün sıfır" tahminini
+ödüllendiriyor — üretim emri onu kullanamaz. Rapor artık **yanlılık**,
+**bağıl hata**, **sıfır oranı** ve **bant kapsaması** da basıyor.
+`mevsimsel_naif` MASE'de önde ama pencerelerin %68'inde "hiç üretme" diyor.
 
----
+**3. Adım 3'e giren karar:** üretim emri kuralı `aralikli.croston` çağırsın
+(yansız: %0; SBA −%7 yanlı). Bant, geçmişteki gerçek 14 günlük toplamların
+kuantillerinden kuruluyor — kapsama %93.
+
+⚠️ **Süreç:** hem Adım 1-2'nin hem bu turun ilk commit mesajının tabloları
+depodaki kodla yeniden üretilemedi (ikisi de doğrulandı). Bundan sonra rapor
+çıktısı olduğu gibi yapıştırılacak.
 
 ## Adım 3 — Üretim emri kararı (A)
 

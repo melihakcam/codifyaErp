@@ -12,7 +12,7 @@ from datetime import date
 
 import pytest
 
-from app.forecast.aralikli import ARALIKLI_ALFA, croston, sba
+from app.forecast.aralikli import ALFA, croston, sba
 from app.forecast.contracts import TalepTahmini
 from app.forecast.model import ussel_duzlestirme
 from app.forecast.olcum import KalemSonucu, katman_adi
@@ -212,7 +212,7 @@ def test_tahmin_negatife_dusmuyor():
     assert all(a >= 0 for a in tahmin.alt_band)
 
 
-# --- Aralıklı talep (B10.2) --------------------------------------------------
+# --- Aralıklı talep (Croston / SBA · B10.2) ----------------------------------
 
 
 def _aralikli_seri(araligi: int = 10, miktar: float = 5.0, gun: int = 400) -> list[float]:
@@ -228,13 +228,30 @@ def test_croston_gercek_hizi_buluyor():
     assert tahmin.gunluk[0] == pytest.approx(0.5, abs=0.05)
 
 
+def test_croston_sifirlarda_seviye_bozulmuyor():
+    """⭐ Croston'un tüm fikri bu: sıfır günlerinde GÜNCELLEME YOK.
+
+    Sıfırlarda güncellemek yöntemi klasik üssel düzleştirmeye geri çevirir
+    ve kazanımı yok eder. Aynı talep deseninin araları uzatıldığında oran
+    düşmeli — büyüklük aynı, sıklık azalmış demektir.
+    """
+    sik = ([5.0] + [0.0] * 4) * 40  # 5 gunde bir 5 adet
+    seyrek = ([5.0] + [0.0] * 19) * 20  # 20 gunde bir 5 adet
+
+    a = croston(sik, "S-1", BUGUN, 14).gunluk[0]
+    b = croston(seyrek, "S-1", BUGUN, 14).gunluk[0]
+
+    assert a > b, "aralik uzayinca gunluk oran dusmeli"
+    assert 0.5 < a / b < 6.0, "oran mertebesi aralik oraniyla uyumlu olmali"
+
+
 def test_ussel_duzlestirme_ARALIKLI_SERIDE_COKUYOR():
     """⭐ B10.2'nin varlık sebebi: ölçümdeki bulgunun testle sabitlenmesi.
 
     Klasik üssel düzleştirme sıfır günlerini de güncelleme sayar ve seviyeyi
-    sürekli aşağı çeker. Croston yalnızca satış olan günlerde günceller.
-    Gerçek hız 0,5 iken hangisinin daha yakın olduğu burada kayıt altında —
-    biri "aralıklı model gereksiz, üsseli kullanalım" derse cevabı test.
+    sürekli aşağı çeker. Gerçek hız 0,5 iken hangisinin daha yakın olduğu
+    burada kayıt altında — biri "aralıklı model gereksiz, üsseli kullanalım"
+    derse cevabı test.
     """
     gecmis = _aralikli_seri()
 
@@ -245,52 +262,51 @@ def test_ussel_duzlestirme_ARALIKLI_SERIDE_COKUYOR():
     assert abs(croston_toplam - gercek) < abs(ussel - gercek)
 
 
-def test_sba_croston_kadar_ya_da_daha_dusuk():
-    """Yanlılık düzeltmesi tek yönlü: SBA hiçbir zaman Croston'ın üstüne çıkmaz."""
-    gecmis = _aralikli_seri()
+def test_sba_crostondan_KUCUK():
+    """SBA, Croston'un yukarı yanlılığını `(1 - alfa/2)` ile geri çeker."""
+    gecmis = ([3.0] + [0.0] * 9) * 45
 
-    c = croston(gecmis, "S-1", BUGUN, 14).toplam()
-    s = sba(gecmis, "S-1", BUGUN, 14).toplam()
+    c = croston(gecmis, "S-1", BUGUN, 14).gunluk[0]
+    s = sba(gecmis, "S-1", BUGUN, 14).gunluk[0]
 
-    assert s <= c
-    assert s == pytest.approx(c * (1 - ARALIKLI_ALFA / 2), rel=1e-9)
+    assert s < c
+    assert s == pytest.approx(c * (1 - ALFA / 2), rel=1e-6)
 
 
 @pytest.mark.parametrize("model", [croston, sba])
-def test_yetersiz_pozitif_gunde_TABANA_DUSUYOR(model):
-    """⚠️ İki satıştan "talepler arası süre" çıkarılamaz.
+def test_az_talep_gununde_naif_tabana_dusuluyor(model):
+    """⚠️ Tek satıştan "talepler arası süre" çıkarılamaz.
 
     Sessizce sıfır dönmek, veri yokluğunu "talep yok" diye raporlamak olurdu
     — üretim planında en tehlikeli hata. Tabana düşmeli.
     """
-    gecmis = [0.0] * 200
-    gecmis[50] = 4.0
-
-    tahmin = model(gecmis, "S-1", BUGUN, 14)
-    assert tahmin.yontem == "hareketli_ortalama"
+    gecmis = [0.0] * 200 + [1.0, 0.0]  # tek talep gunu
+    assert model(gecmis, "S-1", BUGUN, 14).yontem == "hareketli_ortalama"
 
 
 @pytest.mark.parametrize("model", [croston, sba])
 def test_hic_satis_olmayan_seride_patlamiyor(model):
-    tahmin = model([0.0] * 200, "S-1", BUGUN, 14)
-    assert tahmin.toplam() == 0.0
+    assert model([0.0] * 200, "S-1", BUGUN, 14).toplam() == 0.0
 
 
-def test_bant_ufuk_toplamindan_kuruluyor():
-    """⭐ Aralıklı seride bandın anlamlı olduğu tek yer ufuk toplamı.
+# --- Bant: okunduğu yerde kalibre --------------------------------------------
 
-    Günlük sapmadan kurulup toplanan bir bant, günde 0,5 satan kalemde iki
-    haftalık toplamın katları kadar genişler. Burada bant geçmişteki gerçek
-    14 günlük toplamların kuantillerinden geliyor, yani okunduğu yerde
-    kalibre.
+
+def test_bant_UFUK_TOPLAMINDAN_kuruluyor():
+    """⭐ Bandın kalibre olması gereken yer `toplam_bandi()`.
+
+    Önceki sürüm üst bandı "tipik talep günü büyüklüğü" olarak koyuyordu.
+    Sözleşme bandı gün gün taşıyıp `toplam_bandi()` onları topladığı için
+    bu, 10 günde bir 5 adet satan kalemde iki haftalık üst sınırı ~70 adete
+    çıkarıyordu — gerçeğin on katı. Üretim emri o bandı okuyup emniyet payı
+    seçiyor; kalibre olmayan bant orada okunamaz bir sayıya dönüşür.
     """
     tahmin = croston(_aralikli_seri(), "S-1", BUGUN, 14)
     alt, ust = tahmin.toplam_bandi()
 
-    # Gercek 14 gunluk toplam bu seride 5 ya da 10 (pencere 1-2 satis
-    # yakaliyor). Bant o araligi kapsamali ama absurt genis olmamali.
+    # Gercek 14 gunluk toplam bu seride 5 ya da 10.
     assert alt <= 7.0 <= ust
-    assert ust < 40.0, "bant absurt genis -- gunluk sapmadan kurulmus olabilir"
+    assert ust < 40.0, "bant absurt genis -- gunluk buyuklukten kurulmus olabilir"
 
 
 def test_bant_sozlesme_sirasini_bozmuyor():
@@ -309,18 +325,77 @@ def test_bant_sozlesme_sirasini_bozmuyor():
     assert alt <= tahmin.toplam() <= ust
 
 
-def test_olcum_ufuk_toplamini_da_kaydediyor():
-    """⭐ Üretim emri `toplam()` okuyor; ölçüm de onu ölçmeli.
+# --- Ölçüm penceresi ve ölçütleri --------------------------------------------
 
-    Günlük MASE aralıklı seride "her gün sıfır" tahminini ödüllendirir —
-    üretim emri o tahmini kullanamaz. İkinci ölçütün hattan geçtiği burada
-    sabitleniyor.
+
+def test_kesmeler_serinin_KUYRUGUNA_YIGILMIYOR():
+    """⭐ Ölçümün kendisi bulguyu üretebilir — bu yakalandı ve düzeltildi.
+
+    İlk sürüm kesmeleri serinin sonundan geriye alıyordu. Serinin son
+    döneminde talep düşükse HER yöntem yukarı yanlı görünüyordu: Croston
+    +%94, `hareketli_ortalama` bile +%87. Kesmeler seriye yayılınca Croston
+    +%2'ye indi.
+
+    Yani sayı modelin değil, örnekleme penceresinin özelliğiydi.
     """
+    import pandas as pd
+
+    from app.forecast.olcum import ASGARI_GECMIS_GUN, kesme_tarihleri
+
+    n = ASGARI_GECMIS_GUN + 600
+    seri = pd.Series(range(n), index=pd.date_range("2023-01-01", periods=n, freq="D"))
+
+    noktalar = kesme_tarihleri(seri, ufuk=14, adet=6)
+
+    assert len(noktalar) >= 2
+    yayilim = noktalar[-1] - noktalar[0]
+    kullanilabilir = (n - 14) - ASGARI_GECMIS_GUN
+    assert yayilim > kullanilabilir * 0.5, (
+        f"kesmeler kuyruga yigilmis: yayilim {yayilim}, kullanilabilir {kullanilabilir}"
+    )
+
+
+def test_yanlilik_ve_sifir_orani_hesaplaniyor():
+    """MASE'nin yetmediği yerde kullanılan iki ölçüt."""
+    k = KalemSonucu(kalem_id="S-1", yontem="x")
+    k.tahmin_toplami = 80.0
+    k.gercek_toplam = 100.0
+    k.pencere_sayisi = 10
+    k.sifir_pencere = 9
+
+    assert k.yanlilik == pytest.approx(-20.0)
+    assert k.sifir_orani == pytest.approx(0.9)
+
+    bos = KalemSonucu(kalem_id="S-2", yontem="x")
+    assert bos.yanlilik is None, "gercek 0 iken yanlilik tanimsiz"
+    assert bos.sifir_orani == 0.0
+
+
+def test_yanlilik_ve_BAGIL_HATA_ayri_sorular():
+    """⭐ İkisi birbirinin yerine geçmez; yanlılık tek başına yanıltır.
+
+    Her pencerede sırayla +100 ve -100 sapan bir yöntem yanlılıkta
+    **sıfır** (mükemmel) görünür, oysa hiçbir pencerede doğru değil. Üretim
+    planı için "yönü doğru ama her seferinde iki kat sapıyor" kabul
+    edilemez; bağıl hata o yüzden ayrı bir sayı.
+    """
+    k = KalemSonucu(kalem_id="S-1", yontem="x")
+    k.tahmin_toplami = 200.0
+    k.gercek_toplam = 200.0
+    k.toplam_hatalar = [100.0, 100.0]
+    k.gercek_toplamlar = [100.0, 100.0]
+
+    assert k.yanlilik == pytest.approx(0.0)
+    assert k.toplam_bagil_hata == pytest.approx(1.0)
+
+
+def test_olcum_ufuk_toplamini_ve_BANDI_kaydediyor():
+    """⭐ Üretim emri `toplam()` ve `toplam_bandi()` okuyor; ölçüm de onları ölçmeli."""
     import pandas as pd
 
     from app.forecast.olcum import ASGARI_GECMIS_GUN, olc
 
-    n = ASGARI_GECMIS_GUN + 100
+    n = ASGARI_GECMIS_GUN + 300
     seri = pd.Series(
         [5.0 if i % 10 == 0 else 0.0 for i in range(n)],
         index=pd.date_range("2024-01-01", periods=n, freq="D"),

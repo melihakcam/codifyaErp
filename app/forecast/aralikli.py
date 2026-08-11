@@ -1,36 +1,50 @@
-"""Aralıklı talep — Croston ve SBA.
+"""Aralıklı talep tahmini — Croston ve SBA.
 
-Sahip: Kişi B · Faz 10 · B10.2
+⚠️ Bu dosya **kataloğun %76'sı** için var (1525/2000 kalem günde 0,3'ten az
+satıyor). Ölçüm şunu gösterdi:
 
-⚠️ Bu dosya bir **ölçüm bulgusunun** cevabı. Adım 1-2'de üssel düzleştirme
-yavaş kalemlerde naif tabandan %49 kötü çıktı (`olcum.py::KATMAN_UYARISI`).
-Sebep model kalitesi değil, **model ailesi**: Holt-Winters "her gün bir miktar
-satış var" varsayar. Kataloğun %76'sında ise seri çoğu gün sıfır, arada bir
-toplu satış — simülatörün kendisi de o kalemler için ayrı bir süreç kullanıyor
-(`simulator/demand.py::_aralikli_talep_uret`, Bernoulli(gün) × miktar).
+    katman            kalem   hareketli  mevsimsel   ussel
+    yavas (<0,3/gun)   1525      1,12       1,08     1,55
 
-Croston tam bu yapıyı ayrıştırıyor: **talep büyüklüğü** ile **talepler arası
-süre** ayrı ayrı düzleştirilir, tahmin ikisinin oranıdır.
+Klasik üssel düzleştirme yavaş kalemlerde naif tabandan **%55 kötü**. Sebebi
+model ailesinin yanlış olması, ayarın kötü olması değil.
 
-    gunluk_hiz = z / p        z: ortalama talep buyuklugu
-                              p: talepler arasi ortalama gun
+## Neden klasik düzleştirme burada çöküyor
 
-SBA (Syntetos-Boylan) aynı hesabın yanlılığı düzeltilmiş hâli: Croston'ın
-`z/p` oranı beklenen değerde **yukarı yanlıdır** (bir oranın beklentisi,
-beklentilerin oranı değildir). `(1 - alfa/2)` çarpanı bu yanlılığı kapatıyor.
+Günlük seri şöyle görünüyor:
 
-## ⚠️ Bant neden gün gün değil, ufuk toplamından kuruluyor
+    0 0 0 0 3 0 0 0 0 0 0 2 0 0 0 0 0 0 0 4 0 0 ...
 
-Diğer modellerde bant "tahmin ± katsayı × günlük sapma" biçiminde kuruluyor
-ve `toplam_bandi()` bunları topluyor. Aralıklı seride bu **anlamsız** bir
-sayı üretir: günde 0,07 satan bir kalemde günlük sapma 1,3 civarıdır, yani
-bant "günde ±1,7 adet" der — kalemin iki haftalık toplam satışının 12 katı.
+Üssel düzleştirme her günü bir gözlem sayar ve sıfırlar seviyeyi aşağı
+çeker; talep günü gelince yukarı sıçrar. Sonuç, hiçbir günü doğru
+tahmin etmeyen sürekli oynayan bir seviye.
 
-Burada bant, geçmişteki **gerçek `ufuk` günlük toplamların** ampirik
-kuantillerinden kuruluyor ve ufka eşit dağıtılıyor. Böylece
-`toplam_bandi()` — üretim emri kuralının gerçekten okuduğu sayı — doğrudan
-kalibre edilmiş oluyor. Bandın okunduğu yerde kalibre etmek, başka bir yerde
-kalibre edip toplarken bozmaktan iyi.
+## Croston'un fikri
+
+Seriyi **iki ayrı seriye** böl:
+
+    buyukluk : 3, 2, 4, ...        (yalnizca talep gunleri)
+    aralik   : 7, 6, 8, ...        (talepler arasi gun sayisi)
+
+İkisini ayrı ayrı düzleştir, sonra oranla:
+
+    gunluk_tahmin = duzlestirilmis_buyukluk / duzlestirilmis_aralik
+
+Sıfırlar artık seviyeyi bozmuyor; "ne kadar" ile "ne sıklıkta" ayrı
+öğreniliyor.
+
+## SBA neden var
+
+Croston tahmininin **yukarı yanlı** olduğu biliniyor: oranın beklenen değeri,
+beklenen değerlerin oranına eşit değil (Jensen eşitsizliği). Syntetos-Boylan
+düzeltmesi bunu `(1 - alfa/2)` katsayısıyla telafi ediyor.
+
+⚠️ Üretim planında yanlılığın yönü önemli: yukarı yanlı tahmin **fazla
+üretime** yol açar. Fazla üretim, eksik üretimden ucuz olabilir ama bunun
+kararı politika katmanının (emniyet payı), tahmin katmanının değil. Tahmin
+yansız olmalı, temkin ayrı bir düğme.
+
+İkisi de ölçüme giriyor; hangisinin kazandığını sayı söyleyecek.
 """
 
 from __future__ import annotations
@@ -42,57 +56,81 @@ import numpy as np
 from app.forecast.contracts import TalepTahmini
 from app.forecast.taban import hareketli_ortalama
 
-# Düzleştirme katsayısı. Croston literatüründe 0,05-0,20 aralığı önerilir;
-# aralıklı seride gözlem seyrek olduğu için yüksek alfa tek bir satışa aşırı
-# tepki verir.
-#
-# ⚠️ Kalem başına en iyi alfayı aramak şu an YANLIŞ olurdu: aynı veriyle hem
-# katsayı seçip hem başarı ölçmek ölçümü şişirir (`model.py`'de aynı gerekçe).
-ARALIKLI_ALFA = 0.1
+# Düzleştirme katsayısı. Literatürde aralıklı talep için 0,1-0,2 aralığı
+# öneriliyor; yavaş serilerde gözlem az olduğu için düşük tutmak gerekiyor.
+# `model.py`'deki ALFA'dan (0,25) ayrı — orada günlük gözlem var, burada
+# yalnızca talep günlerinde güncelleme oluyor.
+ALFA = 0.15
 
-# Croston kurulabilmesi için gereken en az pozitif gün sayısı. İki pozitif
-# gün olmadan "talepler arası süre" diye bir şey yok — tek satıştan aralık
-# çıkarılamaz.
-ASGARI_POZITIF_GUN = 3
+# Bu kadar talep günü görülmeden Croston kurulamaz: iki nokta arasından
+# "aralık" çıkarmak için en az iki talep günü şart, güvenilir bir ortalama
+# için daha fazlası.
+ASGARI_TALEP_GUNU = 3
 
-# Ampirik bant kuantilleri (%). Simetrik ve geniş: aralıklı talepte dağılım
-# sıfırda yığılmış ve sağa çarpık, normal varsayımı tutmuyor.
+# Ampirik bant kuantilleri (%). Geniş ve simetrik olmayan bir dağılım için:
+# aralıklı talepte gözlemler sıfırda yığılmış ve sağa çarpık, normal
+# varsayımı tutmuyor — o yüzden kuantil, standart sapma değil.
 ALT_KUANTIL = 10.0
 UST_KUANTIL = 90.0
 
 
-def _croston_cekirdek(gecmis: list[float], alfa: float) -> tuple[float, float]:
-    """Talep büyüklüğü (z) ve talepler arası süre (p) tahminleri.
+def _croston_cekirdegi(gecmis: list[float], alfa: float) -> tuple[float, float, list[float]]:
+    """Düzleştirilmiş (büyüklük, aralık) ve talep büyüklükleri.
 
-    ⚠️ Düzleştirme **yalnızca satış olan günlerde** güncelleniyor. Klasik
-    üssel düzleştirmenin aralıklı seride çökme sebebi tam bu: sıfır günleri
-    de güncelleme sayıp seviyeyi sürekli sıfıra çekiyor, sonra tek bir satış
-    onu yukarı fırlatıyor.
+    ⚠️ Güncelleme **yalnızca talep günlerinde** yapılıyor. Sıfır günlerinde
+    güncellemek Croston'u klasik düzleştirmeye geri çevirirdi ve tüm
+    kazanımı yok ederdi — yöntemin özü bu.
     """
-    z = 0.0
-    p = 0.0
-    ilk = True
-    aradan_gecen = 0
+    buyuklukler = [d for d in gecmis if d > 0]
+    if len(buyuklukler) < ASGARI_TALEP_GUNU:
+        return 0.0, 0.0, buyuklukler
 
-    for gozlem in gecmis:
-        aradan_gecen += 1
-        if gozlem <= 0:
-            continue
-        if ilk:
-            z, p, ilk = gozlem, float(aradan_gecen), False
-        else:
+    # ⚠️ BAŞLANGIÇ DEĞERİ AMPİRİK ORTALAMADAN — ilk gözlemden DEĞİL.
+    #
+    # İlk sürüm `x`'i "serinin başından ilk talebe kadar geçen gün" ile
+    # başlatıyordu. Talep 0. güne denk gelirse `x=1` çıkıyor, yani "her gün
+    # talep var" — seyrek bir seride oranı katbekat şişiriyor. `alfa=0,15`
+    # ile bu başlangıç kolay sönmüyor: sönmesi için ~7 talep olayı gerekiyor
+    # ve yavaş kalemlerde toplam talep günü zaten o mertebede.
+    #
+    # Ampirik ortalama hem yansız hem kararlı: `z0` ortalama talep
+    # büyüklüğü, `x0` ortalama talepler arası gün.
+    #
+    # ⚠️ DÜZELTME KAYDI — bu değişiklik yanlış bir teşhisle yapıldı.
+    # Ölçümde Croston +%91 yukarı yanlı görünmüştü ve SBA'nın varlık sebebi
+    # yanlılığı düşürmek olduğu için bu teoriye aykırıydı; ilk şüphe (doğru
+    # olarak) kendi koduma yöneldi ve başlangıç değeri düzeltildi.
+    #
+    # Ama sayı neredeyse hiç oynamadı (+%91 → +%94). Asıl sebep başkaydı:
+    # **ölçüm yalnızca serinin son üç penceresinden örnek alıyordu** ve o
+    # dönemde talep düşüktü, dolayısıyla HER yöntem yukarı yanlı görünüyordu
+    # (`hareketli_ortalama` bile +%87). Kesmeler seriye yayılınca Croston
+    # +%2'ye indi — teorinin söylediği yere.
+    #
+    # Düzeltme yine de duruyor: ampirik başlangıç standart ve daha sağlam.
+    # Ama sebebi "yanlılığı düzeltti" değil; o iddia yanlıştı. Ölçüm
+    # penceresinin kendisi bulguyu üretiyordu (bkz. `kesme_tarihleri`).
+    z = float(np.mean(buyuklukler))
+    x = len(gecmis) / len(buyuklukler)
+    ilk = next(i for i, d in enumerate(gecmis) if d > 0)
+    bekleyen = 1
+
+    for gozlem in gecmis[ilk + 1 :]:
+        if gozlem > 0:
             z = alfa * gozlem + (1 - alfa) * z
-            p = alfa * aradan_gecen + (1 - alfa) * p
-        aradan_gecen = 0
+            x = alfa * bekleyen + (1 - alfa) * x
+            bekleyen = 1
+        else:
+            bekleyen += 1
 
-    return z, p
+    return z, x, buyuklukler
 
 
 def _ampirik_bant(gecmis: list[float], ufuk: int) -> tuple[float, float] | None:
-    """Geçmişteki `ufuk` günlük toplamların alt/üst kuantili.
+    """Geçmişteki gerçek `ufuk` günlük toplamların alt/üst kuantili.
 
-    Kayan pencere kullanılıyor: pencereler örtüşüyor, yani gözlemler bağımsız
-    değil. Kuantil tahmini bu yüzden bir olasılık iddiası değil, "bu kalem
+    Kayan pencere kullanılıyor: pencereler örtüşüyor, yani gözlemler
+    bağımsız değil. Kuantil bu yüzden bir olasılık iddiası değil, "bu kalem
     iki haftada tarihsel olarak şu aralıkta satmış" ifadesi — üretim kararı
     için sorulan soru da zaten bu.
 
@@ -100,47 +138,67 @@ def _ampirik_bant(gecmis: list[float], ufuk: int) -> tuple[float, float] | None:
     """
     if len(gecmis) < ufuk * 2:
         return None
-    dizi = np.asarray(gecmis, dtype=float)
-    kumulatif = np.concatenate(([0.0], np.cumsum(dizi)))
+    kumulatif = np.concatenate(([0.0], np.cumsum(np.asarray(gecmis, dtype=float))))
     toplamlar = kumulatif[ufuk:] - kumulatif[:-ufuk]
-    return float(np.percentile(toplamlar, ALT_KUANTIL)), float(
-        np.percentile(toplamlar, UST_KUANTIL)
+    return (
+        float(np.percentile(toplamlar, ALT_KUANTIL)),
+        float(np.percentile(toplamlar, UST_KUANTIL)),
     )
 
 
-def _tahmini_kur(
-    gunluk_hiz: float,
+def _tahmin_kur(
+    oran: float,
+    buyuklukler: list[float],
     gecmis: list[float],
     kalem_id: str,
     baslangic: date,
     ufuk: int,
     yontem: str,
 ) -> TalepTahmini:
-    """Sabit günlük hızı ufka yayar, bandı ufuk toplamından kurar."""
-    toplam = gunluk_hiz * ufuk
+    """Sabit günlük oranı sözleşmeye çevirir.
+
+    ⚠️ **Bant burada simetrik DEĞİL** ve bu bilinçli. Aralıklı seride
+    günlerin çoğu gerçekten sıfır; alt bandı 0'ın üstüne çekmek "her gün
+    en az şu kadar satılır" demek olurdu ve bu yanlış.
+
+    ## ⚠️ Bant, OKUNDUĞU YERDE kalibre ediliyor
+
+    İlk sürüm üst bandı "tipik bir talep gününün büyüklüğü" (büyüklüklerin
+    %90'lık dilimi) olarak koyuyordu. Sözleşme bandı gün gün taşıdığı ve
+    `toplam_bandi()` onları topladığı için bu, ufuk toplamında "**her gün**
+    talep günü olsaydı" senaryosunu üretiyor: 10 günde bir 5 adet satan
+    kalemde iki haftalık üst sınır 70 adet — gerçeğin on katı. Kararın
+    okuduğu sayıda kalibre olmayan bir bant, emniyet payını okunamaz hâle
+    getirir.
+
+    Şimdiki bant geçmişteki **gerçek `ufuk` günlük toplamların** ampirik
+    kuantillerinden kurulup ufka eşit dağıtılıyor. Böylece `toplam_bandi()`
+    doğrudan kalibre; ölçümdeki **BANT KAPSAMA** satırı bunu sınıyor.
+
+    `buyuklukler` yine de gerekiyor: seri bandı kuracak kadar uzun değilse
+    tipik talep büyüklüğü tek makul üst sınır.
+    """
     bant = _ampirik_bant(gecmis, ufuk)
     if bant is None:
-        # Bandı uyduramayız. Nokta tahmininin etrafında ±%100: dar bir bant
-        # yazmak, belirsizliği ölçmüş gibi görünüp ölçmemek olurdu.
-        alt_toplam, ust_toplam = 0.0, toplam * 2
+        # Bandı uyduramayız. Tipik talep günü büyüklüğü üst sınır olarak
+        # kalıyor — dar bir bant yazmak, belirsizliği ölçmüş gibi görünüp
+        # ölçmemek olurdu.
+        gun_ust = float(np.percentile(buyuklukler, 90)) if buyuklukler else oran
+        alt_gun, ust_gun = 0.0, max(gun_ust, oran)
     else:
-        alt_toplam, ust_toplam = bant
-
-    # ⚠️ Nokta tahmini bandın dışına düşebilir (geçmiş pencereler ile
-    # düzleştirilmiş hız farklı şeyler ölçüyor). Sözleşme alt <= tahmin <= üst
-    # istiyor; bandı genişletiyoruz, tahmini kırpmıyoruz — tahmini banda
-    # uydurmak, ölçtüğümüz sayıyı bozmak olurdu.
-    #
-    # Kıyas GÜNLÜK değerler üzerinden: toplam üzerinden kıyaslayıp sonra
-    # ufka bölmek, kayan noktada bir bit altta kalan bir üst bant üretip
-    # sözleşmeyi patlatıyor (ölçümde 2.000 kalemin ilkinde yakalandı).
-    alt_gun = min(max(0.0, alt_toplam / ufuk), gunluk_hiz)
-    ust_gun = max(ust_toplam / ufuk, gunluk_hiz)
+        # ⚠️ Kıyas GÜNLÜK değerler üzerinden: toplam üzerinden kıyaslayıp
+        # sonra ufka bölmek, kayan noktada bir bit altta kalan bir üst bant
+        # üretip sözleşmeyi patlatıyor (2.000 kalemin ilkinde yakalandı).
+        #
+        # Nokta tahmini bandın dışına düşerse bandı genişletiyoruz, tahmini
+        # kırpmıyoruz — tahmini banda uydurmak ölçtüğümüz sayıyı bozardı.
+        alt_gun = min(max(0.0, bant[0] / ufuk), oran)
+        ust_gun = max(bant[1] / ufuk, oran)
 
     return TalepTahmini(
         kalem_id=kalem_id,
         baslangic=baslangic,
-        gunluk=[gunluk_hiz] * ufuk,
+        gunluk=[oran] * ufuk,
         alt_band=[alt_gun] * ufuk,
         ust_band=[ust_gun] * ufuk,
         yontem=yontem,
@@ -148,56 +206,41 @@ def _tahmini_kur(
     )
 
 
-def _hiz_hesapla(gecmis: list[float], alfa: float) -> float | None:
-    """Croston günlük hızı; kurulamıyorsa `None`."""
-    if sum(1 for d in gecmis if d > 0) < ASGARI_POZITIF_GUN:
-        return None
-    z, p = _croston_cekirdek(gecmis, alfa)
-    if p <= 0:
-        return None
-    return z / p
+def croston(gecmis: list[float], kalem_id: str, baslangic: date, ufuk: int) -> TalepTahmini:
+    """Klasik Croston: büyüklük / aralık.
 
-
-def croston(
-    gecmis: list[float], kalem_id: str, baslangic: date, ufuk: int, alfa: float = ARALIKLI_ALFA
-) -> TalepTahmini:
-    """Klasik Croston (1972).
-
-    ⚠️ Yeterli pozitif gün yoksa hareketli ortalamaya düşülüyor. Sessizce
-    sıfır döndürmek, veri yokluğunu "talep yok" diye raporlamak olurdu —
-    üretim planında yapılabilecek en tehlikeli hata (`taban.py` ile aynı
-    gerekçe).
+    Yeterli talep günü yoksa naif tabana düşülüyor — modelin yokluğunu
+    sessizce "talep yok" diye raporlamak, üretim planında en tehlikeli hata.
     """
-    hiz = _hiz_hesapla(gecmis, alfa)
-    if hiz is None:
+    z, x, buyuklukler = _croston_cekirdegi(gecmis, ALFA)
+    if not x:
         return hareketli_ortalama(gecmis, kalem_id, baslangic, ufuk)
-    return _tahmini_kur(hiz, gecmis, kalem_id, baslangic, ufuk, "croston")
+    return _tahmin_kur(z / x, buyuklukler, gecmis, kalem_id, baslangic, ufuk, "croston")
 
 
-def sba(
-    gecmis: list[float], kalem_id: str, baslangic: date, ufuk: int, alfa: float = ARALIKLI_ALFA
-) -> TalepTahmini:
-    """Syntetos-Boylan Approximation — yanlılığı düzeltilmiş Croston.
+def sba(gecmis: list[float], kalem_id: str, baslangic: date, ufuk: int) -> TalepTahmini:
+    """Syntetos-Boylan: Croston'un yukarı yanlılığı düzeltilmiş hâli.
 
-    Croston'ın `z/p` oranı yukarı yanlı; `(1 - alfa/2)` çarpanı bunu kapatır.
-    Fark küçük görünür (alfa=0,1'de %5) ama sistematiktir: her kalemde aynı
-    yönde. Üretim emrinde sistematik yukarı sapma = sürekli fazla üretim.
+    Düzeltme katsayısı `(1 - alfa/2)`. Croston'un oranı beklenen değerlerin
+    oranı değil, oranın beklenen değeri olduğu için yukarı kayıyor; bu
+    katsayı onu geri çekiyor.
     """
-    hiz = _hiz_hesapla(gecmis, alfa)
-    if hiz is None:
+    z, x, buyuklukler = _croston_cekirdegi(gecmis, ALFA)
+    if not x:
         return hareketli_ortalama(gecmis, kalem_id, baslangic, ufuk)
-    return _tahmini_kur(hiz * (1 - alfa / 2), gecmis, kalem_id, baslangic, ufuk, "sba")
+    duzeltilmis = (1 - ALFA / 2) * (z / x)
+    return _tahmin_kur(duzeltilmis, buyuklukler, gecmis, kalem_id, baslangic, ufuk, "sba")
 
 
 ARALIKLI_MODELLER = {"croston": croston, "sba": sba}
-"""Ölçümde tabanlarla yan yana koşturulacak aralıklı talep modelleri."""
+"""Ölçümde diğerleriyle yan yana koşturulacak aralıklı talep modelleri."""
 
 
 __all__ = [
+    "ALFA",
     "ALT_KUANTIL",
-    "ARALIKLI_ALFA",
     "ARALIKLI_MODELLER",
-    "ASGARI_POZITIF_GUN",
+    "ASGARI_TALEP_GUNU",
     "UST_KUANTIL",
     "croston",
     "sba",

@@ -739,10 +739,12 @@ Stok sipariş kararının ikizi. Karar tipleri: `uretim.emir_ac`,
 ⚠️ **B'nin ölçtüğü bulgular bu kuralı doğrudan etkiliyor** (B10.2 sonrası
 güncel; eski 0,52'li tablo yanlıştı, ayrıntısı `KISI-B-GOREV.md`'de).
 
-**1. Hangi tahmin fonksiyonunu çağıracaksın:** `app.forecast.aralikli.sba`.
-Kataloğun %77'si günde 0,3'ten az satıyor ve SBA ufuk toplamında üç
-katmanda da en iyi (yavaş 1,46 / orta 0,56 / hızlı 0,18 bağıl hata).
-Hızlı katmanda günlük desen gerekiyorsa `model.ussel_duzlestirme`.
+**1. Hangi tahmin fonksiyonunu çağıracaksın:**
+`app.forecast.aralikli.croston`. Kataloğun %76'sı günde 0,3'ten az satıyor.
+Croston ufuk toplamında **yansız** (%0), pencerelerin yalnızca %28'inde
+"hiç talep yok" diyor ve bandı %93 kapsıyor. SBA'nın bağıl hatası kıl payı
+daha iyi ama −%7 yanlı — üretimde sistematik eksik tahmin demek. Hızlı
+katmanda günlük desen gerekiyorsa `model.ussel_duzlestirme` (MASE 0,89).
 
 **2. Tahmini tek bir sayı olarak kullanma.** Emniyet payı
 `tahmin.toplam_bandi()` üst sınırına bakmalı, `toplam()`'a değil. Yavaş
@@ -750,8 +752,9 @@ kalemlerde bant geniş olacak — kusur değil, dürüstlük.
 
 **3. ⚠️ Günlük MASE tablosuna bakıp yöntem seçme.** Aralıklı seride o ölçüt
 "her gün sıfır" tahminini ödüllendiriyor; üretim emri o tahmini
-kullanamaz. Ölçüm raporunda **UFUK TOPLAMI** tablosu var, karar dayanağı
-odur.
+kullanamaz. `mevsimsel_naif` MASE'de önde ama pencerelerin **%68'inde
+"hiç üretme"** diyor. Karar dayanağı raporun **UFUK TOPLAMI** ve **SIFIR
+ORANI** satırları.
 
 ## A10.3 — Kapasite 🟡
 

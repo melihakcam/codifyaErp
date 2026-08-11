@@ -777,54 +777,71 @@ kendisi basıyor.
 katıldılar; `olcum.py` artık **ufuk toplamı** ve **bant kapsaması** da
 raporluyor.
 
-### Bulgu 1 — hedef sayı (0,52) yeniden üretilemedi
+⚠️ **Bu iş iki taraf tarafından paralel yapıldı** (sahiplik tablosu tam
+bunu önlemek için vardı, aynı gün ikinci kez oldu). Birleştirildi: kesme
+penceresi düzeltmesi + yanlılık/sıfır oranı bir taraftan, ampirik bant +
+bağıl hata/bant kapsama diğerinden.
 
-Adım 1-2'de belgelenen katman tablosu **depodaki kodla çıkmıyor**.
-Doğrulama: değişikliklerim stash'lenip commit'teki kodla aynı altkümede
-koşuldu, sayılar bugünküyle bit bit aynı çıktı. Yani fark benim eklediğim
-modellerden gelmiyor — o tablo depoya hiç girmemiş bir taslak koddan
-alınmış. Geçerli sayılar:
+### Bulgu 1 — ölçüm penceresi bulgunun kendisini üretiyordu
 
-```
-katman              kalem   hareketli  mevsimsel  croston   sba   ussel
-hizli  (>=2/gun)      193      1,13       1,05      1,12    1,11   0,92
-orta   (0,3-2)        276      1,06       1,09      1,05    1,03   1,14
-yavas  (<0,3/gun)    1531      1,29       1,17      1,26    1,24   1,71
-```
+Croston +%91 yukarı yanlı çıktı; teoriye aykırıydı. Asıl sebep kodda değil
+ölçümdeydi: kesmeler yalnızca serinin **son üç penceresinden** alınıyordu ve
+o dönemde talep düşüktü, dolayısıyla HER yöntem yukarı yanlı görünüyordu
+(`hareketli_ortalama` bile +%87). Kesmeler seriye yayılınca Croston %0'a
+indi. `kesme_tarihleri` düzeltildi, testi var.
 
-⚠️ Eski tablodaki 0,98 / 0,52 / 1,49 satırı **hiçbir yerde kaynak olarak
-kullanılmamalı.** `KATMAN_UYARISI` ve plan dosyaları güncellendi.
+### Bulgu 2 — MASE üretim planının sorusunu sormuyor
 
-### Bulgu 2 — asıl sorun ölçütte, modelde değil
+Aralıklı seride günlerin çoğu gerçekten sıfır; **"hiç satmayacağız" demek
+gün gün en yakın cevap** ve MASE bunu ödüllendiriyor. Üretim emri o tahmini
+kullanamaz — `toplam()` ve `toplam_bandi()` okuyor.
 
-Günlük MASE aralıklı seride **"her gün sıfır" tahminini ödüllendiriyor.**
-İki haftada bir 5 adet satan kalemde "her gün 0" 13 günde tam isabet eder;
-pozitif bir hız tahmini HER gün sapar. Mevsimsel naifin yavaş katmandaki
-üstünlüğü büyük ölçüde bu — çoğu gün sıfır basıyor.
+Rapor artık üç sütun daha basıyor: **yanlılık** (sapma hangi yönde), **bağıl
+hata** (ne kadar), **sıfır oranı** (kaç pencerede "hiç üretme" diyor).
+⚠️ Yanlılık tek başına yanıltır: ±%100 sapan bir yöntem yanlılıkta mükemmel
+görünür, hatalar birbirini götürür. İkisi ayrı ölçülüyor.
 
-Ama üretim emri "her gün sıfır üret" diyemez. Kural `toplam()` ve
-`toplam_bandi()` okuyor. O ölçütte tablo değişiyor:
+### Ölçülen (2.000 kalem, ufuk 14 gün — rapor çıktısından)
 
 ```
-ufuk toplami — bagil hata      hizli   orta   yavas
-sba                             0,18   0,56    1,46   <- her katmanda en iyi
-croston                         0,19   0,57    1,48
-hareketli_ortalama              0,21   0,63    1,64
-mevsimsel_naif                  0,21   0,69    1,62
-ussel_duzlestirme               0,30   1,02    2,15
+yontem              MASE(yavas)  yanlilik  sifir%  bagil hata(yavas)  bant
+croston                 1,12         0%     28%          1,59         93%
+sba                     1,08        -7%     28%          1,54         93%
+hareketli_ortalama      1,12        -1%     60%          1,59         92%
+mevsimsel_naif          1,08        +1%     68%          1,61         82%
+ussel_duzlestirme       1,55        +7%     34%          2,29         91%
 ```
 
-**SBA üç katmanda da en iyi**; yavaş katmanda mevsimsel naiften %10 önde.
-Bant kapsaması da orada en yüksek (%93 — bant %80 nominalle kuruldu, yani
-biraz temkinli tarafta).
+MASE'de `mevsimsel_naif` önde ama pencerelerin **%68'inde "hiç üretme"**
+diyor. Croston %28.
+
+### Bulgu 3 — bant okunduğu yerden başka yerde kalibre ediliyordu
+
+Üst bant "tipik talep günü büyüklüğü"ydü; sözleşme bandı gün gün taşıyıp
+`toplam_bandi()` topladığı için 10 günde bir 5 adet satan kalemde iki
+haftalık üst sınır ~70 adet çıkıyordu. Bant artık geçmişteki gerçek 14
+günlük toplamların ampirik kuantillerinden kuruluyor: kapsama yavaş
+katmanda %93.
 
 ### Karar
 
-- Üretim emri kuralı **SBA** kullansın (yavaş + orta katman), hızlı
-  katmanda üssel düzleştirme günlük desende hâlâ önde.
-- Günlük MASE tek başına **karar ölçütü değil**. Rapor ikisini yan yana
-  basıyor ve hangisinin ne için okunacağını yazıyor.
-- ⚠️ Bu sayılar simülasyondan; **üst sınır**. Gerçek ölçüt B10.4.
+- Üretim emri kuralı **Croston** kullansın. Sebep SBA'nın 0,05'lik bağıl
+  hata üstünlüğü değil, **yanlılık**: SBA bu veride −%7, Croston %0.
+  Düzeltme, düzeltecek yanlılık bulamayıp aşağı kaydırıyor; üretim
+  planında sistematik eksik tahmin = kronik stoksuzluk.
+- Günlük MASE tek başına **karar ölçütü değil**.
+- ⚠️ Bu sayılar simülasyondan; **üst sınır**. Gerçek ölçüt B10.4 — SBA
+  orada haklı çıkabilir.
+
+### ⚠️ Süreç bulgusu — yazıya geçen sayılar yeniden üretilemiyor
+
+Hem Adım 1-2'nin belgelediği tablo (yavaş katmanda 0,52) hem bu turun ilk
+commit mesajındaki tablo (0,50 / −%20 / %90) **depodaki kodla koşulduğunda
+çıkmıyor**. İkisi de ayrı ayrı doğrulandı: ilgili commit'e dönülüp ölçüm
+koşuldu, sayılar bugünküyle bit bit aynı çıktı.
+
+Bu belgelerdeki sayılar karar gerekçesi oluyor. Bundan sonra **rapor çıktısı
+olduğu gibi yapıştırılacak**, elle özetlenmeyecek.
 
 ## B10.3 — Üretim servis katmanı 🟡 *(A10.2'ye bağlı)*
 

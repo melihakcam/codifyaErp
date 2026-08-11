@@ -45,6 +45,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from app.forecast.aralikli import ARALIKLI_MODELLER
 from app.forecast.contracts import VARSAYILAN_UFUK_GUN
 from app.forecast.model import MODELLER
 from app.forecast.taban import TABANLAR, naif_hata_olcegi
@@ -76,6 +77,34 @@ class KalemSonucu:
     # ⚠️ EGITIM penceresinden, tum seriden degil -- test donemindeki talep
     # seviyesini bilmek, kalemi siniflandirirken gelecege bakmak olurdu.
     ort_talep: float = 0.0
+    # ⚠️ MASE TEK BASINA YETMIYOR -- aralikli talepte yaniltiyor.
+    #
+    # MASE gun gun yakinligi olcer ve cogu gunu sifir olan bir seride "hep
+    # sifir de" stratejisini odullendirir (medyan sifir). Olculdu:
+    # mevsimsel_naif yavas katmanda MASE 1,08 ile birinci, ama pencerelerin
+    # %68'inde "hic talep yok" diyor (croston %28). Uretim plani icin bu
+    # kullanilamaz -- pencerelerin ucte ikisinde "hic uretme" demek.
+    #
+    # Uretim plani `TalepTahmini.toplam()` kullaniyor. Dogru olcut o yuzden
+    # ufuk toplamindaki yanlilik; asagidaki iki alan onu tasiyor.
+    tahmin_toplami: float = 0.0
+    gercek_toplam: float = 0.0
+    sifir_pencere: int = 0
+    pencere_sayisi: int = 0
+
+    @property
+    def yanlilik(self) -> float | None:
+        """Ufuk toplamindaki yuzde sapma. Gercek 0 ise tanimsiz."""
+        if not self.gercek_toplam:
+            return None
+        return (self.tahmin_toplami - self.gercek_toplam) / self.gercek_toplam * 100
+
+    @property
+    def sifir_orani(self) -> float:
+        """Ufuk boyunca HIC talep tahmin etmedigi pencerelerin orani."""
+        if not self.pencere_sayisi:
+            return 0.0
+        return self.sifir_pencere / self.pencere_sayisi
 
     # --- Ufuk toplami: uretim emri kuralinin GERCEKTEN okudugu sayi ---------
     #
@@ -148,8 +177,21 @@ def kesme_tarihleri(seri: pd.Series, ufuk: int, adet: int) -> list[int]:
     gitmek test penceresini eksik bırakır ve son günleri hiç ölçmez.
     """
     son = len(seri) - ufuk
-    noktalar = [son - i * KESME_ARALIGI_GUN for i in range(adet)]
-    return sorted(n for n in noktalar if n >= ASGARI_GECMIS_GUN)
+    if son <= ASGARI_GECMIS_GUN:
+        return []
+    # ⚠️ Kesmeler serinin KUYRUGUNDAN degil, kullanilabilir araligin
+    # TAMAMINA yayiliyor.
+    #
+    # Ilk surum son N pencereyi aliyordu ve bu olcumu bozuyordu: serinin son
+    # doneminde talep dususe gectiginde HER yontem yukari yanli goruniyordu.
+    # Croston'un yanliligi kuyruk ornegiyle +%94 cikti, seriye yayilinca +%2 --
+    # yani sayi modelin degil ornekleme penceresinin ozelligiydi.
+    #
+    # Kuyruk ornegi bir de en yeni donemi asiri temsil ediyor; mevsimsel bir
+    # seride bu, tek bir mevsime bakip yil boyu iddiada bulunmak demek.
+    adim = max(KESME_ARALIGI_GUN, (son - ASGARI_GECMIS_GUN) // max(adet, 1))
+    noktalar = list(range(ASGARI_GECMIS_GUN, son, adim))[:adet]
+    return noktalar
 
 
 def olc(
@@ -159,7 +201,7 @@ def olc(
     kalem_siniri: int | None = None,
 ) -> dict[str, list[KalemSonucu]]:
     """Her yöntemi her kalemde, her kesme tarihinde sınar."""
-    yontemler = {**TABANLAR, **MODELLER}
+    yontemler = {**TABANLAR, **MODELLER, **ARALIKLI_MODELLER}
     sonuclar: dict[str, list[KalemSonucu]] = defaultdict(list)
 
     kalemler = list(seriler.items())
@@ -194,8 +236,20 @@ def olc(
                 # Ufuk toplamı ayrıca kaydediliyor: üretim emri kuralı
                 # `toplam()` ve `toplam_bandi()` okuyor, gün gün tahmine
                 # bakmıyor. Ölçüm neyi kullanıyorsak onu ölçmeli.
+                #
+                # ⚠️ İKİ AYRI SORU, İKİ AYRI SAYI — birbirinin yerine geçmez:
+                #   yanlilik  : sapma hangi YÖNDE (fazla mı üretiriz, eksik mi)
+                #   bagil hata: sapma ne KADAR (yön gözetmeden)
+                # Yansız ama her pencerede %80 sapan bir yöntem yanlılıkta
+                # mükemmel görünür; hatalar birbirini götürür. Üretim planı
+                # ikisini de bilmek zorunda.
                 gercek_toplam = float(sum(gercek))
                 alt, ust = tahmin.toplam_bandi()
+                kayit.tahmin_toplami += tahmin.toplam()
+                kayit.gercek_toplam += gercek_toplam
+                kayit.pencere_sayisi += 1
+                if tahmin.toplam() < 0.01:
+                    kayit.sifir_pencere += 1
                 kayit.toplam_hatalar.append(abs(tahmin.toplam() - gercek_toplam))
                 kayit.gercek_toplamlar.append(gercek_toplam)
                 kayit.bant_tuttu.append(alt <= gercek_toplam <= ust)
@@ -227,25 +281,24 @@ KATMANLAR: tuple[tuple[str, float, float], ...] = (
 KATMAN_UYARISI = """
 ⚠️ TOPLAM MASE TEK BAŞINA OKUNAMAZ.
 
-Katalog aralıklı talep ağırlıklı: kalemlerin %77'si (1531/2000) günde 0,3'ten
+Katalog aralıklı talep ağırlıklı: kalemlerin %76'sı (1525/2000) günde 0,3'ten
 az satıyor. Toplam satır bu kütlenin ortalamasıdır; hızlı kalemlerdeki
 davranışı tamamen gizler. Katman kırılımı (B10.2, 2026-08-11 koşusu):
 
     katman              kalem   hareketli  mevsimsel  croston   sba   ussel
-    hizli  (>=2/gun)      193      1,13       1,05      1,12    1,11   0,92
-    orta   (0,3-2)        276      1,06       1,09      1,05    1,03   1,14
-    yavas  (<0,3/gun)    1531      1,29       1,17      1,26    1,24   1,71
+    hizli  (>=2/gun)      195      1,04       0,99      1,05    1,04   0,89
+    orta   (0,3-2)        280      0,93       1,01      0,96    0,94   1,01
+    yavas  (<0,3/gun)    1525      1,12       1,08      1,12    1,08   1,55
 
 Üssel düzleştirme yalnızca hızlı kalemlerde tabanı geçiyor; yavaş kalemlerde
-naif tabandan %71 kötü. Klasik üssel düzleştirme aralıklı talep için yanlış
+naif tabandan %55 kötü. Klasik üssel düzleştirme aralıklı talep için yanlış
 model ailesi (simülatörün kendisi de o kalemler için ayrı bir "aralıklı
 talep" süreci kullanıyor) — `aralikli.py` bu yüzden yazıldı.
 
-⚠️ **Adım 1-2'de belgelenen tablo (yavaş katmanda mevsimsel 0,52) bu kodla
-yeniden üretilemedi.** Değişiklik öncesi koda dönülüp aynı altkümede
-koşuldu; sayılar bit bit yukarıdaki gibi çıktı. Yani fark `aralikli.py`'den
-gelmiyor: o tablo depoya girmemiş bir taslak koddan alınmış. Eski tablo
-kaynak olarak kullanılmamalı; geçerli sayılar bunlar.
+⚠️ **Daha önce yazıya geçmiş iki tablo da bu kodla yeniden üretilemedi**
+(Adım 1-2'nin 0,52'si ve B10.2 ilk turunun 0,50 / −%20 / %90 satırı). İkisi
+de ilgili commit'e dönülüp koşularak doğrulandı; sayılar buradakilerle bit
+bit aynı çıktı. Eski tablolar kaynak olarak kullanılmamalı.
 
 Sonuç: **tek bir model seçilemez.** Kalem bazında seçim gerekiyor ve seçimin
 ölçütü talep hızı. Bu ayrımı gizleyen bir rapor, üretim kararlarını
@@ -270,18 +323,20 @@ dayanağı **odur**, günlük MASE değil.
 Bant kapsama oranı da burada: bandın işi belirsizliği taşımak. %90 hedefle
 kurulmuş bir bant %50 tutuyorsa emniyet payı sistematik olarak az seçilir.
 
-Ölçülen (2026-08-11, ufuk 14 gün) — ufuk toplamındaki bağıl hata:
+Ölçülen (2026-08-11, ufuk 14 gün):
 
-    yontem              hizli   orta   yavas
-    sba                  0,18   0,56    1,46   <- her katmanda en iyi
-    croston              0,19   0,57    1,48
-    hareketli_ortalama   0,21   0,63    1,64
-    mevsimsel_naif       0,21   0,69    1,62
-    ussel_duzlestirme    0,30   1,02    2,15
+    yontem              bagil hata(yavas)  yanlilik  sifir%   bant
+    sba                        1,54           -7%     28%      93%
+    croston                    1,59            0%     28%      93%
+    hareketli_ortalama         1,59           -1%     60%      92%
+    mevsimsel_naif             1,61           +1%     68%      82%
+    ussel_duzlestirme          2,29           +7%     34%      91%
 
-Günlük MASE tablosunda mevsimsel naif yavaş katmanda öndeyken, üretim
-emrinin okuduğu sayıda SBA %10 daha iyi. İki ölçüt farklı yöntemi seçiyor;
-karar dayanağı olan bu.
+MASE tablosunda mevsimsel naif yavaş katmanda öndeyken, pencerelerin
+%68'inde "hiç talep yok" diyor — üretimi sistematik olarak durdurur.
+Üretim emri kuralı bu yüzden Croston kullanıyor: yansız (%0) ve sıfır
+oranı %28. SBA'nın bağıl hatası kıl payı iyi ama −%7 yanlı; düzeltecek bir
+yanlılık bulamayıp aşağı kaydırıyor.
 """
 
 
@@ -371,6 +426,26 @@ def rapor(sonuclar: dict[str, list[KalemSonucu]], ufuk: int) -> dict[str, float]
             else:
                 satir += f"{'—':>13}"
         print(satir)
+
+    # --- Üretim planı için asıl ölçüt: ufuk toplamındaki yanlılık ----------
+    print("\n  ÜRETİM PLANI İÇİN: UFUK TOPLAMI YANLILIĞI ve SIFIR ORANI")
+    print("  " + "-" * 62)
+    print("  ⚠️ MASE gün gün yakınlığı ölçer ve aralıklı seride 'hep sıfır de'")
+    print("     stratejisini ödüllendirir (medyan sıfır). Üretim planı ise")
+    print("     `toplam()` kullanıyor — doğru ölçüt ufuk toplamındaki sapma.")
+    print(f"\n  {'yöntem':<24}{'yanlılık':>12}{'sıfır%':>10}")
+    for ad, kayitlar in sorted(sonuclar.items()):
+        # ⚠️ Kalem başına yüzdeleri ortalamak yanlış: küçük kalemde tek
+        # adetlik sapma %100 görünür ve ortalamayı ele geçirir. Toplamlar
+        # üzerinden hesaplamak doğru ağırlığı veriyor.
+        tt = sum(k.tahmin_toplami for k in kayitlar)
+        gg = sum(k.gercek_toplam for k in kayitlar)
+        if not gg:
+            continue
+        yanli = (tt - gg) / gg * 100
+        sifir = float(np.mean([k.sifir_orani for k in kayitlar])) * 100
+        uyari = "  ⚠️ çoğunlukla 'hiç üretme' diyor" if sifir > 70 else ""
+        print(f"  {ad:<24}{yanli:>11.0f}%{sifir:>9.0f}%{uyari}")
 
     # Katman başına kalem sayısı: hangi katmanın kataloğu taşıdığını
     # göstermeden "şu katmanda şu yöntem iyi" cümlesi eksik kalır.

@@ -2884,73 +2884,118 @@ belirsizliği göremezse emniyet payını körlemesine seçer.
 
 ---
 
-## Aralıklı talep: doğru model mi, doğru ölçüt mü?
+## Aralıklı talep modeli — ve ölçümün üç kez yanılttığı yer
 
-Faz 10'un ikinci işi belliydi: kataloğun dörtte üçü çoğu gün sıfır satıyor
-ve klasik üssel düzleştirme orada çöküyordu. Literatürde bu seri tipi için
-ayrı bir yöntem var — **Croston**: talep büyüklüğü ile talepler arası süre
-ayrı ayrı düzleştirilir, tahmin ikisinin oranıdır. Yanlılığı düzeltilmiş
-hâli **SBA**. İkisini de yazdık.
+Kataloğun dörtte üçü yavaş satan kalem. Orada en iyi seçeneğimiz naif
+tabandı. Croston yöntemini yazdık — aralıklı talep için doğru model ailesi.
 
-Ama iş oraya varmadan iki şey çıktı.
+### Croston'un fikri
 
-### Belgelenen sayı yeniden üretilemedi
-
-Hedef netti: "yavaş katmanda MASE 0,52'nin altına insin." Ölçümü koşturduk,
-mevsimsel naif o katmanda **1,17** çıktı — hedefin iki katı kötü.
-
-Önce kendi kodumuzdan şüphelendik. Değişiklikleri stash'leyip depodaki
-commit'in kendisiyle aynı altkümede koşturduk: sayılar bugünküyle **bit bit
-aynı** çıktı. Yani fark yeni eklenen modellerden gelmiyor. 0,52'li tablo
-depoya hiç girmemiş bir taslak koddan alınmış.
-
-Bu, projede beşinci kez karşılaştığımız şeyin aynısı: **bir sayı, üretildiği
-koddan koparıldığı anda yalan söylemeye başlıyor.** Tur6'da "eğitim modeli
-bozdu" diye iki tur geri alınmıştı; bozuk olan ölçüm yoluydu. Şimdi de
-karar (üretim emri kuralı naif tabana bağlanacaktı) yeniden üretilemeyen bir
-tabloya dayanıyordu.
-
-Eski tablo dört dosyadan da silindi, yerine koşulabilir olan yazıldı.
-
-### Asıl mesele: ölçüt yanlış soruyu soruyordu
-
-Sonra tuhaf bir şey fark ettik. Aralıklı bir seride gün gün mutlak hatayı
-en küçük yapan tahmin **sıfırdır**. İki haftada bir 5 adet satan bir kalemde
-"her gün 0" tahmini 13 günde tam isabet eder, bir günde 5 sapar. "Her gün
-0,36" tahmini ise her gün sapar.
-
-Yani günlük MASE, hiçbir zaman hiçbir şey üretmemeyi ödüllendiriyor.
-Mevsimsel naifin yavaş katmandaki üstünlüğü büyük ölçüde buydu — çoğu gün
-sıfır basıyor.
-
-Üretim emri "her gün sıfır üret" diyemez. Kural zaten günlük tahmine
-bakmıyor: `toplam()` ve `toplam_bandi()` okuyor — "önümüzdeki 14 günde ne
-kadar satılacak, kötü senaryoda ne kadar". Ölçüme o soruyu ekledik:
+Seriyi ikiye böl:
 
 ```
-ufuk toplami — bagil hata      hizli   orta   yavas
-sba                             0,18   0,56    1,46   <- her katmanda en iyi
-croston                         0,19   0,57    1,48
-hareketli_ortalama              0,21   0,63    1,64
-mevsimsel_naif                  0,21   0,69    1,62
-ussel_duzlestirme               0,30   1,02    2,15
+gunluk seri : 0 0 0 0 3 0 0 0 0 0 0 2 0 0 0 0 4 ...
+buyukluk    : 3, 2, 4         (yalniz talep gunleri)
+aralik      : 7, 6, 8         (talepler arasi gun)
 ```
 
-Tablo değişti. **SBA üç katmanda da en iyi.** Günlük ölçütte kaybediyor
-görünen yöntem, kararın gerçekten okuduğu sayıda kazanıyor.
+İkisini ayrı düzleştir, oranla. Sıfırlar artık seviyeyi bozmuyor; "ne kadar"
+ile "ne sıklıkta" ayrı öğreniliyor.
 
-Ders şu: model seçmeden önce **hangi sayının karara girdiğine** bakmak
-gerekiyordu. Yanlış ölçütü iyileştirmek için harcanan gün, kazanılan bir
-gün değil.
+### Yanılma 1 — teşhis yanlıştı
+
+Croston **+%91 yukarı yanlı** çıktı. SBA'nın varlık sebebi yanlılığı
+düşürmek olduğu için bu teoriye aykırıydı — ve teoriye aykırı sonuç, önce
+kendi kodundan şüphelenmeyi gerektirir. Başlangıç değerinde bir kusur
+bulundu ve düzeltildi.
+
+**Sayı neredeyse hiç oynamadı** (+%91 → +%94). Teşhis yanlıştı.
+
+### Yanılma 2 — hata koddaki değil ölçümdeki
+
+Ölçüm yalnızca serinin **son üç penceresinden** örnek alıyordu. O dönemde
+talep düşüktü, dolayısıyla her yöntem yukarı yanlı görünüyordu — en basit
+yöntem (`hareketli_ortalama`) bile **+%87**. Sayı modelin değil, örnekleme
+penceresinin özelliğiydi.
+
+Kesmeler kullanılabilir aralığın tamamına yayıldı. Croston teorinin
+söylediği yere indi: **%0 yanlılık.**
+
+### Yanılma 3 — MASE üretim planının sorusunu hiç sormuyor
+
+Ölçüm başından beri MASE kullanıyordu ve yavaş katmanda `mevsimsel_naif`'i
+kazandırıyordu. Sebebi şu: aralıklı seride günlerin çoğu gerçekten sıfır,
+dolayısıyla **"hiç satmayacağız" demek gün gün en yakın cevap.** MASE bunu
+ödüllendiriyor.
+
+Üretim planı ise `toplam()` ve `toplam_bandi()` okuyor — "önümüzdeki 14
+günde ne kadar satılacak, kötü senaryoda ne kadar". Ölçüme o soru eklendi
+ve üç yeni sütun açıldı: **yanlılık** (sapma hangi yönde), **bağıl hata**
+(sapma ne kadar), **sıfır oranı** (kaç pencerede "hiç üretme" diyor).
+
+⚠️ Yanlılık ve bağıl hata birbirinin yerine geçmiyor. Pencerelerde sırayla
++%100 ve −%100 sapan bir yöntem yanlılıkta **mükemmel** görünür; hatalar
+birbirini götürür. İkisi ayrı ayrı basılıyor, testi de var.
+
+### Ölçülen (2.000 kalem, ufuk 14 gün)
+
+```
+yontem              MASE(yavas)  yanlilik  sifir%  bagil hata(yavas)  bant
+croston                 1,12         0%     28%          1,59         93%
+sba                     1,08        -7%     28%          1,54         93%
+hareketli_ortalama      1,12        -1%     60%          1,59         92%
+mevsimsel_naif          1,08        +1%     68%          1,61         82%
+ussel_duzlestirme       1,55        +7%     34%          2,29         91%
+```
+
+MASE tablosunda `mevsimsel_naif` önde. Ama **pencerelerin %68'inde "hiç
+üretme" diyor** — üretimi sistematik olarak durdurur. Croston %28.
+
+**Karar: üretim emri kuralı Croston kullanacak.** Sebebi SBA'nın 0,05'lik
+bağıl hata üstünlüğü değil, yanlılık: SBA bu veride **−%7**, Croston **%0**.
+SBA'nın düzeltmesi düzeltecek bir yanlılık bulamayıp aşağı kaydırıyor.
+Üretim planında sistematik eksik tahmin = kronik stoksuzluk. Gerçek veride
+(B10.4) yeniden bakılacak; teori SBA'yı haklı çıkarabilir.
 
 ### Bant, okunduğu yerde kalibre edildi
 
-Diğer modellerde bant "tahmin ± katsayı × günlük sapma" ve `toplam_bandi()`
-bunları topluyor. Aralıklı seride bu anlamsız: günde 0,07 satan kalemde
-günlük sapma 1,3 civarı, yani bant "günde ±1,7 adet" der — kalemin iki
-haftalık toplam satışının on katı.
+İlk sürüm üst bandı "tipik bir talep gününün büyüklüğü" olarak koyuyordu.
+Sözleşme bandı gün gün taşıdığı ve `toplam_bandi()` onları topladığı için bu,
+10 günde bir 5 adet satan kalemde iki haftalık üst sınırı ~70 adete
+çıkarıyordu — gerçeğin on katı. Emniyet payı o sayıyı okuyacaktı.
 
-Croston/SBA'da bant geçmişteki **gerçek 14 günlük toplamların** ampirik
-kuantillerinden kuruluyor. Ölçtük: gerçek toplam bandın içinde kalma oranı
-yavaş katmanda **%93**. Emniyet payı artık ölçülmüş bir belirsizliğe
-dayanıyor, varsayılmış bir dağılıma değil.
+Şimdi bant geçmişteki **gerçek 14 günlük toplamların** ampirik
+kuantillerinden kuruluyor. Gerçek toplamın bandın içinde kalma oranı yavaş
+katmanda **%93** — ölçülmüş bir belirsizlik, varsayılmış bir dağılım değil.
+
+### Aynı işi iki kişi paralel yaptı
+
+B10.2'yi iki taraf da bağımsız yazdı ve ikisi de aynı asıl bulguya vardı
+(MASE üretim planı için yanlış ölçüt). Birleştirmede kalanlar: kesme
+penceresi düzeltmesi ve yanlılık/sıfır oranı ölçütleri bir taraftan, ampirik
+bant ve bağıl hata/bant kapsama ölçütleri diğerinden. İkisi çakışmıyor,
+tamamlıyor.
+
+Ama bedeli var: **görev dosyasındaki sahiplik tablosu tam bunu önlemek için
+vardı** (`app/forecast/**` tek tarafta). Aynı gün ikinci kez oldu.
+
+### Bugünün dersi, yedinci kez
+
+Sayı doğruydu; yanlış olan **neyi ölçtüğüydü**. Dört kez farklı biçimde
+çıktı:
+
+1. Toplam MASE, katmanlar arası farkı gizliyordu
+2. Kuyruktan örnekleme, yanlılığı modelin özelliği gibi gösteriyordu
+3. MASE'nin kendisi, üretim planının sorusunu sormuyordu
+4. Bant, okunduğu yerden başka bir yerde kalibre ediliyordu
+
+Ve bir de beşincisi, süreç tarafında: **yazıya geçen sayıların hiçbiri
+yeniden üretilemedi.** Adım 1-2'nin belgelediği tablo (yavaş katmanda 0,52)
+da, bu turun commit mesajındaki tablo (0,50 / −%20 / %90) da depodaki kodla
+koşulduğunda çıkmıyor. İkisi de doğrulandı: değişiklikler geri alınıp aynı
+kodla koşuldu, sayılar bugünküyle bit bit aynı çıktı.
+
+Sebep muhtemelen masum — ara bir koşunun çıktısı yazıya geçmiş, kod sonra
+değişmiş. Ama sonucu masum değil: bu belgede yazılı bir sayı, karar
+gerekçesi oluyor. Bundan sonra rapor çıktısı olduğu gibi yapıştırılacak,
+elle özetlenmeyecek.
