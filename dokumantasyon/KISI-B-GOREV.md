@@ -755,3 +755,45 @@ Aynı koşuda `BILINEN-EKSIKLER.md` §3'ü de kapat: router %75'te; hedefin
 
 **Bitti sayılır:** ölçülmüş süre + RAM, gerekirse yeni
 `gecelik_gerekce_ust_n`, ve router hedefi hakkında karar.
+
+---
+
+# FAZ 10 — Üretim Planlama · B paketi
+
+> Tam plan: `dokumantasyon/FAZ-10-URETIM-PLANI.md`
+
+## ✅ B10.1 — Tahmin çekirdeği + ölçüm — BİTTİ (`3ba8f5b`)
+
+`app/forecast/`: donmuş sözleşme (`TalepTahmini`), naif tabanlar, üssel
+düzleştirme, kayan başlangıçlı geriye dönük sınama. 15 test.
+
+Bulgu: kataloğun %76'sı aralıklı talepli ve orada klasik model naif tabandan
+%49 kötü. Rapor artık "tek bir yöntem her katmanda kazanmıyor" uyarısını
+kendisi basıyor.
+
+## B10.2 — Aralıklı talep için doğru model 🔴
+
+Kataloğun **%76'sında** en iyi seçeneğimiz şu an naif taban. Croston /
+SBA yöntemi tam bu seri tipi için var: talep büyüklüğü ve talepler arası
+süre ayrı ayrı düzleştirilir.
+
+**Bitti sayılır:** yavaş katmanda MASE, mevsimsel naifin **0,52**'sinin
+altına iniyor. İnmiyorsa bu da bir bulgu — naif tabanı kullanmaya devam
+ederiz ve gerekçesi yazılı olur.
+
+## B10.3 — Üretim servis katmanı 🟡 *(A10.2'ye bağlı)*
+
+- `POST /v1/decisions/production/order-review` — **liste** döndürür
+- `explain.py`'ye `uretim.*` tipleri
+  ⚠️ B5'te `explain.py`'nin alan-bağımsız sanılan yerleri finansta patlıyordu
+  ve **sessizce şablona düşüyordu**. Üretimde aynısı olmasın: önce test.
+- `nightly.py`: üretim taramaya girer; guard kırılımı sayacı ilk koşuda
+  şablona düşmeyi gösterir.
+
+## B10.4 — Tahmini gerçek veriyle ölçmek 🟡
+
+Şimdiki sayı **simülasyondan** ve simülatör tahmin edilebilir bir yapı
+üretiyor — yani bir **üst sınır**. Gerçek ölçüt `csv_erp.py::hareketleri_oku`
+ile gelen hareket verisi.
+
+**Bitti sayılır:** aynı ölçüm gerçek veriyle koşuluyor ve iki sayı yan yana.

@@ -699,3 +699,77 @@ taramayı tekrarla. Kol hangi risk seviyesinden sonra kârlı hale geliyor?
 bir eşik, ya da "hiçbir makul senaryoda açılmamalı" sonucu. İkisi de değerli.
 
 </details>
+
+---
+
+# FAZ 10 — Üretim Planlama · A paketi
+
+> ⚠️ **Bu bölümü Kişi B yazdı** (2026-08-11), teklif niteliğinde. Tam plan:
+> `dokumantasyon/FAZ-10-URETIM-PLANI.md`. İtiraz/değişiklik varsa kod
+> başlamadan söyle — özellikle 3. maddedeki sözleşme.
+
+B tarafı **Adım 1-2'yi bitirdi ve itti** (`3ba8f5b`): talep tahmini çekirdeği
+ve ölçümü hazır. Aşağıdakiler senin paketin ve **hiçbiri B'yi beklemiyor** —
+tahmin sözleşmesi zaten yazılmış durumda.
+
+## Dosya sahipliği (çakışma önleme)
+
+| Sende | Bende (B) |
+|---|---|
+| `simulator/uretim.py` | `app/forecast/**` |
+| `app/domain/production/**` | `app/api/**` |
+| `contracts.py` — `URETIM_*` | `app/llm/**` |
+| `isletme_profili.py` — `UretimProfili` | `app/jobs/nightly.py` |
+| `app/adapters/` — BOM/rota CSV | `training/**` |
+
+## A10.1 — Fabrika dünyası 🔴
+
+`simulator/uretim.py`: kalemler **üretilen / satın alınan** diye ayrılır;
+üretilenlere hat, parti büyüklüğü, hazırlık ve işlem süresi verilir.
+
+⚠️ Sayılar koda gömülmemeli — `UretimProfili` (JSON) + CSV ana verisi.
+Kullanıcı şartı: *"farklı bir fabrikaya da uygun bilgiler verilirse ona da
+adapte olabilsin."* Yeni fabrika = bir JSON + üç CSV, kod değişmez.
+
+## A10.2 — Üretim emri kararı 🔴
+
+Stok sipariş kararının ikizi. Karar tipleri: `uretim.emir_ac`,
+`uretim.emir_erteleme`, `uretim.aksiyon_yok`.
+
+⚠️ **B'nin ölçtüğü bir bulgu bu kuralı doğrudan etkiliyor.** Katalog aralıklı
+talep ağırlıklı (medyan 0,07/gün; kalemlerin **%76'sı** yavaş) ve orada
+klasik tahmin modelleri naif tabandan **%49 kötü**:
+
+```
+katman            kalem   hareketli  mevsimsel   ussel
+hizli (>=2/gun)     197      0,98       0,93     0,84
+yavas (<0,3/gun)   1530      0,77       0,52     1,49   <- FELAKET
+```
+
+Yani **tahmini tek bir sayı olarak kullanma.** `TalepTahmini` bandı zorunlu
+tutuyor; emniyet payı `toplam_bandi()` üst sınırına bakmalı, nokta tahminine
+değil. Yavaş kalemlerde bant geniş olacak — bu kusur değil, dürüstlük.
+
+## A10.3 — Kapasite 🟡
+
+`uretim.kapasite_asimi`: haftalık emir yükü hat kapasitesini aşıyorsa uyar,
+düşük öncelikliyi ertele.
+
+⚠️ **Vardiya/çizelge optimizasyonu kapsam dışı** — onay modeli kalem bazında;
+"tüm fabrikayı optimize et" tek tek onaylanamaz. Sistem kısıtı görünür kılar,
+çizelge kurmaz. Bunu değiştirmek istersen önce konuşalım.
+
+## A10.4 — MRP 🟡
+
+Ürün ağacını patlat, hammadde ihtiyacını çıkar. Çıktısı yeni bir karar türü
+**değil**, mevcut `stok.siparis` kararının girdisi. İki alanı ilk kez
+bağladığı için en sona.
+
+## Senden üç onay bekliyorum
+
+1. `app/forecast/` yeni bir üst paket — B'ye atanmasını kabul ediyor musun?
+2. `contracts.py`'ye `URETIM_*` + `UretimOzellikleri` — **donmuş dosya**,
+   ortak onay gerekiyor (`ORAN_ALANLARI` ile aynı yol).
+3. `app/forecast/contracts.py::TalepTahmini` alanları üretim kuralına yetiyor
+   mu? Eksik bir şey varsa **şimdi** söyle; dondurduktan sonra değiştirmek
+   ikimizi de kırar.
