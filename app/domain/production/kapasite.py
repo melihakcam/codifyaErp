@@ -135,12 +135,16 @@ def _tek_hat(
 
     # En az acil olan önce ertelenir: kapsama günü büyükten küçüğe.
     #
-    # ⚠️ Eşitlikte `karar_id` ile kırılıyor — sıralama kararlı olmazsa aynı
-    # girdi iki farklı öneri üretir ve "sistem neden fikir değiştirdi"
-    # sorusunun cevabı olmaz.
+    # ⚠️ Eşitlik `kalem_id` ile kırılıyor, `karar_id` ile DEĞİL. İlk sürüm
+    # `karar_id` kullanıyordu ve bu sessiz bir kusurdu: o alan her karar
+    # üretiminde yeniden atanan rastgele bir UUID, yani aynı fabrika durumu
+    # iki kez hesaplandığında farklı emirler ertelenirdi.
+    #
+    # Kusuru çizelge modülünün tekrarlanabilirlik testi yakaladı; buradaki
+    # test aynı listeyi iki kez verdiği için görmemişti.
     sirali = sorted(
         emirler,
-        key=lambda k: (-kapsama_gun(_uretim_ozelligi(k)), str(k.karar_id)),
+        key=lambda k: (-kapsama_gun(_uretim_ozelligi(k)), _uretim_ozelligi(k).kalem_id),
     )
 
     kararlar: list[DecisionCandidate] = []

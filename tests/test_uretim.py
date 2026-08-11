@@ -490,18 +490,25 @@ def test_talep_yokken_kapsama_SIFIRA_BOLMUYOR():
 
 
 def test_kapasite_sonucu_TEKRARLANABILIR():
-    """⚠️ Sıralama kararsızsa aynı girdi iki farklı öneri üretir ve "sistem
-    neden fikir değiştirdi" sorusunun cevabı olmaz."""
+    """⚠️ Aynı fabrika durumu iki kez hesaplanınca aynı emirler ertelenmeli.
+
+    ⭐ Kararlar HER SEFERİNDE YENİDEN üretiliyor — aynı liste iki kez
+    verilmiyor. Fark önemli: ilk sürüm eşitliği `karar_id` ile kırıyordu ve
+    o alan her üretimde yeniden atanan rastgele bir UUID. Aynı listeyi iki
+    kez veren bir test bunu göremezdi; nitekim göremedi, kusuru çizelgenin
+    tekrarlanabilirlik testi yakaladı.
+    """
     from app.domain.production.kapasite import kapasite_kararlari_uret
 
-    kalemler = [
-        ozellik_kur(kalem_id=f"S-{i}", eldeki_stok=10, birim_islem_suresi_saat=0.5)
-        for i in range(5)
-    ]
-    emirler = _emir_kararlari(*kalemler)
+    def kosu() -> list[str]:
+        kalemler = [
+            ozellik_kur(kalem_id=f"S-{i}", eldeki_stok=10, birim_islem_suresi_saat=0.5)
+            for i in range(5)
+        ]
+        kararlar = kapasite_kararlari_uret(_emir_kararlari(*kalemler), UretimProfili())
+        return [k.ozellikler.kalem_id for k in kararlar]
 
-    ilk = [k.ozellikler.kalem_id for k in kapasite_kararlari_uret(emirler, UretimProfili())]
-    ikinci = [k.ozellikler.kalem_id for k in kapasite_kararlari_uret(emirler, UretimProfili())]
+    ilk, ikinci = kosu(), kosu()
 
     assert ilk, "kapasite asilmadi -- test bos kume karsilastiriyor olurdu"
     assert ilk == ikinci
@@ -777,3 +784,148 @@ def test_gecelik_tarama_URETIMI_de_tariyor():
 
     assert kararlar, "gecelik tarama uretim karari uretmiyor"
     assert all(k.alan is Alan.URETIM for k in kararlar)
+
+
+# --- Çizelge (Adım 7) --------------------------------------------------------
+
+
+def _cizelge(*ozellikler):
+    from app.domain.production.cizelge import cizelge_kur
+
+    return cizelge_kur(
+        _emir_kararlari(*ozellikler), baslangic=BUGUN, uretim_profili=UretimProfili()
+    )
+
+
+def test_cizelge_en_ACIL_isi_one_aliyor():
+    """⭐ Çizelgenin sıralama ölçütü kapasite kararıyla AYNI olmalı.
+
+    İki ayrı öncelik tanımı olsaydı sistem kendi içinde çelişirdi: kapasite
+    "bunu ertele" derken çizelge aynı işi başa koyardı.
+    """
+    acil = ozellik_kur(
+        kalem_id="S-ACIL", kalem_adi="Acil Ürün", eldeki_stok=10, tahmin_toplam=280.0
+    )
+    bekler = ozellik_kur(
+        kalem_id="S-BEKLER", kalem_adi="Bekleyen Ürün", eldeki_stok=190, tahmin_toplam=140.0
+    )
+
+    cizelge = _cizelge(acil, bekler)
+
+    assert len(cizelge) == 1
+    sira = [s.kalem_id for s in cizelge[0].satirlar]
+    assert sira[0] == "S-ACIL", f"acil is basta olmali, sira: {sira}"
+
+
+def test_cizelge_gune_SIGMAYAN_isi_ertesi_gune_tasiyor():
+    """Günlük kapasite 13,6 saat; 21,5 saatlik iş iki güne yayılmalı."""
+    o = ozellik_kur(
+        eldeki_stok=10,
+        tahmin_ust_band=400.0,
+        birim_islem_suresi_saat=0.05,  # 400 adet -> 1,5 + 20 = 21,5 saat
+        hat_gunluk_kapasite_saat=16.0,
+    )
+    satir = _cizelge(o)[0].satirlar[0]
+
+    assert satir.gun_sayisi >= 2, "21,5 saatlik is tek gune sigmamali"
+    assert satir.baslangic == BUGUN
+
+
+def test_cizelge_hatlari_PARALEL_isliyor():
+    """Bir hattaki doluluk diğer hattı geciktirmemeli."""
+    h1 = ozellik_kur(kalem_id="S-1", hat_id="H-01", hat_adi="Kesim", eldeki_stok=10)
+    h2 = ozellik_kur(kalem_id="S-2", hat_id="H-02", hat_adi="Montaj", eldeki_stok=10)
+
+    cizelge = _cizelge(h1, h2)
+
+    assert len(cizelge) == 2
+    assert all(h.satirlar[0].baslangic == BUGUN for h in cizelge)
+
+
+def test_ufka_SIGMAYAN_is_kaybolmuyor():
+    """⚠️ Çizelgeye koymamak, işi iptal etmek değil.
+
+    Kullanıcı hangi işin dışarıda kaldığını görmek zorunda; sessizce
+    düşürmek "her şey planlandı" izlenimi verirdi.
+    """
+    # 12 parti x 100 adet x 0,5 saat = 600 saat; ufuk 14 gun x 13,6 = 190 saat.
+    o = ozellik_kur(eldeki_stok=10, tahmin_ust_band=5000.0, birim_islem_suresi_saat=0.5)
+    hat = _cizelge(o)[0]
+
+    assert hat.sigmayanlar, "ufka sigmayan is raporlanmadi"
+    assert not hat.satirlar, "yarim kalan is planlanmis gibi gosterilmemeli"
+
+
+def test_cizelge_TEKRARLANABILIR():
+    """Aynı girdi aynı çizelge — yoksa "sistem neden fikir değiştirdi" cevapsız."""
+    kalemler = [ozellik_kur(kalem_id=f"S-{i}", eldeki_stok=10) for i in range(6)]
+
+    ilk = _cizelge(*kalemler)
+    ikinci = _cizelge(*kalemler)
+
+    assert [s.kalem_id for s in ilk[0].satirlar] == [s.kalem_id for s in ikinci[0].satirlar]
+
+
+def test_cizelge_YENI_KARAR_URETMIYOR():
+    """⭐ Mimari sınır: çizelge türetilmiş bir görünüm, karar değil.
+
+    Buraya bir `DecisionCandidate` girdiği gün onay modeli sessizce delinir —
+    çizelgeyi onaylamak, içindeki yüzlerce örtük kararı görmeden onaylamak
+    olur.
+    """
+    import inspect
+
+    from app.domain.production import cizelge
+
+    kaynak = inspect.getsource(cizelge)
+    assert "DecisionCandidate(" not in kaynak, "cizelge karar uretiyor -- onay modeli delinir"
+
+
+def test_cizelge_metni_okunabilir():
+    from app.domain.production.cizelge import cizelge_metni
+
+    metin = cizelge_metni(_cizelge(ozellik_kur(eldeki_stok=10)))
+
+    assert "Kesim Hattı" in metin
+    assert "Kırmızı Tuğla" in metin
+    assert "adet" in metin
+
+
+def test_cizelge_ucu_hat_ve_gun_donuyor(istemci):
+    """⭐ Kullanıcının istediği çıktı: "şu iş, şu hatta, şu gün"."""
+    cevap = istemci.get("/v1/decisions/production/schedule")
+
+    assert cevap.status_code == 200
+    hatlar = cevap.json()["hatlar"]
+    assert hatlar, "hic hat donmedi"
+
+    hat = hatlar[0]
+    assert hat["hat_adi"]
+    assert hat["isler"], "hatta planlanmis is yok"
+
+    ilk = hat["isler"][0]
+    assert ilk["baslangic"] and ilk["bitis"]
+    assert ilk["miktar"] > 0
+    # "Neden bu is once" sorusunun cevabi cikti da olmali.
+    assert "stok_kapsama_gun" in ilk
+
+
+def test_cizelge_ucu_KARAR_YAZMIYOR(istemci):
+    """⚠️ Çizelge türetilmiş bir görünüm; DB'ye karar yazmamalı.
+
+    Yazsaydı aynı emir hem karar ucundan hem çizelge ucundan iki kez
+    kaydedilir ve onay kuyruğu çiftlenirdi.
+    """
+    from app.models import Decision
+
+    def sayi() -> int:
+        with istemci.app.state.oturum_fabrikasi()() as oturum:  # type: ignore[attr-defined]
+            return oturum.query(Decision).count()
+
+    try:
+        onceki = sayi()
+    except Exception:
+        pytest.skip("oturum fabrikasi test istemcisinde acik degil")
+
+    istemci.get("/v1/decisions/production/schedule")
+    assert sayi() == onceki

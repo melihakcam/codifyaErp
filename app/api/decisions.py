@@ -274,3 +274,64 @@ def uretim_emri_degerlendir(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(hata)) from hata
 
     return _kararlari_isle(adaylar, ayar, oturum, gerekce)
+
+
+@router.get(
+    "/production/schedule",
+    summary="Üretim çizelgesi (hangi iş, hangi hatta, hangi gün)",
+)
+def uretim_cizelgesi(ayar: AyarDep) -> dict:
+    """Açılması önerilen emirleri hat ve güne dizer.
+
+    ## ⚠️ Bu uç KARAR ÜRETMİYOR
+
+    `GET` olması bilinçli: çizelge yeni bir karar değil, zaten üretilmiş
+    `uretim.emir_ac` kararlarının takvime dizilmiş **görünümü**. Hiçbir şey
+    DB'ye yazılmıyor, hiçbir şey onaya sunulmuyor.
+
+    Ayrım mimari: otonomi modeli kalem bazında insan onayına dayanıyor. Tek
+    bir çizelgeyi onaylamak, içindeki yüzlerce örtük kararı görmeden
+    onaylamak olurdu. Emirler tek tek onaylanır; çizelge onların üstünde bir
+    katman.
+
+    ⚠️ Yerleştirme **açgözlü**, optimizasyon değil: en acil iş önce, hat
+    dolunca ertesi güne. Hazırlık sürelerini gruplamıyor, teslim tarihine
+    göre geriye planlamıyor. Üretilen çizelge "makul", "en iyi" değil.
+    """
+    _kapali_mi(ayar)
+    from app.domain.production.cizelge import cizelge_kur
+    from app.domain.production.decide import uretim_kararlari_uret
+
+    emirler = [k for k in uretim_kararlari_uret() if k.tip.value == "uretim.emir_ac"]
+    cizelgeler = cizelge_kur(emirler)
+
+    return {
+        "hatlar": [
+            {
+                "hat_id": h.hat_id,
+                "hat_adi": h.hat_adi,
+                "gunluk_kapasite_saat": h.gunluk_kapasite_saat,
+                "toplam_yuk_saat": round(h.toplam_yuk_saat, 2),
+                "isler": [
+                    {
+                        "kalem_id": s.kalem_id,
+                        "kalem_adi": s.kalem_adi,
+                        "miktar": s.miktar,
+                        "baslangic": s.baslangic.isoformat(),
+                        "bitis": s.bitis.isoformat(),
+                        "yuk_saat": s.yuk_saat,
+                        "stok_kapsama_gun": s.kapsama_gun,
+                        "karar_id": s.karar_id,
+                    }
+                    for s in h.satirlar
+                ],
+                # ⚠️ Sığmayanlar sessizce düşürülmüyor: kullanıcı hangi işin
+                # ufka girmediğini görmek zorunda.
+                "ufka_sigmayan": [
+                    {"kalem_id": s.kalem_id, "kalem_adi": s.kalem_adi, "miktar": s.miktar}
+                    for s in h.sigmayanlar
+                ],
+            }
+            for h in cizelgeler
+        ]
+    }
