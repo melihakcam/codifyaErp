@@ -20,7 +20,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select, text
 
-from app.api import approvals, ask, decisions, feedback, giris, insights, ui
+from app.api import approvals, ask, decisions, feedback, giris, insights, panel, ui
 from app.core.auth import (
     UiKimlikGerekli,
     _istekten_anahtar_oku,
@@ -152,6 +152,7 @@ app.include_router(ask.router, dependencies=_KORUMALI)
 # yolu kimlik gerektiremez.
 app.include_router(giris.router)
 app.include_router(ui.router)
+app.include_router(panel.router)
 
 
 @app.exception_handler(UiKimlikGerekli)
