@@ -45,6 +45,7 @@ from app.contracts import (
     Alan,
     DecisionCandidate,
     Gerekce,
+    GuardSonucu,
     KararTipi,
     PolitikaKarari,
     PolitikaSonucu,
@@ -82,6 +83,20 @@ class KosuOzeti:
     kuyruga_giren: int = 0
     gerekce_uretilen: int = 0
     gerekce_atlanan: int = 0
+    # ⚠️ Guard kırılımı — `gerekce_uretilen` tek başına YALAN SÖYLER.
+    #
+    # O sayaç modelden gelen metinle şablona düşeni ayırmıyordu; %100 şablona
+    # düşen bir koşu, %100 modelden gelen koşuyla özet çıktısında BİREBİR aynı
+    # görünüyordu.
+    #
+    # Tur 8 · B5'te bunun bedeli ölçüldü: `explain.py`'nin alan-bağımsız
+    # sanılan üç yeri finansta patlıyordu ve **her finans kararı 0 saniyede
+    # şablona düşüyordu, model hiç çağrılmıyordu**. Sinyal vardı
+    # (`guard_sonucu="sablona_dustu"`) ama özet onu göstermediği için kimse
+    # görmedi. Bu üç alan o sinyali yüzeye çıkarıyor.
+    gerekce_gecti: int = 0
+    gerekce_yeniden_uretildi: int = 0
+    gerekce_sablona_dustu: int = 0
     icgoru_yazilan: int = 0
     karar_sn: float = 0.0
     gerekce_sn: float = 0.0
@@ -90,13 +105,41 @@ class KosuOzeti:
     def toplam_sn(self) -> float:
         return self.karar_sn + self.gerekce_sn
 
+    def guard_uyarisi(self) -> str | None:
+        """Şablona düşme oranı yüksekse uyarı metni, değilse None.
+
+        ⚠️ Şablona düşmek tek başına arıza değil — LLM erişilemezse tasarım
+        gereği olan budur. **Oranın yüksekliği** arızadır: gerekçelerin
+        neredeyse tamamı şablonsa model ya kapalı ya da o karar tipinde
+        çalışmıyor demektir.
+
+        Eşik %50: yarıdan fazlası şablonsa "LLM bir aksaklık yaşadı" değil,
+        "LLM bu koşuda işlevsiz" durumu vardır.
+        """
+        if not self.gerekce_uretilen:
+            return None
+        oran = self.gerekce_sablona_dustu / self.gerekce_uretilen
+        if oran < 0.5:
+            return None
+        return (
+            f"⚠️  gerekçelerin %{oran * 100:.0f}'i ŞABLONA DÜŞTÜ "
+            f"({self.gerekce_sablona_dustu}/{self.gerekce_uretilen}). "
+            "Model çağrılmıyor ya da o karar tipinde patlıyor olabilir."
+        )
+
     def ozet(self) -> str:
         karar_hizi = self.taranan / self.karar_sn if self.karar_sn else 0.0
+        uyari = self.guard_uyarisi()
         return (
             f"koşu {self.kosu_id}\n"
             f"  taranan SKU        : {self.taranan:,}\n"
             f"  kuyruğa giren      : {self.kuyruga_giren:,}\n"
-            f"  gerekçe üretilen   : {self.gerekce_uretilen}\n"
+            f"  gerekçe üretilen   : {self.gerekce_uretilen}"
+            f"  (geçti {self.gerekce_gecti} · "
+            f"yeniden {self.gerekce_yeniden_uretildi} · "
+            f"şablon {self.gerekce_sablona_dustu})\n"
+            + (f"  {uyari}\n" if uyari else "")
+            +
             f"  gerekçe atlanan    : {self.gerekce_atlanan:,}\n"
             f"  içgörü yazılan     : {self.icgoru_yazilan}\n"
             f"  karar süresi       : {self.karar_sn:.1f} sn  ({karar_hizi:,.0f} karar/sn)\n"
@@ -281,6 +324,12 @@ def gecelik_tarama(
         karar.llm_model_adi = gerekce.model_adi
         karar.gerekce_uretim_ms = gerekce.uretim_ms
         ozet.gerekce_uretilen += 1
+        if gerekce.guard_sonucu is GuardSonucu.GECTI:
+            ozet.gerekce_gecti += 1
+        elif gerekce.guard_sonucu is GuardSonucu.YENIDEN_URETILDI:
+            ozet.gerekce_yeniden_uretildi += 1
+        elif gerekce.guard_sonucu is GuardSonucu.SABLONA_DUSTU:
+            ozet.gerekce_sablona_dustu += 1
 
         # Gerekçe üretimi ayrı bir olay — ilk denetim satırının üstüne
         # yazılmıyor, yenisi ekleniyor.

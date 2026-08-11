@@ -2724,3 +2724,75 @@ Melih kuyruğu `(alan, kalem_adi)` ile gruplamış — yani **görünen ada** g�
 Ama bunu garanti eden bir şey yok. Doğru çözüm kaleme kimlik alanı eklemek,
 o da `contracts.py` değişikliği demek — bu tur bana yasak. Melih'e bildirdim,
 kararı birlikte vereceğiz.
+
+---
+
+## Gecelik özet, arızayı gizliyormuş
+
+Melih B5'i yaptı ve **benim dosyamda** üç kusur buldu (`app/llm/explain.py`).
+Alan-bağımsız sandığımız katman aslında stoka bağlıymış:
+
+```
+sablon_gerekce -> o.sku_adi          finansta patliyor
+egitilmis_istem -> "urun:"           istem hic kurulamiyor
+tip->alan haritasinda finans yok     anlatilacak sayi hep "yok"
+```
+
+Birleşik etkisi: **her finans kararı 0 saniyede şablona düşüyordu, model hiç
+çağrılmıyordu.** Melih üçünü de düzeltti.
+
+### Asıl sorun düzeltilmedi
+
+Kusurlar gitti ama şunu sordum: bu neden aylarca fark edilmedi?
+
+Sinyal **vardı**. Her şablona düşen gerekçe `guard_sonucu="sablona_dustu"`
+diye kaydediliyordu. Ama gecelik iş özeti onu göstermiyordu:
+
+```
+gerekce uretilen : 25
+```
+
+Bu satır, 25 gerekçenin modelden mi geldiğini şablondan mı düştüğünü
+**ayırmıyordu**. Yani tamamen bozuk bir koşu, tamamen sağlıklı bir koşuyla
+birebir aynı görünüyordu.
+
+### Ne yaptık
+
+Özet artık kırılımı gösteriyor ve yarıdan fazlası şablonsa uyarı basıyor:
+
+```
+ARIZALI KOSU:
+  gerekce uretilen   : 25  (gecti 0 · yeniden 0 · sablon 25)
+  ⚠️  gerekcelerin %100'i SABLONA DUSTU (25/25).
+      Model cagrilmiyor ya da o karar tipinde patliyor olabilir.
+
+SAGLIKLI KOSU:
+  gerekce uretilen   : 25  (gecti 23 · yeniden 2 · sablon 0)
+```
+
+⚠️ Şablona düşmek tek başına arıza **değil** — LLM erişilemezse tasarım
+gereği olan budur. Arıza olan **oranın yüksekliği**. O yüzden eşik koyduk,
+her şablona düşende bağırmıyor.
+
+Bu, bugünün "sayı tek başına yalan söyler" vakalarından biri daha. Sayaç
+doğruydu, yanlış olan neyi saydığıydı.
+
+### Bir de sızıntı taraması
+
+`.env.yedek` yanlışlıkla commit edilip sonra silinmiş. Git geçmişinde
+duruyor, yani silmek yetmez — içeriğine baktım (değerleri ekrana basmadan):
+**gerçek sır yok.** Sadece yerel ayarlar; en "hassas" görünen
+`OLLAMA_BASE_URL` ve o da `localhost`. Rotasyon gerekmiyor.
+
+Ama `.gitignore` kuralı sızan dosyanın **adını** kapatmış, tehlikeli genel
+durumu değil:
+
+```
+.env.uretim      -> commitlenebilirdi   <- gercek anahtarlari tasiyacak olan
+.env.production  -> commitlenebilirdi
+.env.local       -> commitlenebilirdi
+```
+
+Kuralı tersine çevirdik: `.env` ile başlayan her şey yok sayılıyor, örnek
+dosyalar tek tek geri açılıyor. Yeni bir varyant uydurmak artık
+kendiliğinden korunuyor.
