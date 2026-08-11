@@ -147,15 +147,47 @@ alan-bağımsız son çareye düşüyor: metin doğru ve patlamıyor (testi var)
 zayıf — "X için uretim.emir_ac kararı üretildi". Şablonları yazmak Adım
 6'nın (B10.3) işi.
 
-## Adım 4 — Kapasite (A)
+## ✅ Adım 4 — Kapasite — BİTTİ (2026-08-11)
 
-`uretim.kapasite_asimi`: bir haftanın önerilen emir yükü hattın kapasitesini
-aşıyorsa uyarır ve düşük öncelikli emri erteler.
+`app/domain/production/kapasite.py`: `uretim.kapasite_asimi`. Hat hat toplam
+emir yükü hesaplanıyor; kapasiteyi aşan hatta **en az acil** emirler
+erteleniyor.
 
-⚠️ **Vardiya/çizelge optimizasyonu kapsam dışı.** Otonomi modeli kalem
-bazında insan onayına dayanıyor; "tüm fabrikayı optimize et" kararı tek tek
-onaylanamaz. Sistem kısıtı **görünür kılar ve erteleme önerir**, çizelgeyi
-kurmaz. Bu değişecekse mimari kararı önce konuşulmalı.
+**Öncelik ölçütü kapsama günü** (`net_pozisyon / günlük tahmin`), tutar
+değil. Tutara göre sıralamak, pahalı bir kalemin stoğu biterken ucuz bir
+kalem için hattı açık tutardı. Sorun para değil, zaman.
+
+**Kapasite penceresi planlama ufku**, takvim haftası değil (plan "bir hafta"
+diyordu). Emirler ufka göre üretiliyor; kapasiteyi haftaya bölmek emirle
+kapasiteyi iki farklı zaman ölçeğinde karşılaştırmak olurdu.
+
+**Hedef kullanım oranı (%85) çarpan olarak giriyor**, sonradan bakılan bir
+eşik olarak değil. %100 dolu hat, tek gecikmede tüm planı kaydırır.
+
+### Uçtan uca sonuç (gerçek simülasyon verisi)
+
+```
+HAT DOLULUGU
+  H-01: yuk     97.5 saat / kapasite   190.4 saat  ( 51%)
+  H-02: yuk    116.7 saat / kapasite    95.2 saat  (123%)   <- asim
+  H-03: yuk     27.1 saat / kapasite   285.6 saat  (  9%)
+
+KAPASITE: 7 erteleme onerisi (hepsi H-02)
+  kapsama gunleri: 43, 36, 32, 30, 26, ...
+```
+
+Ertelenenler en yüksek kapsamalı kalemler — kural amaçlandığı gibi çalışıyor.
+⚠️ Adım 3'teki `emir_erteleme` kolunun aksine bu kol gerçek veride
+**tetikleniyor**.
+
+### ⚠️ Kapsam: çizelge kurulmuyor
+
+Vardiya planlama ve iş sırası optimizasyonu dışarıda ve bu mimari bir karar,
+eksiklik değil. Otonomi modeli kalem bazında insan onayına dayanıyor; tek bir
+çizelgeyi onaylamak, içindeki yüzlerce örtük kararı görmeden onaylamak
+olurdu. Sistem kısıtı **görünür kılıyor ve erteleme öneriyor**.
+
+Bu değişecekse mimari kararı önce konuşulmalı.
 
 ## Adım 5 — MRP (A)
 

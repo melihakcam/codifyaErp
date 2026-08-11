@@ -133,6 +133,7 @@ def kalem_ozelliklerini_hesapla(
         hazirlik_suresi_saat=float(u["hazirlik_suresi_saat"]),
         birim_islem_suresi_saat=float(u["birim_islem_suresi_saat"]),
         uretim_suresi_gun=float(u["uretim_suresi_gun"]),
+        hat_gunluk_kapasite_saat=float(u["gunluk_kapasite_saat"]),
         abc_sinifi=abc_sinifi,
         xyz_sinifi=xyz_sinifi,
         hedef_servis_seviyesi=hedef_servis,

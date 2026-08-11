@@ -3084,3 +3084,61 @@ tipinin aylarca ölü durduğunu da gördük; gerçek CSV geldiğinde ilk bakıl
 sahip değil, alan-bağımsız son çareye düşüyor. Metin doğru ve **patlamıyor**
 — bunun testini önceden yazdık, çünkü Faz 6'da finans tam burada sessizce
 şablona düşmüştü. Şablonları yazmak Adım 6'nın işi.
+
+---
+
+## Hat dolduğunda ne olur
+
+Üretim emri kararı tek tek kalemlere bakıyordu: "bu üründen şu kadar üret."
+Ama fabrikanın bir kapasitesi var ve bütün emirler aynı hatlara düşüyor.
+Adım 4 o kısıtı görünür kılıyor.
+
+Gerçek veride ilk koşuda çıktı:
+
+```
+H-01: yuk     97,5 saat / kapasite   190,4 saat  ( 51%)
+H-02: yuk    116,7 saat / kapasite    95,2 saat  (123%)   <- asim
+H-03: yuk     27,1 saat / kapasite   285,6 saat  (  9%)
+```
+
+Montaj hattı %123 dolu. Sistem 7 emri erteliyor.
+
+### Hangi emir ertelenir — ve neden "para" yanlış cevap
+
+İlk akla gelen ölçüt tutar: küçük emirleri ertele, büyükleri koru. Bu yanlış
+olurdu. Pahalı bir kalemin stoğu bitmek üzereyken ucuz bir kalem için hattı
+açık tutmak, tam olarak kaçınmak istediğimiz şey.
+
+Doğru ölçüt **zaman**: eldeki mal kaç gün daha yeter.
+
+```
+kapsama_gun = eldeki + acik emirler / gunluk tahmin
+```
+
+2 gün yeten kalemi ertelemek stoksuzluk demek. 40 gün yeteni ertelemek
+yalnızca emri öteler. Gerçek koşuda ertelenenlerin kapsaması 43, 36, 32, 30,
+26 gün çıktı — kural amaçlandığı gibi davranıyor.
+
+### Ortogonal kol, ortogonal üretiliyor
+
+Kapasite kararı emir kararını **susturmuyor**. Bir kalem için hem "emir aç"
+hem "hat dolu, ertele" aynı anda doğru olabilir ve ikisi ayrı ayrı
+onaylanmalı.
+
+Bu, Faz 7'de pahalıya öğrenilen dersin doğrudan uygulaması: finansta üç karar
+kolu `elif` zincirine sokulmuştu ve biri diğerini sessizce susturuyordu. Kural
+şu: aynı soruya cevap veren kollar dışlayıcı olur, farklı sorulara cevap
+verenler listeye ayrı eleman olarak girer.
+
+### Ne kasıtlı olarak yapılmadı
+
+Vardiya planlama ve iş sırası optimizasyonu **kapsam dışı**. Bu teknik bir
+eksiklik değil, mimari bir sınır.
+
+Sistemin otonomi modeli kalem bazında insan onayına dayanıyor: her karar tek
+tek onaylanabilir, reddedilebilir, gerekçesi okunabilir. "Tüm fabrikayı
+optimize et" çıktısı bu modele sığmıyor — tek bir çizelgeyi onaylamak,
+içindeki yüzlerce örtük kararı görmeden onaylamak olurdu.
+
+Sistem kısıtı görünür kılıyor ve erteleme öneriyor. Çizelgeyi kurmuyor.
+Bu değişecekse önce mimari kararı konuşulmalı.

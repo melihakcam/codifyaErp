@@ -52,14 +52,19 @@ class KararTipi(StrEnum):
 
     # Faz 10 · Üretim Planlama
     #
-    # ⚠️ `uretim.kapasite_asimi` burada YOK ve bu bilinçli. Adım 4'ün işi ve
-    # onunla birlikte eklenecek. Kullanılmayan bir karar tipi tanımlamak
-    # `stok.tedarikci_degisim`'de bir kez yapıldı: politika tablosunda ve
-    # enum'da aylarca ölü durdu, golden set'te örneği yoktu ve "var mı yok
-    # mu" sorusu her incelemede yeniden soruldu (BILINEN-EKSIKLER §5).
+    # Her tip, eklendiği adımda **üretiliyor**. Kullanılmayan bir karar tipi
+    # tanımlamak `stok.tedarikci_degisim`'de bir kez yapıldı: politika
+    # tablosunda ve enum'da aylarca ölü durdu, golden set'te örneği yoktu ve
+    # "var mı yok mu" sorusu her incelemede yeniden soruldu
+    # (BILINEN-EKSIKLER §5).
     URETIM_EMIR_AC = "uretim.emir_ac"
     URETIM_EMIR_ERTELEME = "uretim.emir_erteleme"
     URETIM_AKSIYON_YOK = "uretim.aksiyon_yok"
+    # ⚠️ Adım 4. Diğer üç tiple **ortogonal**: aynı kalem için hem "emir aç"
+    # hem "hat dolu" aynı anda doğru olabilir. Bu yüzden karar üreticisi
+    # liste döndürüyor ve bu tip o listeye ayrı bir eleman olarak giriyor —
+    # `elif` zincirine EKLENMİYOR (finanstaki kusurun kaynağı buydu, §9).
+    URETIM_KAPASITE_ASIMI = "uretim.kapasite_asimi"
 
     @property
     def aksiyon_yok_mu(self) -> bool:
@@ -469,6 +474,16 @@ class UretimOzellikleri(AlanOzellikleri):
         description=(
             "Emir açıldıktan kaç gün sonra mal elde olur. Stoktaki "
             "`tedarik_suresi_gun`'ün karşılığı."
+        ),
+    )
+    hat_gunluk_kapasite_saat: float = Field(
+        gt=0,
+        description=(
+            "Hattın günlük çalışma süresi. ⚠️ Kalemin değil HATTIN özelliği; "
+            "aynı hatta koşan her kalemde aynı sayı görünür. Kalem "
+            "özelliğine taşınmasının sebebi kapasite kararının kalem bazında "
+            "onaylanması: 'hat dolu' hükmü tek tek emirlere düşüyor, hatta "
+            "değil (bkz. Adım 4'ün kapsam notu — çizelge kurmuyoruz)."
         ),
     )
 

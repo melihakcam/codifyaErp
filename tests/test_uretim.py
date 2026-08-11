@@ -60,6 +60,7 @@ def ozellik_kur(**degisiklikler) -> UretimOzellikleri:
         "hazirlik_suresi_saat": 1.5,
         "birim_islem_suresi_saat": 0.005,
         "uretim_suresi_gun": 5.0,
+        "hat_gunluk_kapasite_saat": 16.0,
         "abc_sinifi": ABCSinifi.A,
         "xyz_sinifi": XYZSinifi.X,
         "hedef_servis_seviyesi": 0.95,
@@ -390,3 +391,146 @@ def test_veri_yetersiz_kalem_OTO_UYGULANMIYOR():
 
     assert sonuc.sonuc.value != "oto_uygula"
     assert "TAHMIN_GECMISI_YETERSIZ" in " ".join(sonuc.gerekce_kodlari)
+
+
+# --- Kapasite (A10.3 · Adım 4) ----------------------------------------------
+
+
+def _emir_kararlari(*ozellikler):
+    """Verilen kalemler için emir_ac kararları — kapasite testlerinin girdisi."""
+    kararlar = []
+    for o in ozellikler:
+        kararlar += ozellikten_kararlar_uret(o, UretimProfili())
+    return [k for k in kararlar if k.tip is KararTipi.URETIM_EMIR_AC]
+
+
+def test_kapasite_yetiyorsa_KARAR_URETILMIYOR():
+    """Kısıt yoksa uyarı da yok — her koşuda gürültü basan bir kural okunmaz."""
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    emirler = _emir_kararlari(ozellik_kur(eldeki_stok=50))
+    assert kapasite_kararlari_uret(emirler, UretimProfili()) == []
+
+
+def test_kapasite_asilinca_EN_AZ_ACIL_erteleniyor():
+    """⭐ Adım 4'ün özü: 2 gün yeten kalem değil, 40 gün yeten kalem ertelenir.
+
+    Ölçüt tutar değil zaman. Tutara göre sıralamak, pahalı bir kalemin
+    stoğu biterken ucuz bir kalem için hattı açık tutardı.
+    """
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    # Ayni hat, ikisi de emir gerektiriyor; birinin stogu cok daha uzun yetiyor.
+    # Hat kapasitesi: 8 saat/gun x %85 x 14 gun = 95,2 saat.
+    # Ikisinin toplam yuku 123 saat -> asim var; bekleyebilir dusunce 81,5'e
+    # iniyor ve sigiyor. Yani erteleme SECIMI olculuyor, "hepsini ertele" degil.
+    acil = ozellik_kur(
+        kalem_id="S-ACIL",
+        eldeki_stok=10,
+        tahmin_toplam=280.0,  # gunde 20 -> kapsama 0,5 gun
+        tahmin_ust_band=400.0,
+        birim_islem_suresi_saat=0.2,
+        hat_gunluk_kapasite_saat=8.0,
+    )
+    bekleyebilir = ozellik_kur(
+        kalem_id="S-BEKLER",
+        eldeki_stok=300,
+        tahmin_toplam=140.0,  # gunde 10 -> kapsama 30 gun
+        tahmin_ust_band=500.0,
+        birim_islem_suresi_saat=0.2,
+        hat_gunluk_kapasite_saat=8.0,
+    )
+
+    emirler = _emir_kararlari(acil, bekleyebilir)
+    assert len(emirler) == 2
+
+    kararlar = kapasite_kararlari_uret(emirler, UretimProfili())
+
+    assert kararlar, "kapasite asilmasina ragmen karar uretilmedi"
+    ertelenenler = {k.ozellikler.kalem_id for k in kararlar}
+    assert "S-BEKLER" in ertelenenler
+    assert "S-ACIL" not in ertelenenler
+
+
+def test_kapasite_karari_ORTOGONAL_emri_susturmuyor():
+    """⚠️ Finanstaki kusurun üretim karşılığı burada olurdu.
+
+    Kapasite kararı `elif` zincirine girseydi "emir aç" kararı yok olurdu ve
+    ERP, üretilmesi gereken malı hiç görmezdi. İkisi ayrı ayrı onaylanmalı.
+    """
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    o = ozellik_kur(eldeki_stok=10, tahmin_ust_band=5000.0, birim_islem_suresi_saat=0.5)
+    emirler = _emir_kararlari(o)
+    kapasite = kapasite_kararlari_uret(emirler, UretimProfili())
+
+    tumu = emirler + kapasite
+    tipler = {k.tip for k in tumu}
+    assert KararTipi.URETIM_EMIR_AC in tipler
+    assert KararTipi.URETIM_KAPASITE_ASIMI in tipler
+
+
+def test_hedef_kullanim_orani_kapasiteyi_KISIYOR():
+    """%100 dolu hat, tek bir gecikmede tüm planı kaydırır."""
+    from app.domain.production.kapasite import kapasite_saat
+
+    o = ozellik_kur(hat_gunluk_kapasite_saat=10.0)
+    tam = kapasite_saat(o, UretimProfili(hedef_kapasite_kullanimi=1.0, planlama_ufku_gun=14))
+    hedefli = kapasite_saat(o, UretimProfili(hedef_kapasite_kullanimi=0.85, planlama_ufku_gun=14))
+
+    assert tam == pytest.approx(140.0)
+    assert hedefli == pytest.approx(119.0)
+
+
+def test_talep_yokken_kapsama_SIFIRA_BOLMUYOR():
+    """Hiç satmayan kalem için hat tutmak, ertelenecek ilk şeydir."""
+    from app.domain.production.kapasite import SONSUZ_KAPSAMA_GUN, kapsama_gun
+
+    assert kapsama_gun(ozellik_kur(tahmin_toplam=0.0)) == SONSUZ_KAPSAMA_GUN
+
+
+def test_kapasite_sonucu_TEKRARLANABILIR():
+    """⚠️ Sıralama kararsızsa aynı girdi iki farklı öneri üretir ve "sistem
+    neden fikir değiştirdi" sorusunun cevabı olmaz."""
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    kalemler = [
+        ozellik_kur(kalem_id=f"S-{i}", eldeki_stok=10, birim_islem_suresi_saat=0.5)
+        for i in range(5)
+    ]
+    emirler = _emir_kararlari(*kalemler)
+
+    ilk = [k.ozellikler.kalem_id for k in kapasite_kararlari_uret(emirler, UretimProfili())]
+    ikinci = [k.ozellikler.kalem_id for k in kapasite_kararlari_uret(emirler, UretimProfili())]
+
+    assert ilk, "kapasite asilmadi -- test bos kume karsilastiriyor olurdu"
+    assert ilk == ikinci
+
+
+def test_ayri_hatlar_BIRBIRINI_ETKILEMIYOR():
+    """Bir hattın dolu olması, başka hattaki emri ertelemez."""
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    dolu = ozellik_kur(
+        kalem_id="S-DOLU",
+        hat_id="H-01",
+        eldeki_stok=10,
+        tahmin_ust_band=5000.0,
+        birim_islem_suresi_saat=0.5,
+    )
+    bos = ozellik_kur(kalem_id="S-BOS", hat_id="H-02", eldeki_stok=50)
+
+    kararlar = kapasite_kararlari_uret(_emir_kararlari(dolu, bos), UretimProfili())
+
+    assert all(k.ozellikler.hat_id == "H-01" for k in kararlar)
+
+
+def test_erteleme_tutari_SIFIR_DEGIL():
+    """⚠️ Ertelemeyi bedelsiz göstermek, büyük emri küçük emirle aynı risk
+    sınıfına sokardı — politika riski tutardan hesaplıyor."""
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    o = ozellik_kur(eldeki_stok=10, tahmin_ust_band=5000.0, birim_islem_suresi_saat=0.5)
+    kararlar = kapasite_kararlari_uret(_emir_kararlari(o), UretimProfili())
+
+    assert kararlar[0].tahmini_tutar_tl > 0
