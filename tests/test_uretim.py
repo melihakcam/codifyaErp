@@ -1,0 +1,392 @@
+"""Üretim planlama (Faz 10, Adım 3) — fabrika dünyası + üretim emri kararı.
+
+⚠️ Buradaki en önemli testler **sözleşme** ve **dışlama** testleri. Üretim
+kararı yeni bir alan ve alan-bağımsız katmanlar (guard, politika, gerekçe)
+onu ilk kez görüyor; Faz 6'da finans eklenirken tam bu noktada sessiz
+kırılmalar çıkmıştı.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from app.contracts import (
+    ABCSinifi,
+    Alan,
+    KararTipi,
+    UretimOzellikleri,
+    XYZSinifi,
+)
+from app.core.isletme_profili import UretimProfili
+from app.domain.production.decide import ozellikten_kararlar_uret
+from app.domain.production.rules import (
+    emir_ekonomik_mi,
+    emir_miktari_hesapla,
+    hat_yuku_saat,
+    ihtiyac_hesapla,
+)
+from simulator.uretim import (
+    uretilen_mi,
+    uretim_ana_verisi_uret,
+    varsayilan_fabrika,
+)
+
+BUGUN = dt.date(2026, 8, 11)
+
+
+def ozellik_kur(**degisiklikler) -> UretimOzellikleri:
+    """Makul bir üretilen kalem; testler yalnızca ilgilendikleri alanı ezer."""
+    varsayilan = {
+        "kalem_id": "S-00001",
+        "kalem_adi": "Kırmızı Tuğla 19x9x5",
+        "kategori": "Tuğla",
+        "eldeki_stok": 100,
+        "rezerve_stok": 0,
+        "acik_emir_miktari": 0,
+        "tahmin_toplam": 140.0,
+        "tahmin_alt_band": 100.0,
+        "tahmin_ust_band": 200.0,
+        "tahmin_yontemi": "croston",
+        "tahmin_ufuk_gun": 14,
+        "veri_gun_sayisi": 400,
+        "hat_id": "H-01",
+        "hat_adi": "Kesim Hattı",
+        "parti_buyuklugu": 100,
+        "asgari_parti": 100,
+        "hazirlik_suresi_saat": 1.5,
+        "birim_islem_suresi_saat": 0.005,
+        "uretim_suresi_gun": 5.0,
+        "abc_sinifi": ABCSinifi.A,
+        "xyz_sinifi": XYZSinifi.X,
+        "hedef_servis_seviyesi": 0.95,
+        "birim_maliyet_tl": 12.0,
+        "satis_fiyati_tl": 18.0,
+        "olcum_tarihi": BUGUN,
+    }
+    return UretimOzellikleri(**{**varsayilan, **degisiklikler})
+
+
+# --- Sözleşme ----------------------------------------------------------------
+
+
+def test_net_pozisyon_ACIK_EMRI_sayiyor():
+    """⭐ Açık emri saymamak, stoktaki "yoldaki stoğu unutma" hatasının ikizi.
+
+    Sayılmazsa sistem her koşuda aynı kalem için yeniden emir önerir ve
+    fabrika aynı malı üst üste üretir.
+    """
+    o = ozellik_kur(eldeki_stok=100, rezerve_stok=20, acik_emir_miktari=50)
+    assert o.kullanilabilir_stok == 80
+    assert o.net_pozisyon == 130
+
+
+def test_veri_yetersizken_OTO_UYGULAMA_ENGELI_var():
+    """⚠️ Stokta engel tedarikçi onayı, finansta kredi onayı; üretimde karşı
+    taraf yok — engel tahminin dayanağından gelmek zorunda."""
+    assert ozellik_kur(veri_gun_sayisi=400).oto_uygulama_engeli() is None
+    assert ozellik_kur(veri_gun_sayisi=30).oto_uygulama_engeli() == "TAHMIN_GECMISI_YETERSIZ"
+
+
+def test_maskelenecek_alanlar_HAT_ADINI_da_iceriyor():
+    """⭐ Guard maskelemesi eksikse geçerli her gerekçe reddedilir.
+
+    "Kesim Hattı" rakam içermiyor ama "H-01" içeriyor; kalem adındaki
+    19x9x5 de ölçü, veri değil. Faz 6'da finans eklenirken tam bu tür bir
+    eksiklik gerekçeleri sessizce şablona düşürmüştü.
+    """
+    alanlar = ozellik_kur().maskelenecek_alanlar()
+    assert "Kesim Hattı" in alanlar
+    assert "H-01" in alanlar
+    assert "Kırmızı Tuğla 19x9x5" in alanlar
+
+
+def test_hesaplanan_sayilar_IZINLI_KUMEYE_giriyor():
+    """`model_dump()`'ta görünmeyen property'ler guard'a bildirilmeli."""
+    kararlar = ozellikten_kararlar_uret(ozellik_kur())
+    izinli = kararlar[0].izinli_sayilar()
+
+    assert 130.0 not in izinli  # bu kalemde net pozisyon 100
+    assert 100.0 in izinli  # net_pozisyon = kullanilabilir_stok
+    assert 100.0 in izinli  # tahmin_bant_genisligi = 200 - 100
+
+
+# --- Kural ------------------------------------------------------------------
+
+
+def test_ihtiyac_NOKTA_TAHMINE_degil_BANDA_bakiyor():
+    """⭐ Faz 10'un ölçülmüş kararı.
+
+    Kataloğun %76'sı aralıklı talepli ve orada nokta tahmini kararın
+    dayanabileceği bir sayı değil. İhtiyaç üst banttan hesaplanmalı.
+    """
+    o = ozellik_kur(tahmin_toplam=140.0, tahmin_ust_band=200.0)
+    p = UretimProfili(emniyet_bant_carpani=1.0)
+
+    assert ihtiyac_hesapla(o, p) == 200.0
+    assert ihtiyac_hesapla(o, p) != o.tahmin_toplam
+
+
+def test_emniyet_carpani_ihtiyaci_buyutuyor():
+    o = ozellik_kur(tahmin_ust_band=200.0)
+    assert ihtiyac_hesapla(o, UretimProfili(emniyet_bant_carpani=1.2)) == pytest.approx(240.0)
+
+
+def test_emir_miktari_PARTI_KATINA_YUKARI_yuvarlaniyor():
+    """⚠️ Aşağı yuvarlamak açığı kapatmayan bir emir önermek olurdu."""
+    o = ozellik_kur(parti_buyuklugu=100, asgari_parti=100)
+    p = UretimProfili()
+
+    assert emir_miktari_hesapla(101.0, o, p) == 200
+    assert emir_miktari_hesapla(100.0, o, p) == 100
+    assert emir_miktari_hesapla(1.0, o, p) == 100
+
+
+def test_emir_miktari_AZAMI_SINIRA_dayaniyor():
+    """⭐ Makuliyet kapısı: bozuk bir tahmin hattı aylarca dolduramamalı.
+
+    Bir kez bozuk ölçüm yüzünden %90'lık sahte yanlılık gördük; o sayı
+    karara girseydi emir miktarı da o oranda şişerdi. Üst sınıra dayanan
+    bir öneri, sayının kendisinden çok daha erken fark edilir.
+    """
+    o = ozellik_kur(parti_buyuklugu=100)
+    p = UretimProfili(azami_emir_parti_sayisi=5)
+
+    assert emir_miktari_hesapla(100_000.0, o, p) == 500
+
+
+def test_acik_yoksa_emir_miktari_sifir():
+    assert emir_miktari_hesapla(0.0, ozellik_kur(), UretimProfili()) == 0
+    assert emir_miktari_hesapla(-50.0, ozellik_kur(), UretimProfili()) == 0
+
+
+def test_hat_yuku_hazirlik_suresini_iceriyor():
+    """Hazırlık sabit maliyet; yükün içine girmezse kapasite planı yanılır."""
+    o = ozellik_kur(hazirlik_suresi_saat=1.5, birim_islem_suresi_saat=0.005)
+    assert hat_yuku_saat(200, o) == pytest.approx(1.5 + 1.0)
+
+
+def test_talep_yokken_ekonomiklik_SIFIRA_BOLMUYOR():
+    o = ozellik_kur(tahmin_toplam=0.0)
+    assert emir_ekonomik_mi(100, o, UretimProfili()) is True
+
+
+# --- Karar ------------------------------------------------------------------
+
+
+def test_acik_varken_EMIR_AC_kararI_cikiyor():
+    """⭐ Adım 3'ün bitti ölçütü: üretilen bir kalem için emir kararı çıkıyor."""
+    o = ozellik_kur(eldeki_stok=50, tahmin_ust_band=200.0)
+    kararlar = ozellikten_kararlar_uret(o, UretimProfili())
+
+    assert len(kararlar) == 1
+    karar = kararlar[0]
+    assert karar.tip is KararTipi.URETIM_EMIR_AC
+    assert karar.alan is Alan.URETIM
+    assert karar.aksiyon["emir_miktari"] == 200  # acik 150 -> 2 parti
+    assert karar.aksiyon["hat_id"] == "H-01"
+    assert karar.tahmini_tutar_tl == pytest.approx(200 * 12.0)
+
+
+def test_stok_yetiyorsa_AKSIYON_YOK():
+    o = ozellik_kur(eldeki_stok=500, tahmin_ust_band=200.0)
+    kararlar = ozellikten_kararlar_uret(o, UretimProfili())
+
+    assert kararlar[0].tip is KararTipi.URETIM_AKSIYON_YOK
+    assert kararlar[0].aksiyon == {}
+    assert kararlar[0].tahmini_tutar_tl == 0.0
+
+
+def test_kucuk_acik_ERTELENIYOR():
+    """⚠️ Hazırlık süresi sabit maliyet: bir günlük talep için hat kurulmaz.
+
+    Açık var ama emir yalnızca yarım günlük talebi karşılıyor — sistem
+    "üretme" değil "**ertele**" demeli. İkisi farklı: erteleme, ihtiyacın
+    varlığını kabul edip zamanlamasını reddediyor.
+    """
+    o = ozellik_kur(
+        eldeki_stok=195,
+        tahmin_toplam=1400.0,  # gunde 100 adet
+        tahmin_ust_band=200.0,
+        parti_buyuklugu=5,
+        asgari_parti=5,
+    )
+    kararlar = ozellikten_kararlar_uret(o, UretimProfili(asgari_emir_gun=3.0))
+
+    assert kararlar[0].tip is KararTipi.URETIM_EMIR_ERTELEME
+    assert kararlar[0].tahmini_tutar_tl == 0.0
+    kodlar = [k.kod for k in kararlar[0].tetiklenen_kurallar]
+    assert "EMIR_EKONOMIK_DEGIL" in kodlar
+
+
+def test_kararlar_LISTE_donuyor():
+    """⭐ Adım 4'ün kapasite kararı ortogonal; bugünden liste dönmezse kırar.
+
+    Finansta tam bu ders alındı: tekil dönen bir uç, ikinci karar kolu
+    eklenince API'ye kadar dalga yaptı (BILINEN-EKSIKLER §9).
+    """
+    assert isinstance(ozellikten_kararlar_uret(ozellik_kur()), list)
+
+
+def test_tahmin_kural_izi_HER_ZAMAN_var():
+    """⚠️ Bu iz olmadan gerekçe tahmin sayılarını kullanamaz — guard reddeder."""
+    for stok in (50, 500):
+        kararlar = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=stok))
+        kodlar = [k.kod for k in kararlar[0].tetiklenen_kurallar]
+        assert "TALEP_TAHMINI_ALINDI" in kodlar
+
+
+def test_uretim_suresi_ufku_asinca_KAYIT_dusuyor_ama_emir_aciliyor():
+    """Sessiz geçmek planı sistematik iyimser yapardı; erteleme sebebi değil."""
+    o = ozellik_kur(eldeki_stok=50, uretim_suresi_gun=30.0, tahmin_ufuk_gun=14)
+    kararlar = ozellikten_kararlar_uret(o, UretimProfili())
+
+    assert kararlar[0].tip is KararTipi.URETIM_EMIR_AC
+    kodlar = [k.kod for k in kararlar[0].tetiklenen_kurallar]
+    assert "URETIM_SURESI_UFKU_ASIYOR" in kodlar
+
+
+def test_genis_bant_GUVENI_dusuruyor():
+    """Bandın darlığı tahminin güveni; karar bunu taşımalı."""
+    dar = ozellik_kur(tahmin_toplam=140.0, tahmin_alt_band=130.0, tahmin_ust_band=150.0)
+    genis = ozellik_kur(tahmin_toplam=140.0, tahmin_alt_band=0.0, tahmin_ust_band=400.0)
+
+    dar_guven = ozellikten_kararlar_uret(dar)[0].guven
+    genis_guven = ozellikten_kararlar_uret(genis)[0].guven
+
+    assert dar_guven > genis_guven
+
+
+# --- Fabrika dünyası (A10.1) -------------------------------------------------
+
+
+def _sahte_katalog(n: int = 100) -> pd.DataFrame:
+    paylar = np.linspace(1.0, 0.01, n)
+    return pd.DataFrame(
+        {
+            "sku_id": [f"S-{i:05d}" for i in range(1, n + 1)],
+            "sku_adi": [f"Ürün {i}" for i in range(1, n + 1)],
+            "kategori": ["Tuğla"] * n,
+            "birim_maliyet_tl": np.linspace(5, 50, n),
+            "satis_fiyati_tl": np.linspace(8, 80, n),
+            "yillik_ciro_payi": paylar / paylar.sum(),
+        }
+    )
+
+
+def test_uretim_ana_verisi_DETERMINISTIK():
+    """⭐ Aynı seed, bit bit aynı tablo.
+
+    Tekrarlanabilir olmazsa "üretim kararı iyileşti mi" sorusu sonradan
+    cevaplanamaz. Tahmin ölçümünde bu dersi iki kez aldık.
+    """
+    katalog = _sahte_katalog()
+    ilk = uretim_ana_verisi_uret(katalog, seed=7)
+    ikinci = uretim_ana_verisi_uret(katalog, seed=7)
+
+    pd.testing.assert_frame_equal(ilk, ikinci)
+
+
+def test_uretilenler_CIRO_USTUNDEN_seciliyor():
+    """Az satan çeşit malı üretmek yerine satın almak neredeyse hep ucuz."""
+    katalog = _sahte_katalog(100)
+    uretim = uretim_ana_verisi_uret(katalog, seed=7)
+
+    assert len(uretim) == 15  # varsayilan oran %15
+    # Ciro payi en yuksek kalem uretilenler arasinda olmali.
+    en_buyuk = katalog.sort_values("yillik_ciro_payi", ascending=False).iloc[0]["sku_id"]
+    assert uretilen_mi(en_buyuk, uretim)
+    en_kucuk = katalog.sort_values("yillik_ciro_payi").iloc[0]["sku_id"]
+    assert not uretilen_mi(en_kucuk, uretim)
+
+
+def test_parti_buyuklugu_SIFIR_OLAMAZ():
+    """⚠️ Sıfır parti "bu kalem üretilemez" demek olurdu — hem de bir
+    yuvarlama hatasının ağzından."""
+    katalog = _sahte_katalog(20)
+    katalog["yillik_ciro_payi"] = 1e-9  # hepsi neredeyse hic satmiyor
+
+    uretim = uretim_ana_verisi_uret(katalog, seed=7)
+
+    assert (uretim["parti_buyuklugu"] > 0).all()
+
+
+def test_satin_alinan_kalem_icin_ozellik_URETILMIYOR():
+    """ "Üretim süresi NULL" satır döndürmek, çağıranı her yerde NULL
+    kontrolüne mahkûm ederdi ve bir yerde unutulurdu."""
+    from app.domain.production.features import kalem_ozelliklerini_hesapla
+
+    katalog = _sahte_katalog(100)
+    uretim = uretim_ana_verisi_uret(katalog, seed=7)
+    satin_alinan = katalog.sort_values("yillik_ciro_payi").iloc[0]["sku_id"]
+
+    with pytest.raises(ValueError, match="satın alınan"):
+        kalem_ozelliklerini_hesapla(
+            sku_id=satin_alinan,
+            olcum_tarihi=BUGUN,
+            talep=pd.DataFrame(columns=["sku_id", "tarih", "talep_miktari"]),
+            envanter_gunluk=pd.DataFrame(columns=["sku_id", "tarih", "eldeki_stok"]),
+            sku_df=katalog,
+            uretim_df=uretim,
+        )
+
+
+def test_fabrika_hatlari_kapasite_tasiyor():
+    """Adım 4 bunun üstüne kurulacak; şimdiden dolu olmalı."""
+    for hat in varsayilan_fabrika().hatlar:
+        assert hat.gunluk_kapasite_saat > 0
+        assert hat.hazirlik_suresi_saat >= 0
+        assert hat.birim_islem_suresi_min <= hat.birim_islem_suresi_max
+
+
+# --- Alan-bağımsız katmanlar (Faz 6'nın dersi) -------------------------------
+
+
+def test_politika_URETIM_KARARINI_tanıyor():
+    """⭐ Faz 6'da finans eklenirken alan-bağımsız katmanlar sessizce kırılmıştı.
+
+    Politika motoru üretim kararını hiç görmeden yazıldı; `AttributeError`
+    vermeden geçmesi ve `aksiyon_yok`'u oto-uygulamaya sokmaması gerekiyor.
+    """
+    from app.core.config import Ayarlar
+    from app.core.policy import politika_uygula
+
+    ayar = Ayarlar()
+    emir = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=50))[0]
+    yok = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=500))[0]
+
+    assert politika_uygula(emir, ayar) is not None
+    assert politika_uygula(yok, ayar).sonuc.value == "aksiyon_yok"
+
+
+def test_sablon_gerekce_URETIMDE_PATLAMIYOR():
+    """⚠️ Şablon gerekçe stok alanlarını doğrudan okuyordu ve finans kararı
+    geldiğinde `AttributeError` veriyordu (BILINEN-EKSIKLER §1'in beşinci
+    sızıntısı). Üretimde aynısı olmasın diye önce test.
+
+    ⚠️ Bugün üretim kararları **alan-bağımsız son çareye** düşüyor: metin
+    doğru ama zayıf. `uretim.*` şablonlarını yazmak B10.3'ün işi; bu test o
+    zamana kadar "en azından patlamıyor"u koruyor.
+    """
+    from app.llm.explain import sablon_gerekce
+
+    for stok in (50, 500):
+        karar = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=stok))[0]
+        metin = sablon_gerekce(karar)
+        assert "Kırmızı Tuğla" in metin
+        assert metin.strip()
+
+
+def test_veri_yetersiz_kalem_OTO_UYGULANMIYOR():
+    """Ölçülmemiş bir tahmine makine hızında para bağlanmamalı."""
+    from app.core.config import Ayarlar
+    from app.core.policy import politika_uygula
+
+    karar = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=50, veri_gun_sayisi=30))[0]
+    sonuc = politika_uygula(karar, Ayarlar())
+
+    assert sonuc.sonuc.value != "oto_uygula"
+    assert "TAHMIN_GECMISI_YETERSIZ" in " ".join(sonuc.gerekce_kodlari)

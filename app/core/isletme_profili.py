@@ -181,6 +181,98 @@ class FinansProfili(BaseModel):
         return self.takip_eylem_maliyeti_tl / (gunluk * self.maddi_takip_ufku_gun)
 
 
+class UretimProfili(BaseModel):
+    """Üretim planlama kararlarının iş parametreleri — Faz 10.
+
+    ## ⚠️ Burada NE OLMADIĞI, ne olduğu kadar önemli
+
+    "Başka bir fabrikaya uyarlanabilsin" isteği iki ayrı katman gerektiriyor
+    ve ikisini karıştırmak profili bakılamaz hâle getirir:
+
+    · **bu sınıf**: planlama ufku, parti politikası, emniyet payı, hedef
+      kapasite kullanımı → profil JSON'u, ~10 alan, elle yazılır.
+    · **fabrika ana verisi**: ürün ağacı, iş merkezleri, rotalar, süreler →
+      CSV, binlerce satır.
+
+    Ürün ağacını buraya koymak cazip ve yanlış: profil iş sahibinin elle
+    düzenlediği dosya, ürün ağacı ERP'den gelen tablo. Elle düzenlenen bir
+    dosyaya binlerce satır koymak, onu kimsenin açmadığı bir dosyaya
+    çevirir.
+
+    ⚠️ Simülatörün fabrika dünyası da buraya girmiyor (`simulator/uretim.py`
+    kendi profilini taşıyor). Sebebi aynı: simülatör CSV'nin yerine geçen
+    bir **veri kaynağı**, karar parametresi değil. Yeni fabrika = bir JSON
+    (bu sınıf) + üç CSV; kod değişmez.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # --- Planlama ufku ---
+    planlama_ufku_gun: int = Field(
+        default=14,
+        ge=1,
+        description=(
+            "Üretim emri kararının baktığı gün sayısı. Tipik hazırlık + işlem + "
+            "sevkiyat süresinden uzun, mevsimsel kaymanın tahmini bozacağı kadar "
+            "uzun değil."
+        ),
+    )
+
+    # --- Emniyet payı ---
+    emniyet_bant_carpani: float = Field(
+        default=1.0,
+        ge=0,
+        description=(
+            "İhtiyaç, tahminin ÜST BANDININ bu katı olarak hesaplanır. "
+            "⚠️ Nokta tahminine değil banda bakılması ölçülmüş bir sonuç: "
+            "kataloğun %76'sı aralıklı talepli ve orada nokta tahmini dar bir "
+            "aralığa güven vermiyor (app/forecast/olcum.py::TOPLAM_UYARISI). "
+            "1,0 = üst bandı karşıla; 1,2 = üstüne %20 daha."
+        ),
+    )
+    asgari_emir_gun: float = Field(
+        default=3.0,
+        ge=0,
+        description=(
+            "Açık bir emrin en az bu kadar günlük talebi karşılaması beklenir. "
+            "Altındaki ihtiyaç için hat kurmak (hazırlık süresi) ekonomik değil; "
+            "sistem o durumda erteleme öneriyor."
+        ),
+    )
+
+    # --- Parti politikası ---
+    parti_katina_yuvarla: bool = Field(
+        default=True,
+        description=(
+            "Emir miktarı parti büyüklüğünün tam katına yuvarlansın mı. "
+            "Gerçek hatta 1.187 adet üretilmez, 1.200 üretilir — stoktaki "
+            "MOQ/paket yuvarlamasının üretim karşılığı."
+        ),
+    )
+    azami_emir_parti_sayisi: int = Field(
+        default=12,
+        ge=1,
+        description=(
+            "Tek bir emirde en fazla kaç parti önerilebilir. ⚠️ Bu bir "
+            "makuliyet kapısı: bozuk bir tahmin (ya da bir kez yaşadığımız "
+            "gibi bozuk bir ÖLÇÜM) hattı aylarca dolduracak bir emir "
+            "önerebilir. Üst sınıra dayanan bir öneri, sayının kendisinden "
+            "çok daha erken fark edilir."
+        ),
+    )
+
+    # --- Kapasite (Adım 4'te kullanılacak) ---
+    hedef_kapasite_kullanimi: float = Field(
+        default=0.85,
+        gt=0,
+        le=1,
+        description=(
+            "Hattın hedeflenen doluluk oranı. %100 hedeflemek, tek bir "
+            "gecikmenin tüm planı kaydırması demek."
+        ),
+    )
+
+
 class IsletmeProfili(BaseModel):
     """Bir müşterinin iş parametrelerinin tamamı.
 
@@ -195,6 +287,7 @@ class IsletmeProfili(BaseModel):
     sektor: str = Field(default="genel", description="Serbest metin; yalnızca insan okur.")
     stok: StokProfili = Field(default_factory=StokProfili)
     finans: FinansProfili = Field(default_factory=FinansProfili)
+    uretim: UretimProfili = Field(default_factory=UretimProfili)
 
     @classmethod
     def dosyadan(cls, yol: Path | str) -> IsletmeProfili:

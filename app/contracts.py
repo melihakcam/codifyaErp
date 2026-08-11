@@ -1,4 +1,4 @@
-﻿"""Codifya Karar Motoru — Sözleşmeler.
+"""Codifya Karar Motoru — Sözleşmeler.
 
 ⚠️ BU DOSYA DONDURULMUŞTUR (Faz 0.4).
 
@@ -50,9 +50,20 @@ class KararTipi(StrEnum):
     FINANS_KARSILIK_AYIR = "finans.karsilik_ayir"
     FINANS_AKSIYON_YOK = "finans.aksiyon_yok"
 
+    # Faz 10 · Üretim Planlama
+    #
+    # ⚠️ `uretim.kapasite_asimi` burada YOK ve bu bilinçli. Adım 4'ün işi ve
+    # onunla birlikte eklenecek. Kullanılmayan bir karar tipi tanımlamak
+    # `stok.tedarikci_degisim`'de bir kez yapıldı: politika tablosunda ve
+    # enum'da aylarca ölü durdu, golden set'te örneği yoktu ve "var mı yok
+    # mu" sorusu her incelemede yeniden soruldu (BILINEN-EKSIKLER §5).
+    URETIM_EMIR_AC = "uretim.emir_ac"
+    URETIM_EMIR_ERTELEME = "uretim.emir_erteleme"
+    URETIM_AKSIYON_YOK = "uretim.aksiyon_yok"
+
     @property
     def aksiyon_yok_mu(self) -> bool:
-        """"Yapılacak bir şey yok" tipi mi?
+        """ "Yapılacak bir şey yok" tipi mi?
 
         ⚠️ Politika bu soruyu **alan bağımsız** sormalı. Önceden
         `aday.tip is KararTipi.STOK_AKSIYON_YOK` diye yazılıydı; finans
@@ -389,6 +400,155 @@ class FinansOzellikleri(AlanOzellikleri):
         return None if self.musteri_kredi_onayli else "MUSTERI_KREDI_ONAYSIZ"
 
 
+class UretimOzellikleri(AlanOzellikleri):
+    """Üretilen bir kalemin üretim planı durumu — Faz 10, Üretim Planlama.
+
+    Diğer iki alanla **aynı iskelet**: kimlik, durum, davranış profili,
+    sınıflandırma + hedef, para, karşı taraf (burada üretim hattı), bağlam.
+    Üçüncü kez taşındı ve yine yeniden yazılmadı.
+
+    ## ⚠️ Tahmin neden nesne değil, düz sayılar
+
+    Talep tahmini `app/forecast/contracts.py::TalepTahmini` ile üretiliyor
+    ama buraya **düzleştirilmiş** giriyor. İki sebep:
+
+    1. **Katman yönü.** `app/contracts.py` en alttaki sözleşme; buradan
+       `app.forecast`'e bağımlılık, alan katmanının altına bir modül
+       katmanı sokardı. Alan tahmini *çağırır*, sözleşme onu *içermez*.
+    2. **Guard.** `izinli_sayilar()` yalnızca düz sayıları görüyor. İç içe
+       bir nesnenin alanları `model_dump()`'ta sözlük olarak çıkar ve
+       guard onları sayıya çeviremez; gerekçe "14 günde 42 adet" diyemezdi.
+
+    ## ⚠️ Neden üç tahmin alanı birden
+
+    `tahmin_toplam` tek başına yeterli değil ve bu ölçülmüş bir sonuç:
+    kataloğun %76'sı aralıklı talepli, orada nokta tahmini dar bir aralığa
+    güven vermiyor. Emniyet payı `tahmin_ust_band`'a bakarak seçilmeli
+    (bkz. `app/forecast/olcum.py::TOPLAM_UYARISI`). `tahmin_yontemi` de
+    süs değil: hangi modelin ürettiği kayıtlı olmazsa "tahmin iyileşti mi"
+    sorusu sonradan cevaplanamaz.
+    """
+
+    # Kimlik
+    kalem_id: str
+    kalem_adi: str
+    kategori: str
+
+    # Stok durumu
+    eldeki_stok: int = Field(ge=0)
+    rezerve_stok: int = Field(ge=0, description="Satılmış ama sevk edilmemiş")
+    acik_emir_miktari: int = Field(
+        ge=0,
+        description=(
+            "Üretim emri açılmış, henüz tamamlanmamış miktar. Stoktaki "
+            "`yoldaki_stok`'un karşılığı — hesaba katılmazsa üst üste emir açılır."
+        ),
+    )
+
+    # Talep tahmini (app/forecast çıktısından düzleştirilmiş)
+    tahmin_toplam: float = Field(ge=0, description="Ufuk boyunca beklenen toplam talep")
+    tahmin_alt_band: float = Field(ge=0, description="Kötümser senaryo — ufuk toplamı")
+    tahmin_ust_band: float = Field(ge=0, description="İyimser senaryo — ufuk toplamı")
+    tahmin_yontemi: str = Field(description="Tahmini üreten modelin adı")
+    tahmin_ufuk_gun: int = Field(gt=0, description="Tahminin kapsadığı gün sayısı")
+    veri_gun_sayisi: int = Field(
+        ge=0, description="Kaç günlük geçmişe dayanıyor — güven skorunu besler"
+    )
+
+    # Üretim profili
+    hat_id: str = Field(description="Kalemin üretildiği hat")
+    hat_adi: str
+    parti_buyuklugu: int = Field(gt=0, description="Emir bu sayının katı olmalı")
+    asgari_parti: int = Field(ge=0, description="Bundan küçük emir açmak ekonomik değil")
+    hazirlik_suresi_saat: float = Field(
+        ge=0, description="Hattı bu kaleme geçirmenin sabit süresi (setup)"
+    )
+    birim_islem_suresi_saat: float = Field(gt=0, description="Bir adedin hattaki süresi")
+    uretim_suresi_gun: float = Field(
+        gt=0,
+        description=(
+            "Emir açıldıktan kaç gün sonra mal elde olur. Stoktaki "
+            "`tedarik_suresi_gun`'ün karşılığı."
+        ),
+    )
+
+    # Sınıflandırma ve hedef
+    abc_sinifi: ABCSinifi
+    xyz_sinifi: XYZSinifi
+    hedef_servis_seviyesi: float = Field(gt=0, lt=1)
+
+    # Para
+    birim_maliyet_tl: float = Field(ge=0)
+    satis_fiyati_tl: float = Field(ge=0)
+
+    # Bağlam
+    olcum_tarihi: date
+
+    @property
+    def kullanilabilir_stok(self) -> int:
+        """Rezerve düşülmüş, gerçekten satılabilir stok."""
+        return self.eldeki_stok - self.rezerve_stok
+
+    @property
+    def net_pozisyon(self) -> int:
+        """Elde + açık emirler. Emir kararının karşılaştırdığı sol taraf.
+
+        ⚠️ Açık emri saymamak, stoktaki "yoldaki stoğu unutup üst üste
+        sipariş verme" hatasının üretim karşılığı olurdu.
+        """
+        return self.kullanilabilir_stok + self.acik_emir_miktari
+
+    @property
+    def tahmin_bant_genisligi(self) -> float:
+        """Üst bant − alt bant. Belirsizliğin büyüklüğü.
+
+        Aralıklı talepli kalemlerde geniş olacak; bu kusur değil, dürüstlük
+        (bkz. `app/forecast/aralikli.py`).
+        """
+        return self.tahmin_ust_band - self.tahmin_alt_band
+
+    # --- AlanOzellikleri sözleşmesi -------------------------------------
+
+    @property
+    def gorunen_ad(self) -> str:
+        return self.kalem_adi
+
+    def maskelenecek_alanlar(self) -> list[str]:
+        return [self.kalem_adi, self.kalem_id, self.hat_adi, self.hat_id]
+
+    def hesaplanan_sayilar(self) -> dict[str, float]:
+        return {
+            "kullanilabilir_stok": float(self.kullanilabilir_stok),
+            "net_pozisyon": float(self.net_pozisyon),
+            "tahmin_bant_genisligi": self.tahmin_bant_genisligi,
+        }
+
+    def oto_uygulama_engeli(self) -> str | None:
+        """Üretimde oto-uygulamayı engelleyen tek durum: tahmin dayanaksız.
+
+        ⚠️ Stokta engel "tedarikçi onaylı değil", finansta "kredi onaysız"
+        — ikisi de **karşı tarafla** ilgili. Üretimde karşı taraf yok;
+        fabrika bizim. O yüzden engel de başka bir yerden gelmek zorunda ve
+        tek makul yer tahminin kendisi: yeterli geçmişi olmayan bir kalem
+        için üretim emrini insan görmeden açmak, ölçülmemiş bir sayıya
+        makine hızında para bağlamaktır.
+        """
+        if self.veri_gun_sayisi < ASGARI_TAHMIN_GECMIS_GUN:
+            return "TAHMIN_GECMISI_YETERSIZ"
+        return None
+
+
+ASGARI_TAHMIN_GECMIS_GUN = 90
+"""Bu kadar günlük geçmişi olmayan kalemde üretim emri oto-uygulanmaz.
+
+90 gün seçildi: haftalık desenin on üç kez tekrar ettiği, mevsim geçişinin
+ise henüz görülmediği en kısa pencere. Daha kısası tek bir kampanya
+dönemini tüm yılın normali sanmaya açık.
+
+⚠️ Bu bir **eşik**, kapı değil: karar yine üretilir ve onay kuyruğuna
+düşer. Karar üretmemek, "bilmiyoruz" bilgisini de yok etmek olurdu."""
+
+
 # ---------------------------------------------------------------------------
 # Kural izleri
 # ---------------------------------------------------------------------------
@@ -497,7 +657,7 @@ class DecisionCandidate(BaseModel):
     #
     # Pydantic "smart" birleşim kipinde örneğin gerçek tipi korunuyor; iki
     # sınıfın zorunlu alanları ayrık olduğu için ayrım belirsiz değil.
-    ozellikler: StockFeatures | FinansOzellikleri
+    ozellikler: StockFeatures | FinansOzellikleri | UretimOzellikleri
 
     model_surumleri: dict[str, str] = Field(
         default_factory=dict,

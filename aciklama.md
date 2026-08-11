@@ -2999,3 +2999,88 @@ Sebep muhtemelen masum — ara bir koşunun çıktısı yazıya geçmiş, kod so
 değişmiş. Ama sonucu masum değil: bu belgede yazılı bir sayı, karar
 gerekçesi oluyor. Bundan sonra rapor çıktısı olduğu gibi yapıştırılacak,
 elle özetlenmeyecek.
+
+---
+
+## Sistem ilk kez "şu kadar üret" diyor
+
+Faz 10'un üçüncü adımı: tahmin katmanı artık "önümüzdeki 14 günde ne kadar
+satacağız" sorusunu cevaplıyordu, ama sistem o cevabı kullanıp bir şey
+**önermiyordu**. Şimdi öneriyor.
+
+Gerçek simülasyon verisinde:
+
+```
+uretilen kalem : 300 / 2000
+uretim.emir_ac         99
+uretim.aksiyon_yok    201
+```
+
+Örnek bir karar:
+
+```
+Taş Yünü Levha - Rockwool (S-01738) hat=H-01
+  tahmin 649,5 [649,5 - 1364,0] (croston) | elde 10
+  -> 1500 adet, 14,4 saat hat yuku, 195.583 TL, guven 0,67
+```
+
+### Kural, stok siparişinin ikizi — ama ROP formülü kopyalanmadı
+
+Stokta yeniden sipariş noktası şöyle: ortalama talep × tedarik süresi +
+emniyet stoğu. Emniyet stoğu normal dağılım varsayar.
+
+Üretilen kalemlerin bir kısmı aralıklı talepli ve orada o varsayım tutmuyor
+— dağılım sıfırda yığılmış. Ama elimizde zaten daha iyisi vardı: tahmin
+katmanı bandı **ampirik kuantillerden** kuruyor, yani "bu kalem 14 günde
+tarihsel olarak en fazla şu kadar sattı" bilgisi ölçülmüş durumda.
+
+Onun üstüne bir de normal varsayımlı emniyet stoğu hesaplamak, ölçülmüş bir
+sayının yerine varsayılmış bir sayı koymak olurdu. İhtiyaç doğrudan bandın
+üst sınırından geliyor.
+
+### İki katmanlı uyarlanabilirlik
+
+Kullanıcı şartı şuydu: *"farklı bir fabrikaya da uygun bilgiler verilirse ona
+da adapte olabilsin."* Bunu iki ayrı yere böldük ve bölmemek profili
+bakılamaz hâle getirirdi:
+
+```
+UretimProfili (JSON)        planlama ufku, emniyet payi, parti politikasi
+                            ~10 alan, is sahibi elle yazar
+
+fabrika ana verisi (CSV)    urun agaci, hatlar, rotalar, sureler
+                            binlerce satir, ERP'den gelir
+```
+
+Ürün ağacını profile koymak cazip ve yanlış: elle düzenlenen bir dosyaya
+binlerce satır koymak, onu kimsenin açmadığı bir dosyaya çevirir.
+
+### Üçüncü kez taşınan iskelet
+
+`UretimOzellikleri`, `StockFeatures` ve `FinansOzellikleri` ile **aynı
+iskelette**: kimlik, durum, davranış profili, sınıflandırma + hedef, para,
+karşı taraf, bağlam. ABC/XYZ sınıfları da yeniden kullanıldı, yenisi
+tanımlanmadı.
+
+Bir yerde ayrışmak zorunda kaldı: oto-uygulama engeli. Stokta "tedarikçi
+onaylı değil", finansta "kredi onaysız" — ikisi de **karşı tarafla** ilgili.
+Üretimde karşı taraf yok, fabrika bizim. Engeli tahminin kendisine bağladık:
+90 günden az geçmişi olan kalemde emir insan onayına düşüyor. Ölçülmemiş bir
+sayıya makine hızında para bağlamamak için.
+
+### Dürüst iki eksik
+
+**1. `emir_erteleme` kolu gerçek veride hiç tetiklenmedi.** Simülatörde parti
+büyüklüğü kalemin ~10 günlük talebi olarak seçiliyor, ekonomiklik eşiği ise 3
+gün — bir parti her zaman eşiği geçiyor. Kol birim testli ama sahada
+denenmemiş.
+
+Bunu "ölü tip" saymadık, çünkü gerçek fabrikada parti büyüklüğü talebe göre
+değil **hatta göre** belirlenir ve kural orada tetiklenir. Ama `tedarikci_degisim`
+tipinin aylarca ölü durduğunu da gördük; gerçek CSV geldiğinde ilk bakılacak
+şey bu diye yazıya geçti.
+
+**2. Gerekçe metni zayıf.** Üretim kararları `explain.py`'de kendi şablonuna
+sahip değil, alan-bağımsız son çareye düşüyor. Metin doğru ve **patlamıyor**
+— bunun testini önceden yazdık, çünkü Faz 6'da finans tam burada sessizce
+şablona düşmüştü. Şablonları yazmak Adım 6'nın işi.

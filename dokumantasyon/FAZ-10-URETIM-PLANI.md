@@ -109,19 +109,43 @@ kuantillerinden kuruluyor — kapsama %93.
 depodaki kodla yeniden üretilemedi (ikisi de doğrulandı). Bundan sonra rapor
 çıktısı olduğu gibi yapıştırılacak.
 
-## Adım 3 — Üretim emri kararı (A)
+## ✅ Adım 3 — Üretim emri kararı — BİTTİ (2026-08-11)
 
-Stok sipariş kararının ikizi: aynı iskelet (özellik → kural → aday → politika
-→ onay), tedarikçiden almak yerine kendi üretmek.
+**A10.1 · fabrika dünyası** — `simulator/uretim.py`: katalog üretilen/satın
+alınan diye ayrılıyor (ciro sıralamasının üst %15'i), üretilenlere hat, parti
+büyüklüğü, hazırlık ve işlem süresi veriliyor. Deterministik, testli.
 
-- `simulator/uretim.py`: kalemler **üretilen / satın alınan** diye ayrılır;
-  üretilenlere hat, parti büyüklüğü, hazırlık ve işlem süresi verilir.
-- Karar tipleri: `uretim.emir_ac`, `uretim.emir_erteleme`,
-  `uretim.aksiyon_yok`.
-- Kural: `tahmin.toplam_bandi()` üst sınırı + emniyet > eldeki + açık emirler
-  → emir öner.
+**A10.2 · üretim emri kararı** — `app/domain/production/`:
+`uretim.emir_ac` / `uretim.emir_erteleme` / `uretim.aksiyon_yok`.
+Kural: ihtiyaç = `tahmin.toplam_bandi()` üst sınırı × emniyet çarpanı;
+açık = ihtiyaç − (elde + açık emirler); miktar parti katına yuvarlanıyor.
 
-**Bitti sayılır:** üretilen bir kalem için emir kararı çıkıyor, testi var.
+Sözleşmeye eklenenler: `KararTipi.URETIM_*`, `UretimOzellikleri`,
+`UretimProfili` (işletme profili JSON'una `uretim` bloğu).
+
+### Uçtan uca sonuç (gerçek simülasyon verisi)
+
+```
+uretilen kalem : 300 / 2000
+uretim.emir_ac         99
+uretim.aksiyon_yok    201
+```
+
+### ⚠️ Bilinen iki nokta
+
+**1. `emir_erteleme` kolu gerçek veride hiç tetiklenmedi.** Sebebi
+yapısal: simülatörde parti büyüklüğü kalemin ~10 günlük talebi olarak
+seçiliyor, `asgari_emir_gun` ise 3 — yani bir parti her zaman eşiği
+geçiyor. Kol birim testli ama **sahada denenmemiş** durumda.
+
+Bunu ölü tip saymak yanlış olur (`stok.tedarikci_degisim` dersi): kural
+gerçek fabrikada tetiklenir, çünkü orada parti büyüklüğü talebe göre değil
+hatta göre belirlenir. Ama gerçek CSV geldiğinde **ilk bakılacak şey bu**.
+
+**2. `explain.py`'de `uretim.*` şablonu yok.** Üretim kararları bugün
+alan-bağımsız son çareye düşüyor: metin doğru ve patlamıyor (testi var) ama
+zayıf — "X için uretim.emir_ac kararı üretildi". Şablonları yazmak Adım
+6'nın (B10.3) işi.
 
 ## Adım 4 — Kapasite (A)
 
