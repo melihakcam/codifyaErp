@@ -139,8 +139,7 @@ class KosuOzeti:
             f"yeniden {self.gerekce_yeniden_uretildi} · "
             f"şablon {self.gerekce_sablona_dustu})\n"
             + (f"  {uyari}\n" if uyari else "")
-            +
-            f"  gerekçe atlanan    : {self.gerekce_atlanan:,}\n"
+            + f"  gerekçe atlanan    : {self.gerekce_atlanan:,}\n"
             f"  içgörü yazılan     : {self.icgoru_yazilan}\n"
             f"  karar süresi       : {self.karar_sn:.1f} sn  ({karar_hizi:,.0f} karar/sn)\n"
             f"  gerekçe süresi     : {self.gerekce_sn:.1f} sn\n"
@@ -185,7 +184,31 @@ def _gercek_karar_ureteci() -> Iterable[DecisionCandidate]:
     # 200.000 TL'lik bir tahsilat riski 500 TL'lik bir sipariş önerisinin
     # üstünde çıkıyor — alanlar arası önceliklendirme kendiliğinden doğru.
     kararlar.extend(_finans_kararlari())
+    # ⚠️ Faz 10 / Adım 6: üretim de aynı taramaya giriyor.
+    #
+    # Ayrı bir gecelik iş açmak yerine tek taramada birleştirildi; gerekçesi
+    # finansla aynı: kullanıcı sabah **tek bir liste** görmek istiyor.
+    # Sıralama risk skoruna göre olduğu için 200.000 TL'lik bir üretim emri
+    # 500 TL'lik bir sipariş önerisinin üstünde çıkıyor.
+    kararlar.extend(_uretim_kararlari())
     return kararlar
+
+
+def _uretim_kararlari() -> list[DecisionCandidate]:
+    """Üretilen kalemler için emir + kapasite kararları.
+
+    Hata durumunda **boş liste**: üretim tarafındaki bir sorun gecelik
+    taramanın tamamını düşürmemeli. Stok ve finans kullanıcıya ulaşmaya
+    devam eder, eksiklik log'dan görülür (`_finans_kararlari` ile aynı
+    desen).
+    """
+    try:
+        from app.domain.production.decide import uretim_kararlari_uret
+
+        return list(uretim_kararlari_uret())
+    except Exception:  # gecelik iş hiçbir koşulda düşmemeli
+        logger.exception("Üretim kararları üretilemedi; tarama diğer alanlarla devam ediyor.")
+        return []
 
 
 def _finans_kararlari() -> list[DecisionCandidate]:

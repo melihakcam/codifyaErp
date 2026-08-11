@@ -142,10 +142,7 @@ Bunu ölü tip saymak yanlış olur (`stok.tedarikci_degisim` dersi): kural
 gerçek fabrikada tetiklenir, çünkü orada parti büyüklüğü talebe göre değil
 hatta göre belirlenir. Ama gerçek CSV geldiğinde **ilk bakılacak şey bu**.
 
-**2. `explain.py`'de `uretim.*` şablonu yok.** Üretim kararları bugün
-alan-bağımsız son çareye düşüyor: metin doğru ve patlamıyor (testi var) ama
-zayıf — "X için uretim.emir_ac kararı üretildi". Şablonları yazmak Adım
-6'nın (B10.3) işi.
+**2. ~~`explain.py`'de `uretim.*` şablonu yok.~~** ✅ Adım 6'da kapandı.
 
 ## ✅ Adım 4 — Kapasite — BİTTİ (2026-08-11)
 
@@ -189,22 +186,77 @@ olurdu. Sistem kısıtı **görünür kılıyor ve erteleme öneriyor**.
 
 Bu değişecekse mimari kararı önce konuşulmalı.
 
-## Adım 5 — MRP (A)
+## ✅ Adım 5 — MRP — BİTTİ (2026-08-11)
 
-Ürün ağacını patlatıp hammadde ihtiyacı çıkarır. Çıktısı **yeni bir karar
-türü değil**, mevcut `stok.siparis` kararının girdisi. İki alanı ilk kez
-birbirine bağladığı için en sona bırakıldı.
+`simulator/uretim.py::urun_agaci_uret` + `app/domain/production/mrp.py`.
+Açılması önerilen emirler patlatılıp hammadde başına toplam ihtiyaç
+çıkarılıyor.
 
-## Adım 6 — Servis katmanı (B, 3-5'e paralel)
+**Çıktısı yeni bir karar türü değil.** `StockFeatures.mrp_ihtiyaci` alanına
+giriyor ve stok kararında **yeniden sipariş noktasının üstüne ekleniyor**.
+Ayrı bir `uretim.malzeme_siparis` tipi tanımlamak cazipti ve yanlış olurdu:
+aynı hammadde için iki ayrı kaynaktan iki sipariş kararı çıkar, ikisi
+birbirini görmez ve tam olarak kaçınmaya çalıştığımız üst üste sipariş
+oluşurdu.
 
-- `POST /v1/decisions/production/order-review` — **liste döndürür**
-  (B1'de öğrenildi: bir kalem aynı anda birden çok karar alabilir)
-- `explain.py`'ye `uretim.*` tipleri
-  ⚠️ B5'te görüldü: `explain.py`'nin "alan-bağımsız" sanılan yerleri aslında
-  alana bağlıydı ve **finans sessizce şablona düşüyordu**. Üretimde aynısı
-  olmasın diye önce test, sonra kod.
-- `nightly.py`: üretim taramaya girer. Guard kırılımı sayacı artık var, yeni
-  alan şablona düşerse **ilk koşuda görünür**.
+⚠️ MRP ihtiyacı stoktan **düşülmüyor**, eşiğe ekleniyor. Düşmek
+`kullanilabilir_stok`'u bozardı ve o sayı gerekçede geçiyor — insan "elde
+300 var" derken sistem 180 yazardı.
+
+⚠️ `mrp_ihtiyaci` varsayılanı 0: alanın eklenmesi tek başına hiçbir sayıyı
+oynatmıyor, testi var.
+
+### Ürün ağacı tek katmanlı
+
+Bileşenler yalnızca **satın alınan** kalemlerden seçiliyor. Bir bileşenin
+kendisinin de üretilen olması özyinelemeye ve döngüye kapı açardı (A parçası
+B'yi, B de A'yı içerirse). Satın alınanlarla sınırlamak bu riski kontrol
+ederek değil, **imkânsız kılarak** kapatıyor.
+
+Çok katmanlı ağaç (yarı mamul → mamul) sonraki iş. Önce tek katman
+doğrulanır: çok katmanlıda çıktı yanlışsa hatanın hangi katmanda olduğunu
+ayırt etmek zor.
+
+⚠️ Ürün ağacı tanımsız kalem sessizce atlanıyor (tek eksik satır tüm MRP
+koşusunu düşürmemeli) ama `eksik_agac_kalemleri()` bunu ayrıca raporluyor.
+Sessiz atlama, üretimi durduran bir malzeme eksiğini üç ay sonra keşfetmek
+demek olurdu.
+
+---
+
+## ✅ Adım 6 — Servis katmanı — BİTTİ (2026-08-11)
+
+- **`POST /v1/decisions/production/order-review`** — liste döndürüyor.
+  Tek kalem sorulsa bile: bir kalem aynı anda hem `emir_ac` hem
+  `kapasite_asimi` alabilir.
+- **`explain.py`'ye `uretim.*`** — dört tabloya birden eklendi
+  (`_TIPE_GORE_ALANLAR`, `_DURUM_IFADELERI`, `_ETIKETLER`,
+  `sablon_gerekce`). ⚠️ B5'in kök nedeni birincisiydi: tip orada yoksa
+  `sayi_etiketleri` boş dönüyor, model **hiç çağrılmıyor** ve her gerekçe
+  sessizce şablona düşüyor. Testi önce yazıldı.
+- **`nightly.py`** — üretim taramaya girdi.
+
+### Gecelik tarama gerçekten koştu
+
+```
+taranan SKU        : 3.133
+kuyruga giren      : 1.155
+gerekce uretilen   : 10  (gecti 5 · yeniden 1 · sablon 4)
+TOPLAM             : 187,9 sn        (hedef < 600 sn)
+```
+
+Alan bazında guard kırılımı — planın doğrulama ölçütü buydu:
+
+```
+uretim.emir_ac    gecti              1
+uretim.emir_ac    yeniden_uretildi   1
+uretim.emir_ac    sablona_dustu      0
+```
+
+**Şablona düşme oranı %0** (eşik %50). ⚠️ Örneklem küçük: yalnızca 2 üretim
+gerekçesi üretildi, çünkü gerekçe yalnızca en riskli ilk N karar için
+çıkarılıyor. Sayı, "alan bağlanmamış" kusurunun yokluğunu gösteriyor;
+gerekçe kalitesi hakkında bir şey söylemiyor.
 
 ---
 

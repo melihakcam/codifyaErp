@@ -160,7 +160,7 @@ def ozellikten_karar_uret(ozellik: StockFeatures) -> DecisionCandidate:
     için çalışır. `training/build_dataset.py` (A3.1) bunu farklı (sku_id,
     tarih) kombinasyonları için tekrar tekrar çağırarak etiketli eğitim
     verisi üretir; "demo dünyası" önbelleğine bağımlı değildir.
-    
+
     ## Karar önceliği — A2 incelemesi (2026-08-10)
 
     Sıra `tasfiye → sipariş → aksiyon yok` ve **dışlayıcı olması doğru**.
@@ -239,12 +239,32 @@ def ozellikten_karar_uret(ozellik: StockFeatures) -> DecisionCandidate:
                 },
             )
         )
-    elif net_pozisyon < rop:
+    elif net_pozisyon < rop + ozellik.mrp_ihtiyaci:
+        # ⚠️ MRP ihtiyacı ROP'un ÜSTÜNE ekleniyor, stoktan düşülmüyor.
+        #
+        # İkisi aynı sonucu vermez: düşmek `kullanilabilir_stok`'u bozar ve o
+        # sayı gerekçede geçiyor — insan "elde 300 var" derken sistem 180
+        # yazardı. Eşiği yükseltmek ise soruyu doğru soruyor: "satış talebi
+        # + üretim talebi toplamını karşılayacak stoğum var mı?"
         tip = KararTipi.STOK_SIPARIS
         siparis_miktari = siparis_miktari_hesapla(ozellik)
         aksiyon = {"siparis_miktari": siparis_miktari, "tedarikci_id": ozellik.tedarikci_id}
         tahmini_tutar_tl = siparis_miktari * ozellik.birim_maliyet_tl
         geri_alinabilir = True
+        if ozellik.mrp_ihtiyaci > 0:
+            kurallar.append(
+                FiredRule(
+                    kod="URETIM_TALEBI_EKLENDI",
+                    aciklama=(
+                        "Açılması önerilen üretim emirleri bu malzemeden ayrıca "
+                        "ihtiyaç doğuruyor; sipariş eşiği o kadar yükseltildi."
+                    ),
+                    degerler={
+                        "mrp_ihtiyaci": round(ozellik.mrp_ihtiyaci, 2),
+                        "rop": round(rop, 2),
+                    },
+                )
+            )
         kurallar.append(
             FiredRule(
                 kod="ROP_ALTINDA",

@@ -224,10 +224,75 @@ def uretilen_mi(sku_id: str, uretim_df: pd.DataFrame) -> bool:
     return bool((uretim_df["sku_id"] == sku_id).any())
 
 
+# ---------------------------------------------------------------------------
+# Ürün ağacı (BOM) — Adım 5'in girdisi
+# ---------------------------------------------------------------------------
+
+# Bir üretilen kalemin kaç farklı hammaddeden oluştuğu.
+#
+# Gerçek ürün ağaçları çok daha derin ve geniş olabilir; buradaki amaç MRP
+# mantığını sınamak, gerçek bir ürünü modellemek değil.
+ASGARI_BILESEN = 2
+AZAMI_BILESEN = 5
+
+
+def urun_agaci_uret(
+    sku_df: pd.DataFrame,
+    uretim_df: pd.DataFrame,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Üretilen her kalem için hammadde listesi.
+
+    Dönen tablo: `uretilen_sku_id`, `bilesen_sku_id`, `birim_basina_miktar`.
+
+    ## ⚠️ Ağaç TEK KATMANLI ve bu bilinçli
+
+    Bileşenler yalnızca **satın alınan** kalemlerden seçiliyor, yani
+    "üretilen ürün → hammadde" tek adımda bitiyor. Gerçek ürün ağaçları çok
+    katmanlı olabilir (yarı mamul → mamul) ve orada patlatma özyinelemeli
+    yapılır.
+
+    Tek katmanla başlamanın sebebi ölçülebilirlik: çok katmanlı bir ağaçta
+    MRP çıktısı yanlışsa hatanın hangi katmanda olduğunu ayırt etmek zor.
+    Önce tek katman doğrulanır, sonra derinlik eklenir.
+
+    ⚠️ Bir bileşenin **kendisinin de üretilen** olması özyinelemeye ve
+    sonsuz döngüye açık kapı bırakır (A parçası B'yi, B de A'yı içerirse).
+    Satın alınanlarla sınırlamak bu riski yapısal olarak kapatıyor —
+    kontrol etmek yerine imkânsız kılmak.
+    """
+    rng = np.random.default_rng(seed)
+
+    uretilen_idler = set(uretim_df["sku_id"])
+    satin_alinanlar = sku_df[~sku_df["sku_id"].isin(uretilen_idler)]["sku_id"].to_numpy()
+    if len(satin_alinanlar) == 0:
+        raise ValueError("Ürün ağacı kurulamıyor: kataloğun tamamı üretiliyor, hammadde kalmıyor.")
+
+    satirlar = []
+    for uretilen in uretim_df["sku_id"]:
+        adet = int(rng.integers(ASGARI_BILESEN, AZAMI_BILESEN + 1))
+        bilesenler = rng.choice(satin_alinanlar, size=adet, replace=False)
+        for bilesen in bilesenler:
+            satirlar.append(
+                {
+                    "uretilen_sku_id": uretilen,
+                    "bilesen_sku_id": str(bilesen),
+                    # Bir adet mamul için kaç adet hammadde. Tam sayı değil:
+                    # 0,5 kg boya, 1,5 m profil gibi kullanımlar gerçek.
+                    "birim_basina_miktar": round(float(rng.uniform(0.5, 4.0)), 2),
+                }
+            )
+
+    return pd.DataFrame(satirlar)
+
+
 __all__ = [
+    "ASGARI_BILESEN",
+    "AZAMI_BILESEN",
     "FabrikaProfili",
     "HatProfili",
     "uretilen_mi",
     "uretim_ana_verisi_uret",
+    "urun_agaci_uret",
     "varsayilan_fabrika",
 ]

@@ -35,6 +35,7 @@ from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
 from app.core.policy import esikleri_yukle, politika_uygula
 from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret
+from app.domain.production.decide import uretim_kararlari_uret
 from app.domain.stock.decide import stok_karari_uret
 from app.llm.client import OllamaIstemcisi
 from app.llm.explain import gerekce_uret
@@ -227,7 +228,49 @@ def finans_tahsilat_degerlendir(
     try:
         adaylar = _finans_adaylari(musteri_id)
     except KeyError as hata:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(hata)
-        ) from hata
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(hata)) from hata
+    return _kararlari_isle(adaylar, ayar, oturum, gerekce)
+
+
+@router.post(
+    "/production/order-review",
+    response_model=list[KararSonucu],
+    summary="Üretim emri değerlendirmesi",
+)
+def uretim_emri_degerlendir(
+    ayar: AyarDep,
+    oturum: OturumDep,
+    kalem_id: Annotated[
+        str | None,
+        Query(description="Belirli bir üretilen kalem. Verilmezse tüm üretim kararları."),
+    ] = None,
+    gerekce: Annotated[
+        bool,
+        Query(
+            description="Türkçe gerekçe metni de üretilsin mi? "
+            "Varsayılan False — karar yolu LLM'i beklemesin diye."
+        ),
+    ] = False,
+) -> list[KararSonucu]:
+    """Üretim emri ve kapasite kararlarını üretir, kaydeder, gerekiyorsa kuyruğa alır.
+
+    ⚠️ **Bu uç bir LİSTE döndürür** ve bu, tek kalem sorulduğunda bile
+    geçerli: bir kalem aynı anda hem `uretim.emir_ac` hem
+    `uretim.kapasite_asimi` kararı alabilir. İkisi ortogonal — biri "üret"
+    diyor, diğeri "ama hat dolu, sıraya gir". Tekil dönen bir uç, ikincisini
+    ERP'den gizlerdi; finansta tam bu kusur yaşandı (`BILINEN-EKSIKLER.md`
+    §9, Tur 8 · B1).
+
+    ⚠️ `kalem_id` verilse bile kapasite hesabı **tüm hat** üzerinden yapılır:
+    "bu emir hattı aşıyor mu" sorusunun cevabı diğer emirlere bağlıdır.
+
+    Dört karar tipi olabilir: emir aç, emir erteleme, kapasite aşımı,
+    aksiyon yok.
+    """
+    _kapali_mi(ayar)
+    try:
+        adaylar = uretim_kararlari_uret(kalem_id)
+    except KeyError as hata:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(hata)) from hata
+
     return _kararlari_isle(adaylar, ayar, oturum, gerekce)

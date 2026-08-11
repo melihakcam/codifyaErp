@@ -534,3 +534,246 @@ def test_erteleme_tutari_SIFIR_DEGIL():
     kararlar = kapasite_kararlari_uret(_emir_kararlari(o), UretimProfili())
 
     assert kararlar[0].tahmini_tutar_tl > 0
+
+
+# --- MRP (A10.4 · Adım 5) ----------------------------------------------------
+
+
+def _urun_agaci(**satirlar) -> pd.DataFrame:
+    """{"S-1": [("H-A", 2.0), ("H-B", 0.5)]} biçiminden ürün ağacı tablosu."""
+    kayitlar = [
+        {"uretilen_sku_id": uretilen, "bilesen_sku_id": h, "birim_basina_miktar": m}
+        for uretilen, bilesenler in satirlar.items()
+        for h, m in bilesenler
+    ]
+    return pd.DataFrame(kayitlar)
+
+
+def test_mrp_emri_hammaddeye_PATLATIYOR():
+    """⭐ Adım 5'in özü: 200 adet mamul → kaç adet hammadde."""
+    from app.domain.production.mrp import hammadde_ihtiyaci_hesapla
+
+    emirler = _emir_kararlari(ozellik_kur(kalem_id="S-1", eldeki_stok=50))
+    assert emirler[0].aksiyon["emir_miktari"] == 200
+
+    agac = _urun_agaci(**{"S-1": [("H-A", 2.0), ("H-B", 0.5)]})
+    ihtiyac = hammadde_ihtiyaci_hesapla(emirler, agac)
+
+    assert ihtiyac["H-A"].toplam_miktar == 400.0
+    assert ihtiyac["H-B"].toplam_miktar == 100.0
+    assert ihtiyac["H-A"].kaynak_emirler == ("S-1",)
+
+
+def test_mrp_AYNI_HAMMADDEYI_topluyor():
+    """İki mamul aynı hammaddeyi kullanıyorsa ihtiyaç toplanmalı.
+
+    Toplamamak, her mamul için ayrı sipariş açmak demek olurdu — MRP'nin
+    önlemek için var olduğu şeyin ta kendisi.
+    """
+    from app.domain.production.mrp import hammadde_ihtiyaci_hesapla
+
+    emirler = _emir_kararlari(
+        ozellik_kur(kalem_id="S-1", eldeki_stok=50),
+        ozellik_kur(kalem_id="S-2", eldeki_stok=50),
+    )
+    agac = _urun_agaci(**{"S-1": [("H-A", 1.0)], "S-2": [("H-A", 3.0)]})
+
+    ihtiyac = hammadde_ihtiyaci_hesapla(emirler, agac)
+
+    assert ihtiyac["H-A"].toplam_miktar == 800.0  # 200x1 + 200x3
+    assert ihtiyac["H-A"].kaynak_emirler == ("S-1", "S-2")
+
+
+def test_mrp_ERTELENEN_emri_saymiyor():
+    """⚠️ Ertelenen emrin malzemesini sipariş etmek, ertelemeyi boşa çıkarır."""
+    from app.domain.production.mrp import hammadde_ihtiyaci_hesapla
+
+    ertelenen = ozellik_kur(
+        kalem_id="S-1",
+        eldeki_stok=195,
+        tahmin_toplam=1400.0,
+        tahmin_ust_band=200.0,
+        parti_buyuklugu=5,
+        asgari_parti=5,
+    )
+    kararlar = ozellikten_kararlar_uret(ertelenen, UretimProfili(asgari_emir_gun=3.0))
+    assert kararlar[0].tip is KararTipi.URETIM_EMIR_ERTELEME
+
+    agac = _urun_agaci(**{"S-1": [("H-A", 2.0)]})
+    assert hammadde_ihtiyaci_hesapla(kararlar, agac) == {}
+
+
+def test_mrp_eksik_agac_GORUNUR_oluyor():
+    """⚠️ Sessiz atlama gerekli ama yeterli değil.
+
+    Ürün ağacı tanımsız kalem sessizce atlanıyor (tek eksik satır tüm MRP
+    koşusunu düşürmemeli) — ama atlandığı raporlanmazsa, üretimi durduran
+    bir malzeme eksiği üç ay sonra keşfedilir.
+    """
+    from app.domain.production.mrp import eksik_agac_kalemleri, hammadde_ihtiyaci_hesapla
+
+    emirler = _emir_kararlari(ozellik_kur(kalem_id="S-YOK", eldeki_stok=50))
+    agac = _urun_agaci(**{"S-BASKA": [("H-A", 1.0)]})
+
+    assert hammadde_ihtiyaci_hesapla(emirler, agac) == {}
+    assert eksik_agac_kalemleri(emirler, agac) == ["S-YOK"]
+
+
+def test_mrp_ihtiyaci_STOK_ESIGINI_yukseltiyor():
+    """⭐ MRP'nin stoğa bağlandığı tek nokta.
+
+    Aynı SKU, aynı stok: MRP ihtiyacı olmadan "aksiyon yok", ihtiyaçla
+    birlikte "sipariş". Bu bağ kurulmazsa MRP dekoratif kalır.
+    """
+    from app.contracts import StockFeatures
+    from app.domain.stock.decide import ozellikten_karar_uret
+
+    ortak = {
+        "sku_id": "H-A",
+        "sku_adi": "Çimento 50kg",
+        "kategori": "Çimento",
+        "eldeki_stok": 500,
+        "rezerve_stok": 0,
+        "yoldaki_stok": 0,
+        "ort_gunluk_talep": 10.0,
+        "talep_std": 2.0,
+        "veri_gun_sayisi": 400,
+        "tedarik_suresi_gun": 10.0,
+        "tedarik_suresi_std": 1.0,
+        "abc_sinifi": ABCSinifi.A,
+        "xyz_sinifi": XYZSinifi.X,
+        "hedef_servis_seviyesi": 0.95,
+        "son_hareket_gun_once": 1,
+        "birim_maliyet_tl": 100.0,
+        "satis_fiyati_tl": 150.0,
+        "tedarikci_id": "T-1",
+        "tedarikci_adi": "Yılmaz Yapı",
+        "tedarikci_skoru": 90.0,
+        "tedarikci_zamaninda_teslim_orani": 0.94,
+        "tedarikci_onayli": True,
+        "moq": 100,
+        "paket_adedi": 50,
+        "olcum_tarihi": BUGUN,
+    }
+
+    mrpsiz = ozellikten_karar_uret(StockFeatures(**ortak))
+    mrpli = ozellikten_karar_uret(StockFeatures(**ortak, mrp_ihtiyaci=2000.0))
+
+    assert mrpsiz.tip is KararTipi.STOK_AKSIYON_YOK
+    assert mrpli.tip is KararTipi.STOK_SIPARIS
+    kodlar = [k.kod for k in mrpli.tetiklenen_kurallar]
+    assert "URETIM_TALEBI_EKLENDI" in kodlar
+
+
+def test_mrp_varsayilani_stok_davranisini_DEGISTIRMIYOR():
+    """⚠️ Sözleşmeye alan eklemek tek başına hiçbir sayıyı oynatmamalı."""
+    from app.contracts import StockFeatures
+
+    assert StockFeatures.model_fields["mrp_ihtiyaci"].default == 0.0
+
+
+def test_urun_agaci_bilesenleri_SATIN_ALINANDAN_seciyor():
+    """⚠️ Bileşen de üretilen olsaydı özyineleme ve döngü riski doğardı.
+
+    A parçası B'yi, B de A'yı içerirse patlatma sonsuza gider. Satın
+    alınanlarla sınırlamak bu riski kontrol ederek değil, **imkânsız
+    kılarak** kapatıyor.
+    """
+    from simulator.uretim import urun_agaci_uret
+
+    katalog = _sahte_katalog(100)
+    uretim = uretim_ana_verisi_uret(katalog, seed=7)
+    agac = urun_agaci_uret(katalog, uretim, seed=7)
+
+    uretilenler = set(uretim["sku_id"])
+    assert set(agac["uretilen_sku_id"]) == uretilenler
+    assert not (set(agac["bilesen_sku_id"]) & uretilenler)
+
+
+# --- Servis katmanı (Adım 6) -------------------------------------------------
+
+
+def test_explain_URETIM_TIPLERINI_taniyor():
+    """⭐ B5'in kök nedeninin tekrarını önleyen test.
+
+    Finans tipleri `_TIPE_GORE_ALANLAR`'da yoktu; sonuç sessizdi —
+    `sayi_etiketleri` boş dönüyor, model hiç çağrılmıyor, 25 kararın 25'i
+    0 saniyede şablona düşüyordu. Kusur ancak ölçünce görülmüştü.
+    """
+    from app.llm.explain import sayi_etiketleri
+
+    for stok in (50, 500):
+        karar = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=stok))[0]
+        etiketler = sayi_etiketleri(karar)
+        assert etiketler, f"{karar.tip.value} icin modele verilecek sayi yok"
+        # Etiketler Turkce ve ham alan adi degil.
+        assert all("_" not in ad for ad, _ in etiketler), etiketler
+
+
+def test_uretim_sablonu_ALAN_BAGIMSIZ_SON_CAREYE_dusmuyor():
+    """Artık kendi şablonu var; genel "karar üretildi" cümlesi kalmamalı."""
+    from app.llm.explain import sablon_gerekce
+
+    emir = ozellikten_kararlar_uret(ozellik_kur(eldeki_stok=50))[0]
+    metin = sablon_gerekce(emir)
+
+    assert "uretim.emir_ac" not in metin, "alan-bagimsiz son careye dusmus"
+    assert "Kesim Hattı" in metin
+    assert "üretim emri" in metin
+
+
+def test_kapasite_sablonu_HATTI_anlatiyor():
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+    from app.llm.explain import sablon_gerekce
+
+    o = ozellik_kur(eldeki_stok=10, tahmin_ust_band=5000.0, birim_islem_suresi_saat=0.5)
+    kararlar = kapasite_kararlari_uret(_emir_kararlari(o), UretimProfili())
+
+    metin = sablon_gerekce(kararlar[0])
+    assert "Kesim Hattı" in metin
+    assert "kapasite" in metin.lower()
+
+
+def test_uretim_ucu_LISTE_donuyor(istemci):
+    """⭐ Adım 6'nın bitti ölçütü: uç, bir kalemin tüm kararlarını döndürüyor.
+
+    ⚠️ Tekil dönen bir uç, "emir aç" ile "hat dolu" kararlarından birini
+    ERP'den gizlerdi — finansta tam bu kusur yaşandı (B1).
+    """
+    cevap = istemci.post("/v1/decisions/production/order-review")
+
+    assert cevap.status_code == 200
+    govde = cevap.json()
+    assert isinstance(govde, list)
+    assert govde, "hic uretim karari donmedi"
+
+    tipler = {k["aday"]["tip"] for k in govde}
+    assert tipler <= {
+        "uretim.emir_ac",
+        "uretim.emir_erteleme",
+        "uretim.kapasite_asimi",
+        "uretim.aksiyon_yok",
+    }
+    assert "uretim.emir_ac" in tipler
+    # Karar yolu LLM'i beklememeli.
+    assert all(k["gerekce"] is None for k in govde)
+
+
+def test_uretim_ucu_bilinmeyen_kalemde_404(istemci):
+    cevap = istemci.post("/v1/decisions/production/order-review?kalem_id=YOK-123")
+    assert cevap.status_code == 404
+
+
+def test_gecelik_tarama_URETIMI_de_tariyor():
+    """⚠️ Yeni alan gecelik taramaya girmezse sistem kendi kendine koşmuyor demektir.
+
+    Faz 6'da finans kararları `try/except` içinde sessizce yutuluyordu ve
+    kuyruğa hiç girmiyorlardı. Üretim için aynısı olmasın diye üreteç
+    doğrudan sınanıyor.
+    """
+    from app.jobs.nightly import _uretim_kararlari
+
+    kararlar = _uretim_kararlari()
+
+    assert kararlar, "gecelik tarama uretim karari uretmiyor"
+    assert all(k.alan is Alan.URETIM for k in kararlar)

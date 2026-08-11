@@ -246,4 +246,102 @@ def _karar_kur(
     )
 
 
-__all__ = ["KURAL_SURUMU", "ozellikten_kararlar_uret"]
+# ---------------------------------------------------------------------------
+# Demo dünyası girişi — Adım 6'nın (servis katmanı) tüketicisi
+# ---------------------------------------------------------------------------
+
+_URETIM_ONBELLEK: dict[int, dict] = {}
+
+
+def _uretim_dunyasi(seed: int = 42) -> dict:
+    """Fabrika ana verisi + ürün ağacı, process-içi önbellekte.
+
+    Stok tarafındaki `_demo_dunyasini_yukle` deseni: kalıcı veri katmanı
+    gelene kadar simülasyon bir kez koşuyor, sonraki çağrılar önbellekten
+    dönüyor. Gecelik tarama bu sayede 2.000 SKU'yu tek simülasyonla tarıyor.
+    """
+    from app.domain.stock.decide import _demo_dunyasini_yukle
+    from simulator.uretim import uretim_ana_verisi_uret, urun_agaci_uret
+
+    if seed not in _URETIM_ONBELLEK:
+        dunya = _demo_dunyasini_yukle(seed)
+        uretim_df = uretim_ana_verisi_uret(dunya["sku"], dunya["talep"], seed=seed)
+        _URETIM_ONBELLEK[seed] = {
+            "dunya": dunya,
+            "uretim": uretim_df,
+            "urun_agaci": urun_agaci_uret(dunya["sku"], uretim_df, seed=seed),
+        }
+    return _URETIM_ONBELLEK[seed]
+
+
+def uretim_kararlari_uret(kalem_id: str | None = None, seed: int = 42) -> list[DecisionCandidate]:
+    """Üretim kararlarının tamamı: emir + kapasite.
+
+    `kalem_id` verilirse yalnızca o kalem; verilmezse tüm üretilen katalog.
+
+    ## ⚠️ Kapasite tek kalem için sorulamaz
+
+    `kalem_id` verildiğinde bile kapasite hesabı **tüm hat** üzerinden
+    yapılıyor: "bu emir hattı aşıyor mu" sorusunun cevabı diğer emirlere
+    bağlı. Yalnızca istenen kalemin emrine bakıp "hat boş" demek, hattın
+    dolu olduğu bir günde yanlış cevap vermek olurdu.
+
+    Bu yüzden tek kalem sorgusu da tüm kataloğu hesaplıyor ve sonucu
+    filtreliyor. Maliyeti önbellek karşılıyor.
+    """
+    from app.domain.production.features import kalem_ozelliklerini_hesapla
+    from app.domain.production.kapasite import kapasite_kararlari_uret
+
+    kayit = _uretim_dunyasi(seed)
+    dunya, uretim_df = kayit["dunya"], kayit["uretim"]
+
+    kararlar: list[DecisionCandidate] = []
+    for sku_id in uretim_df["sku_id"]:
+        ozellik = kalem_ozelliklerini_hesapla(
+            sku_id=sku_id,
+            olcum_tarihi=dunya["olcum_tarihi"],
+            talep=dunya["talep"],
+            envanter_gunluk=dunya["envanter_gunluk"],
+            sku_df=dunya["sku"],
+            uretim_df=uretim_df,
+        )
+        kararlar += ozellikten_kararlar_uret(ozellik)
+
+    emirler = [k for k in kararlar if k.tip is KararTipi.URETIM_EMIR_AC]
+    kararlar += kapasite_kararlari_uret(emirler)
+
+    if kalem_id is None:
+        return kararlar
+
+    secilen = [
+        k
+        for k in kararlar
+        if isinstance(k.ozellikler, UretimOzellikleri) and k.ozellikler.kalem_id == kalem_id
+    ]
+    if not secilen:
+        raise KeyError(f"Üretilen kalem bulunamadı: {kalem_id}")
+    return secilen
+
+
+def hammadde_ihtiyaclari(seed: int = 42) -> dict[str, float]:
+    """Açılması önerilen emirlerin doğurduğu hammadde ihtiyacı (MRP).
+
+    Çıktısı `StockFeatures.mrp_ihtiyaci`'na verilmek üzere: hammadde
+    sipariş kararı stok alanının işi, bu yalnızca ona giren ek talep.
+    """
+    from app.domain.production.mrp import hammadde_ihtiyaci_hesapla
+
+    kayit = _uretim_dunyasi(seed)
+    emirler = [k for k in uretim_kararlari_uret(seed=seed) if k.tip is KararTipi.URETIM_EMIR_AC]
+    return {
+        hammadde: ihtiyac.toplam_miktar
+        for hammadde, ihtiyac in hammadde_ihtiyaci_hesapla(emirler, kayit["urun_agaci"]).items()
+    }
+
+
+__all__ = [
+    "KURAL_SURUMU",
+    "hammadde_ihtiyaclari",
+    "ozellikten_kararlar_uret",
+    "uretim_kararlari_uret",
+]

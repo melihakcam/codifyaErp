@@ -3142,3 +3142,96 @@ içindeki yüzlerce örtük kararı görmeden onaylamak olurdu.
 
 Sistem kısıtı görünür kılıyor ve erteleme öneriyor. Çizelgeyi kurmuyor.
 Bu değişecekse önce mimari kararı konuşulmalı.
+
+---
+
+## Sistem artık kendi kendine plan çıkarıyor
+
+Adım 5 ve 6 birlikte, üretim planlamasını "elle çağrılan bir fonksiyon"dan
+"gece kendiliğinden koşan bir sistem"e çevirdi.
+
+### Adım 5 — MRP: iki alanı ilk kez birbirine bağlayan yer
+
+Üretim emri açıyorduk ama "bu emri koşturmak için hangi hammaddeden ne kadar
+lazım" sorusu cevapsızdı. MRP ürün ağacını patlatıp bunu çıkarıyor.
+
+**Ayrı bir karar türü yapmadık.** `uretim.malzeme_siparis` diye bir tip
+tanımlamak cazipti — ve yanlış olurdu: aynı hammadde için iki ayrı kaynaktan
+iki sipariş kararı çıkardı, ikisi birbirini görmezdi ve tam olarak kaçınmaya
+çalıştığımız şey olurdu: üst üste sipariş.
+
+Bunun yerine MRP çıktısı mevcut stok kararının **girdisi**:
+
+```
+StockFeatures.mrp_ihtiyaci  ->  yeniden siparis noktasinin USTUNE eklenir
+```
+
+Küçük ama önemli bir ayrıntı: ihtiyaç stoktan **düşülmüyor**, eşiğe
+ekleniyor. Düşseydik `kullanilabilir_stok` bozulurdu ve o sayı gerekçe
+metninde geçiyor — insan "elde 300 var" derken sistem 180 yazardı. Eşiği
+yükseltmek soruyu doğru soruyor: "satış talebi + üretim talebi toplamını
+karşılayacak stoğum var mı?"
+
+Alanın varsayılanı 0, yani eklenmesi tek başına hiçbir sayıyı oynatmıyor.
+Testi de var.
+
+### Ürün ağacında bir riski kontrol etmek yerine imkânsız kıldık
+
+Bileşenler yalnızca **satın alınan** kalemlerden seçiliyor. Sebebi:
+A parçası B'yi, B de A'yı içerirse patlatma sonsuza gider. Bunu bir döngü
+kontrolüyle yakalamak yerine, kurulumu döngü kuramayacak şekilde
+kısıtladık.
+
+Çok katmanlı ağaç (yarı mamul → mamul) sonraki iş. Önce tek katman
+doğrulanır; çok katmanlıda çıktı yanlışsa hatanın hangi katmanda olduğunu
+ayırt etmek zor.
+
+### Adım 6 — ve B5'in tekrarını önleyen test
+
+Servis katmanı üç parça: API ucu, gerekçe şablonları, gecelik tarama.
+
+Gerekçe tarafında bir tuzak vardı ve daha önce içine düşülmüştü. Faz 8'de
+"model finansı hiç görmedi" diye bir tespit vardı; sebebi eğitim eksikliği
+sanılmıştı. Gerçek sebep başkaydı: finans tipleri `_TIPE_GORE_ALANLAR`
+sözlüğünde yoktu, dolayısıyla modele verilecek sayı listesi boş dönüyor,
+"anlatılacak sayı var mı" sorusu False çıkıyor ve **model hiç
+çağrılmıyordu**. 25 kararın 25'i 0 saniyede şablona düşmüştü.
+
+Sessiz bir kusur — ancak ölçünce görünüyor. Üretim tipleri o yüzden dört
+tabloya birden, kod yazılmadan önce eklendi ve testi de önce yazıldı.
+
+### Gecelik tarama gerçekten koştu
+
+```
+taranan SKU        : 3.133
+kuyruga giren      : 1.155
+gerekce uretilen   : 10  (gecti 5 · yeniden 1 · sablon 4)
+TOPLAM             : 187,9 sn        (hedef < 600 sn)
+```
+
+Alan bazında guard kırılımı — planın doğrulama ölçütü tam buydu:
+
+```
+uretim.emir_ac    gecti              1
+uretim.emir_ac    yeniden_uretildi   1
+uretim.emir_ac    sablona_dustu      0
+```
+
+Şablona düşme oranı **%0** (eşik %50). B5'teki gibi sessiz bir kopukluk yok.
+
+⚠️ Ama örneklem küçük: yalnızca 2 üretim gerekçesi üretildi, çünkü gerekçe
+yalnızca en riskli ilk N karar için çıkarılıyor. Bu sayı "alan bağlanmamış"
+kusurunun **yokluğunu** gösteriyor; gerekçe kalitesi hakkında bir şey
+söylemiyor.
+
+### Faz 10 bitti — ve nerede durduğumuz
+
+Sistem artık gece kendiliğinden koşuyor, 3.133 kararı 188 saniyede üretiyor,
+üretim planını kendi çıkarıyor ve gerekçesini Türkçe yazıyor.
+
+Ama hâlâ `shadow` modda: karar veriyor, kaydediyor, **hiçbir şey
+uygulamıyor**. Kendi başına uygulaması için `threshold` moda geçmesi gerekiyor
+ve o kapı bilerek kapalı — projenin kendi kuralı: *shadow modda ölçülmüş
+doğruluk raporu olmadan threshold'a geçilmez.*
+
+Ve bütün bu sayılar simülasyondan. Gerçek ölçüt üç CSV'nin gelmesi.

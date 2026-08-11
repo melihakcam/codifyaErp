@@ -27,6 +27,7 @@ from app.contracts import (
     Gerekce,
     GuardSonucu,
     KararTipi,
+    UretimOzellikleri,
 )
 from app.llm.client import OllamaIstemcisi
 from app.llm.guard import GerekceUreteci, gerekceyi_guvenceye_al
@@ -109,9 +110,38 @@ def sablon_gerekce(aday: DecisionCandidate) -> str:
                 f"{_tr_sayi(float(yeni)) if yeni is not None else '—'} TL'ye "
                 f"düşürülmesi öneriliyor."
             )
+        return f"{o.musteri_adi} için aksiyon gerekmiyor: gecikme bu müşterinin olağan aralığında."
+
+    if isinstance(o, UretimOzellikleri):
+        if aday.tip is KararTipi.URETIM_EMIR_AC:
+            miktar = aday.aksiyon.get("emir_miktari")
+            return (
+                f"{o.kalem_adi} için önümüzdeki {o.tahmin_ufuk_gun} günde en fazla "
+                f"{_tr_sayi(o.tahmin_ust_band)} adet talep bekleniyor; elde ve açık "
+                f"emirlerde {_tr_sayi(o.net_pozisyon)} adet var. "
+                f"{_tr_sayi(float(miktar)) if miktar is not None else '—'} adet "
+                f"üretim emri açılması öneriliyor ({o.hat_adi})."
+            )
+        if aday.tip is KararTipi.URETIM_EMIR_ERTELEME:
+            miktar = aday.aksiyon.get("onerilen_miktar")
+            return (
+                f"{o.kalem_adi} için ihtiyaç var ama "
+                f"{_tr_sayi(float(miktar)) if miktar is not None else '—'} adetlik emir, "
+                f"{o.hat_adi} hattının {_tr_sayi(o.hazirlik_suresi_saat)} saatlik hazırlık "
+                f"süresini karşılayacak kadar büyük değil; emir erteleniyor."
+            )
+        if aday.tip is KararTipi.URETIM_KAPASITE_ASIMI:
+            asim = aday.aksiyon.get("asim_saat")
+            return (
+                f"{o.hat_adi} kapasitesi "
+                f"{_tr_sayi(float(asim)) if asim is not None else '—'} saat aşılıyor. "
+                f"{o.kalem_adi} için eldeki mal diğer kalemlere göre daha uzun süre "
+                f"yettiğinden bu emrin ertelenmesi öneriliyor."
+            )
         return (
-            f"{o.musteri_adi} için aksiyon gerekmiyor: gecikme bu müşterinin "
-            f"olağan aralığında."
+            f"{o.kalem_adi} için üretim gerekmiyor: elde ve açık emirlerdeki "
+            f"{_tr_sayi(o.net_pozisyon)} adet, {o.tahmin_ufuk_gun} günlük talebi "
+            f"karşılıyor."
         )
 
     # ⚠️ Son çare, alan-bağımsız: `gorunen_ad` sözleşmenin bu soruya cevabı.
@@ -304,6 +334,36 @@ _TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
         "takip_esigi_gun",
         "ort_odeme_gecikmesi_gun",
     ),
+    # ⚠️ Faz 10 / Adım 6. Üretim tipleri buraya **kod yazılmadan önce**
+    # eklendi: B5'te finans tam bu sözlükte olmadığı için `sayi_etiketleri`
+    # boş dönüyor, `anlatilacak_sayi_var_mi` False oluyor ve model hiç
+    # çağrılmıyordu — 25 kararın 25'i 0 saniyede şablona düşmüştü. Sessiz
+    # bir kusur; ancak ölçünce görünüyor.
+    KararTipi.URETIM_EMIR_AC: (
+        "tahmin_toplam",
+        "tahmin_ust_band",
+        "net_pozisyon",
+        "emir_miktari",
+        "hat_yuku_saat",
+    ),
+    KararTipi.URETIM_EMIR_ERTELEME: (
+        "acik",
+        "onerilen_miktar",
+        "hazirlik_suresi_saat",
+        "tahmin_toplam",
+    ),
+    KararTipi.URETIM_KAPASITE_ASIMI: (
+        "toplam_yuk_saat",
+        "kapasite_saat",
+        "asim_saat",
+        "kapsama_gun",
+        "ertelenen_miktar",
+    ),
+    KararTipi.URETIM_AKSIYON_YOK: (
+        "net_pozisyon",
+        "tahmin_ust_band",
+        "tahmin_ufuk_gun",
+    ),
 }
 
 _ETIKETLER: dict[str, str] = {
@@ -328,6 +388,23 @@ _ETIKETLER: dict[str, str] = {
     "tahsilat_orani": "tahsilat oranı",
     "kredi_limiti_tl": "mevcut kredi limiti (TL)",
     "onerilen_kredi_limiti_tl": "önerilen kredi limiti (TL)",
+    # Üretim (Adım 6)
+    "tahmin_toplam": "ufuk boyunca beklenen talep (adet)",
+    "tahmin_alt_band": "beklenen talebin alt sınırı (adet)",
+    "tahmin_ust_band": "beklenen talebin üst sınırı (adet)",
+    "tahmin_ufuk_gun": "planlama ufku (gün)",
+    "net_pozisyon": "elde + açık emirlerdeki miktar (adet)",
+    "emir_miktari": "önerilen üretim miktarı (adet)",
+    "onerilen_miktar": "önerilen üretim miktarı (adet)",
+    "ertelenen_miktar": "ertelenen üretim miktarı (adet)",
+    "hat_yuku_saat": "emrin hattı meşgul edeceği süre (saat)",
+    "toplam_yuk_saat": "hattaki emirlerin toplam yükü (saat)",
+    "kapasite_saat": "hattın kullanılabilir kapasitesi (saat)",
+    "asim_saat": "kapasite aşımı (saat)",
+    "kapsama_gun": "eldeki malın yeteceği süre (gün)",
+    "hazirlik_suresi_saat": "hat hazırlık süresi (saat)",
+    "acik": "karşılanamayan ihtiyaç (adet)",
+    "mrp_ihtiyaci": "üretim emirlerinden doğan ek ihtiyaç (adet)",
 }
 
 
@@ -352,6 +429,18 @@ _DURUM_IFADELERI: dict[KararTipi, str] = {
     KararTipi.FINANS_KARSILIK_AYIR: "alacak, karşılık ayrılacak kadar ESKİ",
     KararTipi.FINANS_KREDI_LIMITI_DUSUR: "müşterinin risk skoru eşiğin ALTINDA",
     KararTipi.FINANS_AKSIYON_YOK: "gecikme, bu müşteri için OLAĞAN aralıkta",
+    # Üretim (Adım 6) — yön yine söyleniyor, hesaplatılmıyor.
+    KararTipi.URETIM_EMIR_AC: (
+        "elde ve açık emirlerdeki miktar, ufuktaki talebin ÜST SINIRINI karşılamıyor"
+    ),
+    KararTipi.URETIM_EMIR_ERTELEME: ("açık var ama hattı kurmaya değecek kadar BÜYÜK DEĞİL"),
+    KararTipi.URETIM_KAPASITE_ASIMI: (
+        "hattaki emirlerin toplam yükü kapasitenin ÜSTÜNDE ve bu kalemin stoğu "
+        "diğerlerine göre DAHA UZUN süre yetiyor"
+    ),
+    KararTipi.URETIM_AKSIYON_YOK: (
+        "elde ve açık emirlerdeki miktar, ufuktaki talebi ZATEN karşılıyor"
+    ),
 }
 
 
@@ -503,6 +592,36 @@ _EGITILMIS_TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
         "en_eski_gecikme_gun",
         "takip_esigi_gun",
         "ort_odeme_gecikmesi_gun",
+    ),
+    # ⚠️ Faz 10 / Adım 6. Üretim tipleri buraya **kod yazılmadan önce**
+    # eklendi: B5'te finans tam bu sözlükte olmadığı için `sayi_etiketleri`
+    # boş dönüyor, `anlatilacak_sayi_var_mi` False oluyor ve model hiç
+    # çağrılmıyordu — 25 kararın 25'i 0 saniyede şablona düşmüştü. Sessiz
+    # bir kusur; ancak ölçünce görünüyor.
+    KararTipi.URETIM_EMIR_AC: (
+        "tahmin_toplam",
+        "tahmin_ust_band",
+        "net_pozisyon",
+        "emir_miktari",
+        "hat_yuku_saat",
+    ),
+    KararTipi.URETIM_EMIR_ERTELEME: (
+        "acik",
+        "onerilen_miktar",
+        "hazirlik_suresi_saat",
+        "tahmin_toplam",
+    ),
+    KararTipi.URETIM_KAPASITE_ASIMI: (
+        "toplam_yuk_saat",
+        "kapasite_saat",
+        "asim_saat",
+        "kapsama_gun",
+        "ertelenen_miktar",
+    ),
+    KararTipi.URETIM_AKSIYON_YOK: (
+        "net_pozisyon",
+        "tahmin_ust_band",
+        "tahmin_ufuk_gun",
     ),
 }
 

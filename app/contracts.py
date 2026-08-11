@@ -264,6 +264,20 @@ class StockFeatures(AlanOzellikleri):
     moq: int = Field(ge=0, description="Minimum sipariş adedi")
     paket_adedi: int = Field(gt=0, description="Sipariş bu sayının katı olmalı")
 
+    # Üretimden gelen talep (Faz 10 · Adım 5 · MRP)
+    mrp_ihtiyaci: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Açılması önerilen üretim emirlerinin bu hammaddeden istediği miktar. "
+            "Yeniden sipariş noktasının ÜSTÜNE eklenir — satış talebiyle üretim "
+            "talebi aynı stoktan karşılanıyor.\n\n"
+            "⚠️ Varsayılan 0 ve bu bilinçli: MRP hiç koşmamışsa stok kararı "
+            "bugüne kadarki davranışını birebir sürdürür. Alanın eklenmesi tek "
+            "başına hiçbir sayıyı oynatmıyor."
+        ),
+    )
+
     # Bağlam
     olcum_tarihi: date
 
