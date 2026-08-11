@@ -45,6 +45,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from app.forecast.aralikli import ARALIKLI_MODELLER
 from app.forecast.contracts import VARSAYILAN_UFUK_GUN
 from app.forecast.model import MODELLER
 from app.forecast.taban import TABANLAR, naif_hata_olcegi
@@ -76,6 +77,34 @@ class KalemSonucu:
     # ⚠️ EGITIM penceresinden, tum seriden degil -- test donemindeki talep
     # seviyesini bilmek, kalemi siniflandirirken gelecege bakmak olurdu.
     ort_talep: float = 0.0
+    # ⚠️ MASE TEK BASINA YETMIYOR -- aralikli talepte yaniltiyor.
+    #
+    # MASE gun gun yakinligi olcer ve cogu gunu sifir olan bir seride "hep
+    # sifir de" stratejisini odullendirir (medyan sifir). Olculdu:
+    # mevsimsel_naif yavas katmanda MASE 0,50 ile birinci, ama ufuk
+    # toplamini %20 EKSIK tahmin ediyor ve pencerelerin %90'inda "hic talep
+    # yok" diyor. Uretim plani icin bu kullanilamaz -- "hic uretme" demek.
+    #
+    # Uretim plani `TalepTahmini.toplam()` kullaniyor. Dogru olcut o yuzden
+    # ufuk toplamindaki yanlilik; asagidaki iki alan onu tasiyor.
+    tahmin_toplami: float = 0.0
+    gercek_toplam: float = 0.0
+    sifir_pencere: int = 0
+    pencere_sayisi: int = 0
+
+    @property
+    def yanlilik(self) -> float | None:
+        """Ufuk toplamindaki yuzde sapma. Gercek 0 ise tanimsiz."""
+        if not self.gercek_toplam:
+            return None
+        return (self.tahmin_toplami - self.gercek_toplam) / self.gercek_toplam * 100
+
+    @property
+    def sifir_orani(self) -> float:
+        """Ufuk boyunca HIC talep tahmin etmedigi pencerelerin orani."""
+        if not self.pencere_sayisi:
+            return 0.0
+        return self.sifir_pencere / self.pencere_sayisi
 
     @property
     def mae(self) -> float:
@@ -121,8 +150,21 @@ def kesme_tarihleri(seri: pd.Series, ufuk: int, adet: int) -> list[int]:
     gitmek test penceresini eksik bırakır ve son günleri hiç ölçmez.
     """
     son = len(seri) - ufuk
-    noktalar = [son - i * KESME_ARALIGI_GUN for i in range(adet)]
-    return sorted(n for n in noktalar if n >= ASGARI_GECMIS_GUN)
+    if son <= ASGARI_GECMIS_GUN:
+        return []
+    # ⚠️ Kesmeler serinin KUYRUGUNDAN degil, kullanilabilir araligin
+    # TAMAMINA yayiliyor.
+    #
+    # Ilk surum son N pencereyi aliyordu ve bu olcumu bozuyordu: serinin son
+    # doneminde talep dususe gectiginde HER yontem yukari yanli goruniyordu.
+    # Croston'un yanliligi kuyruk ornegiyle +%94 cikti, seriye yayilinca +%2 --
+    # yani sayi modelin degil ornekleme penceresinin ozelligiydi.
+    #
+    # Kuyruk ornegi bir de en yeni donemi asiri temsil ediyor; mevsimsel bir
+    # seride bu, tek bir mevsime bakip yil boyu iddiada bulunmak demek.
+    adim = max(KESME_ARALIGI_GUN, (son - ASGARI_GECMIS_GUN) // max(adet, 1))
+    noktalar = list(range(ASGARI_GECMIS_GUN, son, adim))[:adet]
+    return noktalar
 
 
 def olc(
@@ -132,7 +174,7 @@ def olc(
     kalem_siniri: int | None = None,
 ) -> dict[str, list[KalemSonucu]]:
     """Her yöntemi her kalemde, her kesme tarihinde sınar."""
-    yontemler = {**TABANLAR, **MODELLER}
+    yontemler = {**TABANLAR, **MODELLER, **ARALIKLI_MODELLER}
     sonuclar: dict[str, list[KalemSonucu]] = defaultdict(list)
 
     kalemler = list(seriler.items())
@@ -164,6 +206,11 @@ def olc(
                 kayit.mutlak_hatalar += [
                     abs(t - g) for t, g in zip(tahmin.gunluk, gercek, strict=True)
                 ]
+                kayit.tahmin_toplami += tahmin.toplam()
+                kayit.gercek_toplam += float(sum(gercek))
+                kayit.pencere_sayisi += 1
+                if tahmin.toplam() < 0.01:
+                    kayit.sifir_pencere += 1
                 # Ölçek EĞİTİM penceresinden — test penceresinden değil.
                 olcekler.append(naif_hata_olcegi(egitim))
 
@@ -263,6 +310,26 @@ def rapor(sonuclar: dict[str, list[KalemSonucu]], ufuk: int) -> dict[str, float]
             else:
                 satir += f"{'—':>13}"
         print(satir)
+
+    # --- Üretim planı için asıl ölçüt: ufuk toplamındaki yanlılık ----------
+    print("\n  ÜRETİM PLANI İÇİN: UFUK TOPLAMI YANLILIĞI ve SIFIR ORANI")
+    print("  " + "-" * 62)
+    print("  ⚠️ MASE gün gün yakınlığı ölçer ve aralıklı seride 'hep sıfır de'")
+    print("     stratejisini ödüllendirir (medyan sıfır). Üretim planı ise")
+    print("     `toplam()` kullanıyor — doğru ölçüt ufuk toplamındaki sapma.")
+    print(f"\n  {'yöntem':<24}{'yanlılık':>12}{'sıfır%':>10}")
+    for ad, kayitlar in sorted(sonuclar.items()):
+        # ⚠️ Kalem başına yüzdeleri ortalamak yanlış: küçük kalemde tek
+        # adetlik sapma %100 görünür ve ortalamayı ele geçirir. Toplamlar
+        # üzerinden hesaplamak doğru ağırlığı veriyor.
+        tt = sum(k.tahmin_toplami for k in kayitlar)
+        gg = sum(k.gercek_toplam for k in kayitlar)
+        if not gg:
+            continue
+        yanli = (tt - gg) / gg * 100
+        sifir = float(np.mean([k.sifir_orani for k in kayitlar])) * 100
+        uyari = "  ⚠️ çoğunlukla 'hiç üretme' diyor" if sifir > 70 else ""
+        print(f"  {ad:<24}{yanli:>11.0f}%{sifir:>9.0f}%{uyari}")
 
     print(f"\n  {'katman':<24}{'en iyi yöntem':<26}{'MASE':>8}")
     print("  " + "-" * 60)

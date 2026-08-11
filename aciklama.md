@@ -2881,3 +2881,82 @@ dosya. Onun dışında birbirimizi beklemeden çalışabiliyoruz.
 
 ⚠️ Sözleşmede **bant zorunlu**, tek sayı yeterli değil. Üretim planı
 belirsizliği göremezse emniyet payını körlemesine seçer.
+
+---
+
+## Aralıklı talep modeli — ve ölçümün kendisinin yanılttığı yer
+
+Kataloğun **%76'sı** yavaş satan kalem (medyan günlük satış 0,07). Orada en
+iyi seçeneğimiz naif tabandı. Croston yöntemini yazdık — aralıklı talep için
+doğru model ailesi.
+
+### Croston'un fikri
+
+Seriyi ikiye böl:
+
+```
+gunluk seri : 0 0 0 0 3 0 0 0 0 0 0 2 0 0 0 0 4 ...
+buyukluk    : 3, 2, 4         (yalniz talep gunleri)
+aralik      : 7, 6, 8         (talepler arasi gun)
+```
+
+İkisini ayrı düzleştir, oranla. Sıfırlar artık seviyeyi bozmuyor; "ne kadar"
+ile "ne sıklıkta" ayrı öğreniliyor.
+
+### Ölçüm beni iki kez yanılttı
+
+**Birinci:** Croston **+%91 yukarı yanlı** çıktı. SBA'nın varlık sebebi
+yanlılığı düşürmek olduğu için bu teoriye aykırıydı — ve teoriye aykırı
+sonuç, önce kendi kodundan şüphelenmeyi gerektirir. Başlangıç değerinde bir
+kusur buldum ve düzelttim.
+
+**Sayı neredeyse hiç oynamadı** (+%91 → +%94). Yani teşhisim yanlıştı.
+
+**İkinci:** Asıl sebep koddaki değil **ölçümdeki** hataydı. Ölçüm yalnızca
+serinin **son üç penceresinden** örnek alıyordu. O dönemde talep düşüktü,
+dolayısıyla her yöntem yukarı yanlı görünüyordu — en basit yöntem
+(`hareketli_ortalama`) bile **+%87**. Bu, sayının modelin değil örnekleme
+penceresinin özelliği olduğunun işaretiydi.
+
+Kesmeleri seriye yayınca:
+
+```
+             kuyruk ornegi   seriye yayilmis
+croston          +91%              +2%
+sba              +78%              -6%
+hareketli        +87%              -7%
+mevsimsel        + 6%             -20%
+```
+
+Croston teorinin söylediği yere indi.
+
+### Asıl bulgu: MASE üretim planı için yanlış ölçüt
+
+Ölçüm başından beri MASE kullanıyordu ve `mevsimsel_naif`'i kazandırıyordu
+(yavaş katmanda 0,50 — en iyi). Ama şuna baktım:
+
+```
+yontem            MASE   yanlilik   "hic uretme" dedigi oran
+mevsimsel_naif    0,50     -20%              %90
+croston           0,91      +2%              %40
+```
+
+`mevsimsel_naif` kazanıyor çünkü **çoğunlukla sıfır tahmin ediyor.** Aralıklı
+seride günlerin çoğu gerçekten sıfır, dolayısıyla "hiç satmayacağız" demek
+gün gün en yakın cevap. MASE bunu ödüllendiriyor.
+
+Ama üretim planı için bu **kullanılamaz**: %90 ihtimalle "hiç üretme" diyen
+ve toplamı %20 eksik tahmin eden bir model, üretimi sistematik olarak
+durdurur.
+
+Üretim planı `toplam()` kullanıyor. Doğru ölçüt gün gün yakınlık değil,
+**ufuk toplamındaki sapma**. Rapor artık ikisini de basıyor ve %70'ten fazla
+"sıfır" diyen yöntemi işaretliyor.
+
+### Bugünün dersi, yedinci kez
+
+Sayı doğruydu; yanlış olan **neyi ölçtüğüydü**. Üç kez farklı biçimde çıktı:
+
+1. Toplam MASE, katmanlar arası farkı gizliyordu
+2. Kuyruktan örnekleme, yanlılığı modelin özelliği gibi gösteriyordu
+3. MASE'nin kendisi, üretim planının sorusunu sormuyordu

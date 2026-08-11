@@ -207,3 +207,107 @@ def test_tahmin_negatife_dusmuyor():
 
     assert all(d >= 0 for d in tahmin.gunluk)
     assert all(a >= 0 for a in tahmin.alt_band)
+
+
+# --- Aralıklı talep (Croston / SBA) ------------------------------------------
+
+
+def test_croston_sifirlarda_seviye_bozulmuyor():
+    """⭐ Croston'un tüm fikri bu: sıfır günlerinde GÜNCELLEME YOK.
+
+    Sıfırlarda güncellemek yöntemi klasik üssel düzleştirmeye geri çevirir
+    ve kazanımı yok eder. Aynı talep deseninin araları uzatıldığında oran
+    düşmeli — büyüklük aynı, sıklık azalmış demektir.
+    """
+    from app.forecast.aralikli import croston
+
+    sik = ([5.0] + [0.0] * 4) * 40  # 5 gunde bir 5 adet
+    seyrek = ([5.0] + [0.0] * 19) * 20  # 20 gunde bir 5 adet
+
+    a = croston(sik, "S-1", BUGUN, 14).gunluk[0]
+    b = croston(seyrek, "S-1", BUGUN, 14).gunluk[0]
+
+    assert a > b, "aralik uzayinca gunluk oran dusmeli"
+    assert 0.5 < a / b < 6.0, "oran mertebesi aralik oraniyla uyumlu olmali"
+
+
+def test_sba_crostondan_KUCUK():
+    """SBA, Croston'un yukarı yanlılığını `(1 - alfa/2)` ile geri çeker."""
+    from app.forecast.aralikli import ALFA, croston, sba
+
+    gecmis = ([3.0] + [0.0] * 9) * 45
+
+    c = croston(gecmis, "S-1", BUGUN, 14).gunluk[0]
+    s = sba(gecmis, "S-1", BUGUN, 14).gunluk[0]
+
+    assert s < c
+    assert s == pytest.approx(c * (1 - ALFA / 2), rel=1e-6)
+
+
+def test_aralikli_bant_SIMETRIK_DEGIL():
+    """⭐ Aralıklı seride alt bandı 0'ın üstüne çekmek yanlış olurdu.
+
+    "Her gün en az şu kadar satılır" demek, günlerin çoğunun gerçekten sıfır
+    olduğu bir seride yanlış bilgi. Üst bant ise tipik bir talep gününün
+    büyüklüğü: "çoğu gün hiçbir şey satılmaz, satıldığında bu mertebede."
+    """
+    from app.forecast.aralikli import croston
+
+    gecmis = ([4.0] + [0.0] * 9) * 45
+    t = croston(gecmis, "S-1", BUGUN, 14)
+
+    assert all(a == 0.0 for a in t.alt_band), "alt bant 0 olmali"
+    assert t.ust_band[0] > t.gunluk[0], "ust bant talep gunu buyuklugunu tasimali"
+
+
+def test_az_talep_gununde_naif_tabana_dusuluyor():
+    from app.forecast.aralikli import croston
+
+    gecmis = [0.0] * 200 + [1.0, 0.0]  # tek talep gunu
+    assert croston(gecmis, "S-1", BUGUN, 14).yontem == "hareketli_ortalama"
+
+
+# --- Ölçüm penceresi ---------------------------------------------------------
+
+
+def test_kesmeler_serinin_KUYRUGUNA_YIGILMIYOR():
+    """⭐ Ölçümün kendisi bulguyu üretebilir — bu yakalandı ve düzeltildi.
+
+    İlk sürüm kesmeleri serinin sonundan geriye alıyordu. Serinin son
+    döneminde talep düşükse HER yöntem yukarı yanlı görünüyordu: Croston
+    +%94, `hareketli_ortalama` bile +%87. Kesmeler seriye yayılınca Croston
+    +%2'ye indi.
+
+    Yani sayı modelin değil, örnekleme penceresinin özelliğiydi.
+    """
+    import pandas as pd
+
+    from app.forecast.olcum import ASGARI_GECMIS_GUN, kesme_tarihleri
+
+    n = ASGARI_GECMIS_GUN + 600
+    seri = pd.Series(range(n), index=pd.date_range("2023-01-01", periods=n, freq="D"))
+
+    noktalar = kesme_tarihleri(seri, ufuk=14, adet=6)
+
+    assert len(noktalar) >= 2
+    yayilim = noktalar[-1] - noktalar[0]
+    kullanilabilir = (n - 14) - ASGARI_GECMIS_GUN
+    assert yayilim > kullanilabilir * 0.5, (
+        f"kesmeler kuyruga yigilmis: yayilim {yayilim}, kullanilabilir {kullanilabilir}"
+    )
+
+
+def test_yanlilik_ve_sifir_orani_hesaplaniyor():
+    """MASE'nin yetmediği yerde kullanılan iki ölçüt."""
+    k = KalemSonucu(kalem_id="S-1", yontem="x")
+    k.tahmin_toplami = 80.0
+    k.gercek_toplam = 100.0
+    k.pencere_sayisi = 10
+    k.sifir_pencere = 9
+
+    assert k.yanlilik == pytest.approx(-20.0)
+    assert k.sifir_orani == pytest.approx(0.9)
+
+    bos = KalemSonucu(kalem_id="S-2", yontem="x")
+    assert bos.yanlilik is None, "gercek 0 iken yanlilik tanimsiz"
+    assert bos.sifir_orani == 0.0
