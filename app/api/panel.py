@@ -87,7 +87,7 @@ _SAYFA = """<!doctype html>
   <h2>Karar tipine göre</h2>
   {tip_tablosu}
 
-  <h2>Onay bekleyen en riskli 10 karar</h2>
+  <h2>Onay bekleyen en riskli 10 kalem</h2>
   {kuyruk_tablosu}
 
   <a class="baglanti" href="/onay">Onay ekranına git &rarr;</a>
@@ -201,13 +201,33 @@ def panel(oturum: OturumDep, _kimlik: KimlikUiDep) -> HTMLResponse:
         else "<p>Henüz karar üretilmedi.</p>"
     )
 
-    kuyruk = oturum.execute(
+    # ⚠️ Kalem bazında TEKİLLEŞTİRME. Aynı SKU her koşuda yeniden
+    # değerlendirildiği için kuyrukta aynı karar defalarca duruyor: ilk
+    # ölçümde "en riskli 10" listesi aslında 2 farklı kalemdi (biri 7, biri
+    # 3 kez). Operatör için değersiz — aynı şeyi on kez görmek, on ayrı
+    # sorun olduğu izlenimi veriyor.
+    #
+    # Onay kuyruğundaki kararlar SİLİNMİYOR; yalnızca bu özet listesi
+    # kalem başına en riskli olanı gösteriyor. Tekrarların kendisi
+    # `Onay bekleyen` sayacında (5.361) hâlâ görünüyor.
+    ham = oturum.execute(
         select(Decision)
         .join(Approval, Approval.karar_id == Decision.karar_id)
         .where(Approval.durum == OnayDurumu.BEKLIYOR)
         .order_by(Decision.risk_skoru.desc())
-        .limit(10)
+        .limit(300)
     ).scalars().all()
+
+    gorulen: set[tuple[str, str]] = set()
+    kuyruk = []
+    for karar in ham:
+        anahtar = (karar.gorunen_ad, karar.tip.value)
+        if anahtar in gorulen:
+            continue
+        gorulen.add(anahtar)
+        kuyruk.append(karar)
+        if len(kuyruk) >= 10:
+            break
 
     kuyruk_tablosu = (
         "<table><tr><th>Kalem</th><th>Karar</th><th class='sag'>Tutar</th>"
