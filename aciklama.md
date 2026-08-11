@@ -2796,3 +2796,88 @@ durumu değil:
 Kuralı tersine çevirdik: `.env` ile başlayan her şey yok sayılıyor, örnek
 dosyalar tek tek geri açılıyor. Yeni bir varyant uydurmak artık
 kendiliğinden korunuyor.
+
+---
+
+## Faz 10 başladı: talep tahmini
+
+Yeni iş: **üretim planlama.** Ama üretim planı "gelecekte ne kadar satacağız"
+sorusunun cevabına dayanır ve sistemde o cevap **hiç yoktu** — bugüne kadar
+her karar tek bir ortalamaya (`ort_gunluk_talep`) bakıyordu, ufka değil.
+
+O yüzden önce tahmin çekirdeğini kurduk ve **ölçtük**. Üç karar katmanını
+(üretim emri, kapasite, malzeme ihtiyacı) ölçülmemiş bir tahminin üstüne
+kurmak, bugün beş kez yaşadığımız "sayı tek başına yalan söyler" hatasının
+en pahalısı olurdu.
+
+### Neden bu ölçüm gerçekten güvenilir
+
+Melih'in geriye dönük testinde haklı bir uyarı var: geçmiş veride bir
+*politikayı* ölçmek imkânsız. Sistemin önerdiği sipariş o gün verilmedi,
+dolayısıyla sonucu da gözlenemez.
+
+Tahminde bu sorun yok. Tahmin et, gerçekleşeni oku, karşılaştır. "Ya şöyle
+yapsaydık" yok. Bu, sistemdeki en doğrudan yorumlanabilir ölçüm.
+
+### İlk sonuç yanılttı
+
+Ölçümü koşturduk, üç yöntem de "naif tabandan iyi" çıktı:
+
+```
+hareketli_ortalama   MASE 0,51
+mevsimsel_naif       MASE 0,38
+ussel_duzlestirme    MASE 0,58
+```
+
+Ama bir şey ters görünüyordu: **en basit yöntem, karmaşık modelden iyiydi.**
+Kazandığı yerde kaybetmesi gereken bir model varsa, ölçümde bir sorun vardır.
+
+### Katmanlara ayırınca tablo tersine döndü
+
+Katalog **aralıklı talep** ağırlıklıymış — medyan günlük satış **0,07**, yani
+iki haftada bir. Kalemleri talep hızına göre ayırdık:
+
+```
+katman            kalem   hareketli  mevsimsel   ussel
+hizli (>=2/gun)     197      0,98       0,93     0,84   <- model kazaniyor
+orta                273      0,98       0,94     1,06
+yavas (<0,3/gun)   1530      0,77       0,52     1,49   <- model FELAKET
+```
+
+Karmaşık model yalnızca **hızlı kalemlerde** işe yarıyor. Kataloğun
+**%76'sını** oluşturan yavaş kalemlerde naif tabandan **%49 kötü**.
+
+Sebebi de belli: klasik üssel düzleştirme çoğu günü sıfır olan seriler için
+yanlış model ailesi. Simülatör bile o kalemler için ayrı bir "aralıklı
+talep" süreci kullanıyor.
+
+### Sonuç: tek model seçilemez
+
+Rapor artık bunu **kendisi söylüyor**. Hiçbir yöntem her katmanda kazanmıyorsa
+uyarı basıyor:
+
+```
+⚠️ TEK BIR YONTEM HER KATMANDA KAZANMIYOR.
+   Kalem bazinda yontem secimi gerekiyor; tek model secmek
+   katalogun bir kismini bilerek kotu tahmine baglar.
+```
+
+Toplam satırının yanına da not düştük: *"bu satır tek başına karar dayanağı
+değil."*
+
+### İki kişilik bölüşme
+
+Yeni bir alan eklemek doğal olarak Melih'in sahasına düşüyordu (kural
+motoru, simülatör, sözleşme). Tahmini **ayrı bir servis** yaptık:
+
+```
+Melih:  fabrika dunyasi -> uretim kurallari --+
+                                              | cagirir
+Ben:                        app/forecast  <---+
+```
+
+Aramızdaki tek bağ `TalepTahmini` sözleşmesi — dondurulmuş, küçük, tek
+dosya. Onun dışında birbirimizi beklemeden çalışabiliyoruz.
+
+⚠️ Sözleşmede **bant zorunlu**, tek sayı yeterli değil. Üretim planı
+belirsizliği göremezse emniyet payını körlemesine seçer.
