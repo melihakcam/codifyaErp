@@ -736,19 +736,22 @@ adapte olabilsin."* Yeni fabrika = bir JSON + üç CSV, kod değişmez.
 Stok sipariş kararının ikizi. Karar tipleri: `uretim.emir_ac`,
 `uretim.emir_erteleme`, `uretim.aksiyon_yok`.
 
-⚠️ **B'nin ölçtüğü bir bulgu bu kuralı doğrudan etkiliyor.** Katalog aralıklı
-talep ağırlıklı (medyan 0,07/gün; kalemlerin **%76'sı** yavaş) ve orada
-klasik tahmin modelleri naif tabandan **%49 kötü**:
+⚠️ **B'nin ölçtüğü bulgular bu kuralı doğrudan etkiliyor** (B10.2 sonrası
+güncel; eski 0,52'li tablo yanlıştı, ayrıntısı `KISI-B-GOREV.md`'de).
 
-```
-katman            kalem   hareketli  mevsimsel   ussel
-hizli (>=2/gun)     197      0,98       0,93     0,84
-yavas (<0,3/gun)   1530      0,77       0,52     1,49   <- FELAKET
-```
+**1. Hangi tahmin fonksiyonunu çağıracaksın:** `app.forecast.aralikli.sba`.
+Kataloğun %77'si günde 0,3'ten az satıyor ve SBA ufuk toplamında üç
+katmanda da en iyi (yavaş 1,46 / orta 0,56 / hızlı 0,18 bağıl hata).
+Hızlı katmanda günlük desen gerekiyorsa `model.ussel_duzlestirme`.
 
-Yani **tahmini tek bir sayı olarak kullanma.** `TalepTahmini` bandı zorunlu
-tutuyor; emniyet payı `toplam_bandi()` üst sınırına bakmalı, nokta tahminine
-değil. Yavaş kalemlerde bant geniş olacak — bu kusur değil, dürüstlük.
+**2. Tahmini tek bir sayı olarak kullanma.** Emniyet payı
+`tahmin.toplam_bandi()` üst sınırına bakmalı, `toplam()`'a değil. Yavaş
+kalemlerde bant geniş olacak — kusur değil, dürüstlük.
+
+**3. ⚠️ Günlük MASE tablosuna bakıp yöntem seçme.** Aralıklı seride o ölçüt
+"her gün sıfır" tahminini ödüllendiriyor; üretim emri o tahmini
+kullanamaz. Ölçüm raporunda **UFUK TOPLAMI** tablosu var, karar dayanağı
+odur.
 
 ## A10.3 — Kapasite 🟡
 

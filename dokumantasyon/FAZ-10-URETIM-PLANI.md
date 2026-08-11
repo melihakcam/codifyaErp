@@ -67,31 +67,37 @@ uv run python -m app.forecast.olcum
 
 ### ⚠️ Kural motorunu doğrudan ilgilendiren bulgu
 
-İlk ölçüm üç yöntemi de "naif tabandan iyi" gösterdi. Ama en **basit** yöntem
-karmaşık modelden iyiydi — kazanması gereken yerde kaybeden bir model varsa
-ölçümde sorun vardır. Katmanlara ayırınca tablo tersine döndü:
+Katalog **aralıklı talep** ağırlıklı: kalemlerin **%77'si** (1531/2000)
+günde 0,3'ten az satıyor. Toplam MASE bu kütlenin ortalaması olduğu için tek
+başına okunamıyor; rapor katman kırılımını zorunlu basıyor.
 
-```
-katman            kalem   hareketli  mevsimsel   ussel
-hizli (>=2/gun)     197      0,98       0,93     0,84   <- model kazaniyor
-orta                273      0,98       0,94     1,06
-yavas (<0,3/gun)   1530      0,77       0,52     1,49   <- model FELAKET
-```
-
-Katalog **aralıklı talep** ağırlıklı: medyan günlük satış **0,07** (iki
-haftada bir). Klasik üssel düzleştirme, çoğu günü sıfır olan seriler için
-yanlış model ailesi — simülatörün kendisi de o kalemler için ayrı bir
+Klasik üssel düzleştirme yalnızca hızlı kalemlerde tabanı geçiyor (0,92),
+yavaş katmanda **%71 kötü** (1,71) — çoğu günü sıfır olan seriler için
+yanlış model ailesi. Simülatörün kendisi de o kalemler için ayrı bir
 "aralıklı talep" süreci kullanıyor.
 
 **Üretim emri kuralı yazarken bunun karşılığı şu:** tahmin tek bir sayı
-olarak kullanılamaz. Kataloğun **%76'sında** en iyi seçeneğimiz şu an naif
-taban ve orada bant çok geniş olacak. `TalepTahmini` bu yüzden bandı
-**zorunlu** tutuyor; emniyet payı banda bakarak seçilmeli, nokta tahminine
-değil.
+olarak kullanılamaz. `TalepTahmini` bu yüzden bandı **zorunlu** tutuyor;
+emniyet payı `toplam_bandi()` üst sınırına bakarak seçilmeli.
 
-Rapor bunu kendisi söylüyor: hiçbir yöntem her katmanda kazanmıyorsa uyarı
-basıyor ve toplam satırının yanına *"tek başına karar dayanağı değil"* notu
-düşüyor.
+---
+
+## ✅ Adım 2b (B10.2) — BİTTİ (B, 2026-08-11)
+
+`app/forecast/aralikli.py`: Croston + SBA. Ayrıntı ve tam tablolar
+`KISI-B-GOREV.md`'de. İki şey plan açısından bağlayıcı:
+
+**1. Adım 1-2'nin belgelenen tablosu geçersiz.** Yavaş katmanda mevsimsel
+naifin 0,52'si depodaki kodla yeniden üretilemedi (değişiklik öncesi koda
+dönülüp doğrulandı — fark yeni modellerden gelmiyor). Geçerli sayılar
+`olcum.py::KATMAN_UYARISI`'nda; bu belgenin üstündeki bölüm de düzeltildi.
+
+**2. Ölçüt değişti.** Günlük MASE aralıklı seride "her gün sıfır" tahminini
+ödüllendiriyor — üretim emri o tahmini kullanamaz. Ölçüm artık **ufuk
+toplamı bağıl hatası** ve **bant kapsaması** da basıyor; karar dayanağı
+onlar. O ölçütte **SBA üç katmanda da en iyi** (0,18 / 0,56 / 1,46).
+
+**Adım 3'e giren karar:** üretim emri kuralı `aralikli.sba` çağırsın.
 
 ---
 

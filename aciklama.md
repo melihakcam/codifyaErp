@@ -2881,3 +2881,76 @@ dosya. Onun dışında birbirimizi beklemeden çalışabiliyoruz.
 
 ⚠️ Sözleşmede **bant zorunlu**, tek sayı yeterli değil. Üretim planı
 belirsizliği göremezse emniyet payını körlemesine seçer.
+
+---
+
+## Aralıklı talep: doğru model mi, doğru ölçüt mü?
+
+Faz 10'un ikinci işi belliydi: kataloğun dörtte üçü çoğu gün sıfır satıyor
+ve klasik üssel düzleştirme orada çöküyordu. Literatürde bu seri tipi için
+ayrı bir yöntem var — **Croston**: talep büyüklüğü ile talepler arası süre
+ayrı ayrı düzleştirilir, tahmin ikisinin oranıdır. Yanlılığı düzeltilmiş
+hâli **SBA**. İkisini de yazdık.
+
+Ama iş oraya varmadan iki şey çıktı.
+
+### Belgelenen sayı yeniden üretilemedi
+
+Hedef netti: "yavaş katmanda MASE 0,52'nin altına insin." Ölçümü koşturduk,
+mevsimsel naif o katmanda **1,17** çıktı — hedefin iki katı kötü.
+
+Önce kendi kodumuzdan şüphelendik. Değişiklikleri stash'leyip depodaki
+commit'in kendisiyle aynı altkümede koşturduk: sayılar bugünküyle **bit bit
+aynı** çıktı. Yani fark yeni eklenen modellerden gelmiyor. 0,52'li tablo
+depoya hiç girmemiş bir taslak koddan alınmış.
+
+Bu, projede beşinci kez karşılaştığımız şeyin aynısı: **bir sayı, üretildiği
+koddan koparıldığı anda yalan söylemeye başlıyor.** Tur6'da "eğitim modeli
+bozdu" diye iki tur geri alınmıştı; bozuk olan ölçüm yoluydu. Şimdi de
+karar (üretim emri kuralı naif tabana bağlanacaktı) yeniden üretilemeyen bir
+tabloya dayanıyordu.
+
+Eski tablo dört dosyadan da silindi, yerine koşulabilir olan yazıldı.
+
+### Asıl mesele: ölçüt yanlış soruyu soruyordu
+
+Sonra tuhaf bir şey fark ettik. Aralıklı bir seride gün gün mutlak hatayı
+en küçük yapan tahmin **sıfırdır**. İki haftada bir 5 adet satan bir kalemde
+"her gün 0" tahmini 13 günde tam isabet eder, bir günde 5 sapar. "Her gün
+0,36" tahmini ise her gün sapar.
+
+Yani günlük MASE, hiçbir zaman hiçbir şey üretmemeyi ödüllendiriyor.
+Mevsimsel naifin yavaş katmandaki üstünlüğü büyük ölçüde buydu — çoğu gün
+sıfır basıyor.
+
+Üretim emri "her gün sıfır üret" diyemez. Kural zaten günlük tahmine
+bakmıyor: `toplam()` ve `toplam_bandi()` okuyor — "önümüzdeki 14 günde ne
+kadar satılacak, kötü senaryoda ne kadar". Ölçüme o soruyu ekledik:
+
+```
+ufuk toplami — bagil hata      hizli   orta   yavas
+sba                             0,18   0,56    1,46   <- her katmanda en iyi
+croston                         0,19   0,57    1,48
+hareketli_ortalama              0,21   0,63    1,64
+mevsimsel_naif                  0,21   0,69    1,62
+ussel_duzlestirme               0,30   1,02    2,15
+```
+
+Tablo değişti. **SBA üç katmanda da en iyi.** Günlük ölçütte kaybediyor
+görünen yöntem, kararın gerçekten okuduğu sayıda kazanıyor.
+
+Ders şu: model seçmeden önce **hangi sayının karara girdiğine** bakmak
+gerekiyordu. Yanlış ölçütü iyileştirmek için harcanan gün, kazanılan bir
+gün değil.
+
+### Bant, okunduğu yerde kalibre edildi
+
+Diğer modellerde bant "tahmin ± katsayı × günlük sapma" ve `toplam_bandi()`
+bunları topluyor. Aralıklı seride bu anlamsız: günde 0,07 satan kalemde
+günlük sapma 1,3 civarı, yani bant "günde ±1,7 adet" der — kalemin iki
+haftalık toplam satışının on katı.
+
+Croston/SBA'da bant geçmişteki **gerçek 14 günlük toplamların** ampirik
+kuantillerinden kuruluyor. Ölçtük: gerçek toplam bandın içinde kalma oranı
+yavaş katmanda **%93**. Emniyet payı artık ölçülmüş bir belirsizliğe
+dayanıyor, varsayılmış bir dağılıma değil.

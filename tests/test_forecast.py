@@ -12,6 +12,7 @@ from datetime import date
 
 import pytest
 
+from app.forecast.aralikli import ARALIKLI_ALFA, croston, sba
 from app.forecast.contracts import TalepTahmini
 from app.forecast.model import ussel_duzlestirme
 from app.forecast.olcum import KalemSonucu, katman_adi
@@ -86,7 +87,9 @@ def test_toplam_ve_bant_hesaplari():
 # --- Sızıntı -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("model", [hareketli_ortalama, mevsimsel_naif, ussel_duzlestirme])
+@pytest.mark.parametrize(
+    "model", [hareketli_ortalama, mevsimsel_naif, ussel_duzlestirme, croston, sba]
+)
 def test_tahmin_GELECEGI_GORMUYOR(model):
     """⭐ Modele verilen geçmiş dışında hiçbir şey tahmini etkilememeli.
 
@@ -207,3 +210,125 @@ def test_tahmin_negatife_dusmuyor():
 
     assert all(d >= 0 for d in tahmin.gunluk)
     assert all(a >= 0 for a in tahmin.alt_band)
+
+
+# --- Aralıklı talep (B10.2) --------------------------------------------------
+
+
+def _aralikli_seri(araligi: int = 10, miktar: float = 5.0, gun: int = 400) -> list[float]:
+    """Her `araligi` günde bir `miktar` satan, kalan günleri sıfır olan seri."""
+    return [miktar if i % araligi == 0 else 0.0 for i in range(gun)]
+
+
+def test_croston_gercek_hizi_buluyor():
+    """⭐ 10 günde bir 5 adet = günde 0,5. Model bunu bulamıyorsa işe yaramaz."""
+    tahmin = croston(_aralikli_seri(), "S-1", BUGUN, 14)
+
+    assert tahmin.yontem == "croston"
+    assert tahmin.gunluk[0] == pytest.approx(0.5, abs=0.05)
+
+
+def test_ussel_duzlestirme_ARALIKLI_SERIDE_COKUYOR():
+    """⭐ B10.2'nin varlık sebebi: ölçümdeki bulgunun testle sabitlenmesi.
+
+    Klasik üssel düzleştirme sıfır günlerini de güncelleme sayar ve seviyeyi
+    sürekli aşağı çeker. Croston yalnızca satış olan günlerde günceller.
+    Gerçek hız 0,5 iken hangisinin daha yakın olduğu burada kayıt altında —
+    biri "aralıklı model gereksiz, üsseli kullanalım" derse cevabı test.
+    """
+    gecmis = _aralikli_seri()
+
+    ussel = ussel_duzlestirme(gecmis, "S-1", BUGUN, 14).toplam()
+    croston_toplam = croston(gecmis, "S-1", BUGUN, 14).toplam()
+    gercek = 0.5 * 14
+
+    assert abs(croston_toplam - gercek) < abs(ussel - gercek)
+
+
+def test_sba_croston_kadar_ya_da_daha_dusuk():
+    """Yanlılık düzeltmesi tek yönlü: SBA hiçbir zaman Croston'ın üstüne çıkmaz."""
+    gecmis = _aralikli_seri()
+
+    c = croston(gecmis, "S-1", BUGUN, 14).toplam()
+    s = sba(gecmis, "S-1", BUGUN, 14).toplam()
+
+    assert s <= c
+    assert s == pytest.approx(c * (1 - ARALIKLI_ALFA / 2), rel=1e-9)
+
+
+@pytest.mark.parametrize("model", [croston, sba])
+def test_yetersiz_pozitif_gunde_TABANA_DUSUYOR(model):
+    """⚠️ İki satıştan "talepler arası süre" çıkarılamaz.
+
+    Sessizce sıfır dönmek, veri yokluğunu "talep yok" diye raporlamak olurdu
+    — üretim planında en tehlikeli hata. Tabana düşmeli.
+    """
+    gecmis = [0.0] * 200
+    gecmis[50] = 4.0
+
+    tahmin = model(gecmis, "S-1", BUGUN, 14)
+    assert tahmin.yontem == "hareketli_ortalama"
+
+
+@pytest.mark.parametrize("model", [croston, sba])
+def test_hic_satis_olmayan_seride_patlamiyor(model):
+    tahmin = model([0.0] * 200, "S-1", BUGUN, 14)
+    assert tahmin.toplam() == 0.0
+
+
+def test_bant_ufuk_toplamindan_kuruluyor():
+    """⭐ Aralıklı seride bandın anlamlı olduğu tek yer ufuk toplamı.
+
+    Günlük sapmadan kurulup toplanan bir bant, günde 0,5 satan kalemde iki
+    haftalık toplamın katları kadar genişler. Burada bant geçmişteki gerçek
+    14 günlük toplamların kuantillerinden geliyor, yani okunduğu yerde
+    kalibre.
+    """
+    tahmin = croston(_aralikli_seri(), "S-1", BUGUN, 14)
+    alt, ust = tahmin.toplam_bandi()
+
+    # Gercek 14 gunluk toplam bu seride 5 ya da 10 (pencere 1-2 satis
+    # yakaliyor). Bant o araligi kapsamali ama absurt genis olmamali.
+    assert alt <= 7.0 <= ust
+    assert ust < 40.0, "bant absurt genis -- gunluk sapmadan kurulmus olabilir"
+
+
+def test_bant_sozlesme_sirasini_bozmuyor():
+    """Nokta tahmini ampirik bandın dışına düşebilir; sözleşme yine tutmalı.
+
+    Talep sonlara doğru hızlanan bir seride düzleştirilmiş hız, geçmiş
+    pencerelerin çoğundan yüksek çıkar. Bant genişletilir, tahmin
+    kırpılmaz — kırpmak ölçtüğümüz sayıyı bozmak olurdu.
+    """
+    yavas = [5.0 if i % 30 == 0 else 0.0 for i in range(300)]
+    hizli = [5.0 if i % 2 == 0 else 0.0 for i in range(100)]
+
+    tahmin = croston(yavas + hizli, "S-1", BUGUN, 14)
+
+    alt, ust = tahmin.toplam_bandi()
+    assert alt <= tahmin.toplam() <= ust
+
+
+def test_olcum_ufuk_toplamini_da_kaydediyor():
+    """⭐ Üretim emri `toplam()` okuyor; ölçüm de onu ölçmeli.
+
+    Günlük MASE aralıklı seride "her gün sıfır" tahminini ödüllendirir —
+    üretim emri o tahmini kullanamaz. İkinci ölçütün hattan geçtiği burada
+    sabitleniyor.
+    """
+    import pandas as pd
+
+    from app.forecast.olcum import ASGARI_GECMIS_GUN, olc
+
+    n = ASGARI_GECMIS_GUN + 100
+    seri = pd.Series(
+        [5.0 if i % 10 == 0 else 0.0 for i in range(n)],
+        index=pd.date_range("2024-01-01", periods=n, freq="D"),
+    )
+
+    sonuclar = olc({"S-1": seri}, ufuk=14, kesme_sayisi=2)
+
+    kayit = sonuclar["croston"][0]
+    assert kayit.toplam_hatalar, "ufuk toplami hic olculmemis"
+    assert len(kayit.bant_tuttu) == len(kayit.gercek_toplamlar)
+    assert kayit.bant_kapsama is not None

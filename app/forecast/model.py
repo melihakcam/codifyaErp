@@ -26,6 +26,7 @@ from datetime import date
 
 import numpy as np
 
+from app.forecast.aralikli import ARALIKLI_MODELLER
 from app.forecast.contracts import TalepTahmini
 from app.forecast.taban import BANT_KATSAYISI, hareketli_ortalama
 
@@ -118,8 +119,13 @@ def ussel_duzlestirme(
     )
 
 
-MODELLER = {"ussel_duzlestirme": ussel_duzlestirme}
-"""Ölçümde tabanlarla yan yana koşturulacak modeller."""
+MODELLER = {"ussel_duzlestirme": ussel_duzlestirme, **ARALIKLI_MODELLER}
+"""Ölçümde tabanlarla yan yana koşturulacak modeller.
+
+⚠️ Aralıklı talep modelleri (`aralikli.py`) buraya **kasıtlı** olarak
+katılıyor: ölçüm hepsini aynı kesme tarihlerinde, aynı kalemlerde koşturmazsa
+"hangi katmanda hangi yöntem" sorusu cevaplanamaz. Ayrı ölçüm hattı kurmak
+iki farklı sayı üretir ve ikisi kıyaslanamaz."""
 
 
 __all__ = ["ALFA", "ASGARI_GECMIS_GUN", "BETA", "GAMMA", "MODELLER", "ussel_duzlestirme"]

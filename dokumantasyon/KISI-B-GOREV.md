@@ -771,15 +771,60 @@ Bulgu: kataloğun %76'sı aralıklı talepli ve orada klasik model naif tabandan
 %49 kötü. Rapor artık "tek bir yöntem her katmanda kazanmıyor" uyarısını
 kendisi basıyor.
 
-## B10.2 — Aralıklı talep için doğru model 🔴
+## ✅ B10.2 — Aralıklı talep için doğru model — BİTTİ (2026-08-11)
 
-Kataloğun **%76'sında** en iyi seçeneğimiz şu an naif taban. Croston /
-SBA yöntemi tam bu seri tipi için var: talep büyüklüğü ve talepler arası
-süre ayrı ayrı düzleştirilir.
+`app/forecast/aralikli.py`: Croston + SBA, 8 yeni test. Ölçüm hattına
+katıldılar; `olcum.py` artık **ufuk toplamı** ve **bant kapsaması** da
+raporluyor.
 
-**Bitti sayılır:** yavaş katmanda MASE, mevsimsel naifin **0,52**'sinin
-altına iniyor. İnmiyorsa bu da bir bulgu — naif tabanı kullanmaya devam
-ederiz ve gerekçesi yazılı olur.
+### Bulgu 1 — hedef sayı (0,52) yeniden üretilemedi
+
+Adım 1-2'de belgelenen katman tablosu **depodaki kodla çıkmıyor**.
+Doğrulama: değişikliklerim stash'lenip commit'teki kodla aynı altkümede
+koşuldu, sayılar bugünküyle bit bit aynı çıktı. Yani fark benim eklediğim
+modellerden gelmiyor — o tablo depoya hiç girmemiş bir taslak koddan
+alınmış. Geçerli sayılar:
+
+```
+katman              kalem   hareketli  mevsimsel  croston   sba   ussel
+hizli  (>=2/gun)      193      1,13       1,05      1,12    1,11   0,92
+orta   (0,3-2)        276      1,06       1,09      1,05    1,03   1,14
+yavas  (<0,3/gun)    1531      1,29       1,17      1,26    1,24   1,71
+```
+
+⚠️ Eski tablodaki 0,98 / 0,52 / 1,49 satırı **hiçbir yerde kaynak olarak
+kullanılmamalı.** `KATMAN_UYARISI` ve plan dosyaları güncellendi.
+
+### Bulgu 2 — asıl sorun ölçütte, modelde değil
+
+Günlük MASE aralıklı seride **"her gün sıfır" tahminini ödüllendiriyor.**
+İki haftada bir 5 adet satan kalemde "her gün 0" 13 günde tam isabet eder;
+pozitif bir hız tahmini HER gün sapar. Mevsimsel naifin yavaş katmandaki
+üstünlüğü büyük ölçüde bu — çoğu gün sıfır basıyor.
+
+Ama üretim emri "her gün sıfır üret" diyemez. Kural `toplam()` ve
+`toplam_bandi()` okuyor. O ölçütte tablo değişiyor:
+
+```
+ufuk toplami — bagil hata      hizli   orta   yavas
+sba                             0,18   0,56    1,46   <- her katmanda en iyi
+croston                         0,19   0,57    1,48
+hareketli_ortalama              0,21   0,63    1,64
+mevsimsel_naif                  0,21   0,69    1,62
+ussel_duzlestirme               0,30   1,02    2,15
+```
+
+**SBA üç katmanda da en iyi**; yavaş katmanda mevsimsel naiften %10 önde.
+Bant kapsaması da orada en yüksek (%93 — bant %80 nominalle kuruldu, yani
+biraz temkinli tarafta).
+
+### Karar
+
+- Üretim emri kuralı **SBA** kullansın (yavaş + orta katman), hızlı
+  katmanda üssel düzleştirme günlük desende hâlâ önde.
+- Günlük MASE tek başına **karar ölçütü değil**. Rapor ikisini yan yana
+  basıyor ve hangisinin ne için okunacağını yazıyor.
+- ⚠️ Bu sayılar simülasyondan; **üst sınır**. Gerçek ölçüt B10.4.
 
 ## B10.3 — Üretim servis katmanı 🟡 *(A10.2'ye bağlı)*
 

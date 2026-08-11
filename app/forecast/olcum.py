@@ -77,9 +77,36 @@ class KalemSonucu:
     # seviyesini bilmek, kalemi siniflandirirken gelecege bakmak olurdu.
     ort_talep: float = 0.0
 
+    # --- Ufuk toplami: uretim emri kuralinin GERCEKTEN okudugu sayi ---------
+    #
+    # ⚠️ Gunluk MASE ile ayni sey DEGIL ve aralikli seride ikisi ters
+    # yonde ilerleyebilir; sebebi `TOPLAM_UYARISI`'nda.
+    toplam_hatalar: list[float] = field(default_factory=list)
+    gercek_toplamlar: list[float] = field(default_factory=list)
+    bant_tuttu: list[bool] = field(default_factory=list)
+
     @property
     def mae(self) -> float:
         return float(np.mean(self.mutlak_hatalar)) if self.mutlak_hatalar else 0.0
+
+    @property
+    def toplam_bagil_hata(self) -> float | None:
+        """Ufuk toplamındaki ortalama mutlak hata / ortalama gerçek toplam.
+
+        Gerçek toplam 0 ise tanımsız: o kalem test penceresinde hiç satmamış,
+        "yüzde kaç saptı" sorusunun cevabı yok.
+        """
+        gercek = float(np.mean(self.gercek_toplamlar)) if self.gercek_toplamlar else 0.0
+        if not gercek or not self.toplam_hatalar:
+            return None
+        return float(np.mean(self.toplam_hatalar)) / gercek
+
+    @property
+    def bant_kapsama(self) -> float | None:
+        """Gerçek ufuk toplamının bandın içinde kalma oranı."""
+        if not self.bant_tuttu:
+            return None
+        return float(np.mean(self.bant_tuttu))
 
     @property
     def mase(self) -> float | None:
@@ -164,6 +191,14 @@ def olc(
                 kayit.mutlak_hatalar += [
                     abs(t - g) for t, g in zip(tahmin.gunluk, gercek, strict=True)
                 ]
+                # Ufuk toplamı ayrıca kaydediliyor: üretim emri kuralı
+                # `toplam()` ve `toplam_bandi()` okuyor, gün gün tahmine
+                # bakmıyor. Ölçüm neyi kullanıyorsak onu ölçmeli.
+                gercek_toplam = float(sum(gercek))
+                alt, ust = tahmin.toplam_bandi()
+                kayit.toplam_hatalar.append(abs(tahmin.toplam() - gercek_toplam))
+                kayit.gercek_toplamlar.append(gercek_toplam)
+                kayit.bant_tuttu.append(alt <= gercek_toplam <= ust)
                 # Ölçek EĞİTİM penceresinden — test penceresinden değil.
                 olcekler.append(naif_hata_olcegi(egitim))
 
@@ -190,25 +225,63 @@ KATMANLAR: tuple[tuple[str, float, float], ...] = (
 )
 
 KATMAN_UYARISI = """
-⚠️ TOPLAM MASE TEK BAŞINA OKUNAMAZ — ilk ölçümde bunu doğruladık.
+⚠️ TOPLAM MASE TEK BAŞINA OKUNAMAZ.
 
-Katalog aralıklı talep ağırlıklı: medyan günlük talep 0,07 (iki haftada bir
-satış). İlk koşuda toplam sayı üç yöntemi de "naif tabandan iyi" gösterdi.
-Katmanlara ayırınca tablo tersine döndü:
+Katalog aralıklı talep ağırlıklı: kalemlerin %77'si (1531/2000) günde 0,3'ten
+az satıyor. Toplam satır bu kütlenin ortalamasıdır; hızlı kalemlerdeki
+davranışı tamamen gizler. Katman kırılımı (B10.2, 2026-08-11 koşusu):
 
-    katman             hareketli  mevsimsel  ussel
-    hizli   (197)         0,98      0,93     0,84   <- model kazaniyor
-    orta    (273)         0,98      0,94     1,06
-    yavas  (1530)         0,77      0,52     1,49   <- model FELAKET
+    katman              kalem   hareketli  mevsimsel  croston   sba   ussel
+    hizli  (>=2/gun)      193      1,13       1,05      1,12    1,11   0,92
+    orta   (0,3-2)        276      1,06       1,09      1,05    1,03   1,14
+    yavas  (<0,3/gun)    1531      1,29       1,17      1,26    1,24   1,71
 
-Üssel düzleştirme yalnızca hızlı kalemlerde işe yarıyor; kataloğun %76'sını
-oluşturan yavaş kalemlerde naif tabandan **%49 kötü**. Klasik üssel
-düzleştirme aralıklı talep için yanlış model ailesi (simülatörün kendisi de
-o kalemler için ayrı bir "aralıklı talep" süreci kullanıyor).
+Üssel düzleştirme yalnızca hızlı kalemlerde tabanı geçiyor; yavaş kalemlerde
+naif tabandan %71 kötü. Klasik üssel düzleştirme aralıklı talep için yanlış
+model ailesi (simülatörün kendisi de o kalemler için ayrı bir "aralıklı
+talep" süreci kullanıyor) — `aralikli.py` bu yüzden yazıldı.
+
+⚠️ **Adım 1-2'de belgelenen tablo (yavaş katmanda mevsimsel 0,52) bu kodla
+yeniden üretilemedi.** Değişiklik öncesi koda dönülüp aynı altkümede
+koşuldu; sayılar bit bit yukarıdaki gibi çıktı. Yani fark `aralikli.py`'den
+gelmiyor: o tablo depoya girmemiş bir taslak koddan alınmış. Eski tablo
+kaynak olarak kullanılmamalı; geçerli sayılar bunlar.
 
 Sonuç: **tek bir model seçilemez.** Kalem bazında seçim gerekiyor ve seçimin
 ölçütü talep hızı. Bu ayrımı gizleyen bir rapor, üretim kararlarını
 kataloğun dörtte üçünde bilerek kötü bir tahmine bağlardı.
+"""
+
+
+TOPLAM_UYARISI = """
+⚠️ GÜNLÜK MASE, ARALIKLI TALEPTE YANLIŞ SORUYU ÖLÇÜYOR.
+
+Çoğu günü sıfır olan bir seride gün gün mutlak hatayı en küçük yapan tahmin
+**sıfırdır**. Kalem iki haftada bir 5 adet satıyorsa "her gün 0" tahmini 13
+günde tam isabet eder, bir günde 5 sapar; "her gün 0,36" tahmini ise HER gün
+sapar. Günlük MASE birinciyi ödüllendirir — ama üretim emri "her gün sıfır
+üret" diyemez.
+
+Üretim emri kuralı `toplam()` ve `toplam_bandi()` okuyor: "önümüzdeki 14 günde
+ne kadar satılacak, en kötü senaryoda ne kadar". Sıfır tahmini o soruda
+%100 sapar. Bu yüzden aşağıdaki ikinci tablo var; aralıklı kalemlerde karar
+dayanağı **odur**, günlük MASE değil.
+
+Bant kapsama oranı da burada: bandın işi belirsizliği taşımak. %90 hedefle
+kurulmuş bir bant %50 tutuyorsa emniyet payı sistematik olarak az seçilir.
+
+Ölçülen (2026-08-11, ufuk 14 gün) — ufuk toplamındaki bağıl hata:
+
+    yontem              hizli   orta   yavas
+    sba                  0,18   0,56    1,46   <- her katmanda en iyi
+    croston              0,19   0,57    1,48
+    hareketli_ortalama   0,21   0,63    1,64
+    mevsimsel_naif       0,21   0,69    1,62
+    ussel_duzlestirme    0,30   1,02    2,15
+
+Günlük MASE tablosunda mevsimsel naif yavaş katmanda öndeyken, üretim
+emrinin okuduğu sayıda SBA %10 daha iyi. İki ölçüt farklı yöntemi seçiyor;
+karar dayanağı olan bu.
 """
 
 
@@ -217,6 +290,41 @@ def katman_adi(ort_talep: float) -> str:
         if alt <= ort_talep < ust:
             return ad
     return KATMANLAR[-1][0]
+
+
+def _toplam_raporu(sonuclar: dict[str, list[KalemSonucu]], basliklar: list[str]) -> None:
+    """Ufuk toplamı hatası ve bant kapsaması — katman kırılımlı.
+
+    ⚠️ Bu bölüm rapordan ÇIKARILAMAZ. Günlük MASE tablosu aralıklı kalemlerde
+    yanlış soruyu ölçüyor; sebebi `TOPLAM_UYARISI`'nda.
+    """
+    print("\n  UFUK TOPLAMI — bağıl hata (üretim emrinin okuduğu sayı)")
+    print("  " + "-" * 62)
+    print(f"  {'yöntem':<24}" + "".join(f"{b.split()[0]:>13}" for b in basliklar))
+    for ad, kayitlar in sorted(sonuclar.items()):
+        satir = f"  {ad:<24}"
+        for katman in basliklar:
+            ilgili = [
+                k.toplam_bagil_hata
+                for k in kayitlar
+                if k.toplam_bagil_hata is not None and katman_adi(k.ort_talep) == katman
+            ]
+            satir += f"{float(np.mean(ilgili)):>13.2f}" if ilgili else f"{'—':>13}"
+        print(satir)
+
+    print("\n  BANT KAPSAMA — gerçek toplam bandın içinde kalma oranı")
+    print("  " + "-" * 62)
+    print(f"  {'yöntem':<24}" + "".join(f"{b.split()[0]:>13}" for b in basliklar))
+    for ad, kayitlar in sorted(sonuclar.items()):
+        satir = f"  {ad:<24}"
+        for katman in basliklar:
+            ilgili = [
+                k.bant_kapsama
+                for k in kayitlar
+                if k.bant_kapsama is not None and katman_adi(k.ort_talep) == katman
+            ]
+            satir += f"{float(np.mean(ilgili)):>12.0%}" + " " if ilgili else f"{'—':>13}"
+        print(satir)
 
 
 def rapor(sonuclar: dict[str, list[KalemSonucu]], ufuk: int) -> dict[str, float]:
@@ -264,15 +372,22 @@ def rapor(sonuclar: dict[str, list[KalemSonucu]], ufuk: int) -> dict[str, float]
                 satir += f"{'—':>13}"
         print(satir)
 
-    print(f"\n  {'katman':<24}{'en iyi yöntem':<26}{'MASE':>8}")
-    print("  " + "-" * 60)
+    # Katman başına kalem sayısı: hangi katmanın kataloğu taşıdığını
+    # göstermeden "şu katmanda şu yöntem iyi" cümlesi eksik kalır.
+    ornek = next(iter(sonuclar.values()), [])
+    katman_adedi = {k: sum(1 for r in ornek if katman_adi(r.ort_talep) == k) for k in basliklar}
+
+    print(f"\n  {'katman':<24}{'kalem':>7}  {'en iyi yöntem':<24}{'MASE':>8}")
+    print("  " + "-" * 66)
     for katman in basliklar:
         adaylar = {a: d[katman] for a, d in katman_ozet.items() if katman in d}
         if not adaylar:
             continue
         en_iyi = min(adaylar, key=lambda a: adaylar[a])
         uyari = "" if adaylar[en_iyi] < 1.0 else "  ⚠️ hiçbiri tabanı geçemedi"
-        print(f"  {katman:<24}{en_iyi:<26}{adaylar[en_iyi]:>8.2f}{uyari}")
+        print(
+            f"  {katman:<24}{katman_adedi[katman]:>7}  {en_iyi:<24}{adaylar[en_iyi]:>8.2f}{uyari}"
+        )
 
     # Tek bir yöntem her katmanda kazanıyor mu? Kazanmıyorsa kalem bazında
     # seçim şart demektir ve bunu rapor açıkça söylemeli.
@@ -289,6 +404,8 @@ def rapor(sonuclar: dict[str, list[KalemSonucu]], ufuk: int) -> dict[str, float]
         print(f"     Katmanlara göre kazananlar: {', '.join(sorted(kazananlar))}")
         print("     Yani kalem bazında yöntem seçimi gerekiyor; tek model seçmek")
         print("     kataloğun bir kısmını bilerek kötü tahmine bağlar.")
+
+    _toplam_raporu(sonuclar, basliklar)
 
     print()
     if ozet:
