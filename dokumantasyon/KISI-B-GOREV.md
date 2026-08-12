@@ -924,51 +924,67 @@ girmezse model **hiç çağrılmaz** ve metin sessizce şablona düşer. Önce t
 
 ---
 
-# FAZ 13 — "Tam plan" · B paketi 🔴
+# FAZ 13 — "Tam plan" · B paketi
 
-> ⚠️ **Bu iş henüz TANIMLANMADI. Kod yazmadan önce Melih'le gereksinimi
-> netleştir.** Bu satırları yazan taraf (Claude) iki kez yanlış anladı ve
-> yanlış anladığı hâlini yazıya geçirmesin diye taslak kod **silindi**.
+> ✅ **Tanımlandı 2026-08-12.** Ortak plan:
+> [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md). Dört soru soruldu ve cevaplandı;
+> aşağıdakiler tahmin değil.
+>
+> ⚠️ Önceki üç okumada hata aynıydı: **örnek olarak verilen alan, işin konusu
+> sanıldı.** Teslim edilen şey bir alan değil, alanı bilmeyen bir mekanizma.
+> Nakliye ve yapı malzemesi örnektir. `if alan == "..."` yazdığın an bu fazın
+> iddiası çürür.
 
-## Bilinen
+## Kabul ölçütü — tek cümle
 
-Melih'in söylediği, olduğu gibi:
+Alan adını hiç bilmeyen bir komut iki farklı alanda plan üretiyor, üçüncü alan
+**tek JSON** ile ekleniyor.
 
-> "Ben tamamen plan oluştur diye bir şeye tıkladığımda o alanda genel plan
-> oluşturan bir şey istiyorum. Mesela nakliyat mı, o bölümde 'oluştur'
-> diyeceğim, o bana bütün sistemin planını oluşturacak."
+## Adım 0 — ORTAK, A ile birlikte, tek PR 🔴
 
-Ve düzeltmesi:
+`AtamaGerekcesi` ve `isler_kaynagi` dondurulur. Tek taraflı yapılmaz.
+Ayrıntı: [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) §Adım 0.
 
-> "Düğmeyi örnek verdim, illa böyle bir şey olmasına gerek yok, genel
-> anlamda örnek verdim."
+Bu bitmeden aşağıdakilere başlanmaz — ama bittikten sonra A'yı **beklemezsin**:
+`gerekce=None` ile çalışırsın, plan belgesi o bölümü atlar.
 
-Yani **düğme değil fikir**: tek bir şey söyleyince o alanın planının
-**tamamı** çıksın; parça parça değil.
+## B13.1 — `app/planlama/tam_plan.py` · alanı bilmeyen tek giriş 🔴
 
-## ⚠️ İki kez yanlış anlaşıldı — tekrarlamamak için
+```python
+def tam_plan(alan: str, olcut: str | None = None, ufuk_gun: int | None = None) -> TamPlan
+```
 
-1. İlk okuma: "üretim çizelgesi yapalım" sanıldı → çizelge yazıldı, istenen
-   o değildi.
-2. İkinci okuma: "üretim planının bölümlerini tek belgede toplayalım"
-   sanıldı → toplayıcı modül yazılmaya başlandı, yine "yine anlamadın"
-   cevabı geldi.
+Zinciri baştan sona koşturur: tanımı okur, adaptörü **tanımdan** bulur.
 
-Ortak hata: **istek her seferinde üretim planlamasının bir parçası gibi
-kurgulandı.** Oysa Melih'in tekrar tekrar söylediği şey şu ve hafızada da
-yazılı: *amaç alan-özel çözüm değil, genel bir karar mekanizması.*
+⚠️ İçinde alan adı geçen tek bir `if` bile olmayacak. Testte aranıyor.
 
-Muhtemel doğru okuma (DOĞRULANMADI): "plan oluştur", alanı bilmeyen bir
-komut olmalı — hangi alan verilirse onun planını çıkarmalı. Üretim bir
-örnek, nakliye başka bir örnek. Ama bu da bir tahmin.
+## B13.2 — Plan belgesi 🔴
 
-## Yapılacak
+Altı bölüm: gelecek tahmini · ne yapılacak · takvim · **gerekçeler** · plan
+seçenekleri ve parayla öneri · ⚠️ dikkat.
 
-**1. Önce sor.** Melih'e şunu sordur: "plan oluştur dediğinde ekranda ne
-görüyorsun, sistem sana ne veriyor?" Cevap alınmadan kod yazma.
+⚠️ **LLM'siz üretilebilir olmalı.** Faz 8'in dersi: tip
+`_TIPE_GORE_ALANLAR`'a girmezse model **hiç çağrılmaz**, metin sessizce
+şablona düşer ve kimse fark etmez. Önce test, sonra model.
 
-**2. Sonra planla.** Faz 11'deki gibi: ortak plan dosyası, sözleşme
-dondurma, iki kişilik ayrık sahiplik tablosu.
+## B13.3 — `POST /v1/plan/{alan}` 🔴
+
+Üretime özel uçların genel karşılığı. Mevcut uçlar **silinmez** (geriye
+uyumluluk), yeni uca yönlendirdikleri belgelenir.
+
+## B13.4 — Araç olarak ekle 🔴
+
+`app/llm/araclar.py`'ye `tam_plan`. Araç sayısı 7 → 8.
+
+## B13.5 — Ölçüm 🔴
+
+`router_taban`, **aynı donmuş 30 soruluk set**, `--etiket faz13-tur1`.
+
+⚠️ **Faz 12'nin süreç hatası tekrarlanmayacak:** orada araç eklemekle model
+sürümü aynı anda değişti ve iyileşme ikisine de bağlanamadı. Bu turda **model
+sürümü sabit.** Değişmesi gerekirse ayrı koşu.
+
+Beklenti: araç eklemek mevcut **%86,7'yi düşürmemeli.** Yükselmesi hedef değil.
 
 ## Elde hazır olanlar (yeniden yazma)
 
@@ -978,9 +994,14 @@ dondurma, iki kişilik ayrık sahiplik tablosu.
 | plan ölçütleri | `app/planlama/olcut.py` |
 | JSON alan tanımı okuyucu | `app/planlama/tanim.py` |
 | maliyet + karne + öneri | `app/planlama/maliyet.py`, `karsilastir.py` |
+| tahmin çekirdeği (girdisi düz geçmiş — genel) | `app/forecast/` |
 | üretim adaptörü | `app/domain/production/cizelge.py` |
-| MRP | `app/domain/production/mrp.py` |
 | araç çalıştırma (LLM'siz) | `app/llm/araclar.py` |
+| işletme profili | `app/core/isletme_profili.py`, `profiller/*.json` |
 
-Yani parçalar var; eksik olan **onları birleştiren doğru kavram** ve o
-kavram henüz netleşmedi.
+## Bu fazda yapılmayacak
+
+Sevkiyat simülatörü (~1 hafta) **plandan çıkarıldı** — bir alanı
+zenginleştirmek genel mekanizmaya hiçbir şey katmıyor. Coğrafi rota, kurulum
+sihirbazı, müşteri ERP aktarımı da kapsam dışı. Gerekçeler:
+[FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) §Kapsam dışı.

@@ -845,3 +845,60 @@ API ucu yok.
 
 **Bitti sayılır:** JSON'dan plan çıkıyor ve testte üretimle **aynı
 fonksiyonun** çağrıldığı doğrulanıyor. Çağrılmıyorsa "genel" iddiası düşer.
+
+---
+
+# FAZ 13 — "Tam plan" · A paketi
+
+> ✅ **Tanımlandı 2026-08-12.** Ortak plan:
+> [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md).
+>
+> ⚠️ Teslim edilen şey bir alan değil, alanı bilmeyen bir mekanizma. Nakliye
+> ve yapı malzemesi **örnektir**.
+
+## Adım 0 — ORTAK, B ile birlikte, tek PR 🔴
+
+`AtamaGerekcesi` ve `isler_kaynagi` dondurulur. Tek taraflı yapılmaz.
+
+## A13.1 — Gerekçeli yerleştirme 🔴
+
+`yerlestirme.py` her atama için `AtamaGerekcesi` doldurur: seçilen kaynak,
+aday kaynaklar, elenme nedenleri, belirleyici etken.
+
+Bilgi **zaten algoritmanın içinden geçiyor** — uygunluk süzgeci aday listesini
+biliyor, kapasite kontrolü elenme nedenini biliyor. Şu an atılıyor.
+
+⚠️ **Gerekçe veri, metin değil.** Serbest metin test edilemez ve LLM'in
+uydurmasına açık olur.
+
+⚠️ **Determinizm.** Faz 11'de sıralamada rastgele UUID vardı; aynı hata
+kapasite modülünde de bulundu. Gerekçe yeni bir sıralama noktası açıyor —
+`test_ayni_girdi_ayni_plan` gerekçeleri de karşılaştırmalı.
+
+## A13.2 — Alan adaptörleri 🔴
+
+`app/domain/production/adapter.py` · `app/domain/logistics/adapter.py`.
+İkisi **aynı imzayı** taşır. Genellik iddiasını taşıyan dosyalar bunlar.
+
+| `isler_kaynagi` | nerede kanıtlanıyor | neden orada |
+|---|---|---|
+| `tahmin` | üretim | 3 yıllık geçmişi var |
+| `elle` | nakliye | geçmişi yok — komutun alanı bilmediğini kanıtlayan yer |
+| `alan:<ad>` | üretim → nakliye | bir alanın çıktısı başka alanın girdisi |
+
+⚠️ `app/forecast/` **yeniden yazılmayacak, yeniden adlandırılmayacak** (donmuş
+sözleşme). `croston(gecmis, ...)` girdisi düz liste — zaten genel. Adlandırma
+stok kokuyor; çeviriyi adaptör üstlenir.
+
+## A13.3 — Üçüncü alan tanımı 🔴
+
+`ornekler/` altına **tek JSON**, kod değişikliği **sıfır**. Demo değil; "yeni
+müşteriye kolay satılır" iddiasının tek kanıtı.
+
+⚠️ Alan bilinçli olarak üretimden ve nakliyeden **uzak** seçilir (ör. vardiya /
+personel çizelgesi). Yakın alan kapıyı geçirir, hiçbir şey kanıtlamaz.
+
+## Bu fazda `simulator/`'a dokunulmuyor
+
+Sevkiyat simülatörü (~1 hafta) plandan **çıkarıldı**. Mevcut üretim geçmişi
+yeterli; yeni veri üretmek genel mekanizmayı kanıtlamıyor.
