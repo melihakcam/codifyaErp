@@ -779,3 +779,69 @@ bağladığı için en sona.
 3. `app/forecast/contracts.py::TalepTahmini` alanları üretim kuralına yetiyor
    mu? Eksik bir şey varsa **şimdi** söyle; dondurduktan sonra değiştirmek
    ikimizi de kırar.
+
+---
+
+# FAZ 11 — Genel planlama motoru · A paketi
+
+> Tam plan: `dokumantasyon/FAZ-11-GENEL-PLANLAMA.md`
+> ⚠️ **Adım 0 (sözleşme dondurma) bitmeden kod yazılmaz.** Bittikten sonra
+> B'yi hiç beklemezsin — onun işlerinin hiçbiri `plan_kur()` çağırmıyor.
+
+## Sahiplik tablosu (çakışma önleme)
+
+| Sende | Bende (B) |
+|---|---|
+| `app/planlama/yerlestirme.py` | `app/planlama/maliyet.py` |
+| `app/planlama/olcut.py` | `app/planlama/karsilastir.py` |
+| `app/planlama/tanim.py` | `app/api/decisions.py` |
+| `app/domain/production/cizelge.py` | `app/core/isletme_profili.py` |
+| `ornekler/nakliye.json` | `app/llm/explain.py` |
+
+⚠️ `app/planlama/contracts.py` **ortak ve donmuş** — tek taraflı değişmez.
+
+## A11.1 — `yerlestirme.py` · genel yerleştirme 🔴
+
+`plan_kur(isler, kaynaklar, olcut, ufuk_gun, baslangic)`. Açgözlü: ölçüte
+göre sırala, kaynak dolunca ertesi güne.
+
+- `kaynak_id` boşsa `uygun_kaynaklar`'dan **en boş olana** ata
+- `bolunebilir=False` iş bir güne sığmazsa hiç yerleştirilmez
+- ufka sığmayan `sigmayanlar`'a düşer, sessizce kaybolmaz
+
+⚠️ Eşitlik **`is_id`** ile kırılacak. Bugün `cizelge.py` ve `kapasite.py`'de
+`karar_id` (rastgele UUID) kullanıldı ve aynı girdi iki farklı plan üretti.
+
+**Bitti sayılır:** aynı girdi iki koşuda bit bit aynı plan; atama, bölünemez
+iş, ufuk taşması testli.
+
+## A11.2 — `olcut.py` · "iyi plan" tanımları 🔴
+
+`en_acil`, `en_cok_is`, `en_degerli`. Her ölçüt `Is` → sayı (küçük = önce).
+Yeni ölçüt = bir satır.
+
+**Bitti sayılır:** ölçüt değişince plan sırası değişiyor, testi var.
+
+## A11.3 — `tanim.py` · alan tanımı okuyucu 🔴
+
+JSON → `Kaynak` + `Is`. "Yeni alan = bir dosya, kod yok" iddiasının
+taşıyıcısı. ⚠️ Eksik alan **yükleme anında** patlasın.
+
+## A11.4 — Üretimi motora taşı 🔴
+
+`cizelge.py` ince adaptöre dönüşür. `kapasite.py`'deki `kapsama_gun` ortak
+kalır — iki ayrı öncelik tanımı sistemi kendi içinde çelişkiye sokar.
+
+**Bitti sayılır:** `tests/test_uretim.py`'deki 9 çizelge testi
+**değiştirilmeden** yeşil. Değiştirmek gerekiyorsa davranış kaymıştır.
+
+## A11.5 — Nakliye · genelliğin asıl kanıtı 🔴
+
+`ornekler/nakliye.json` — araçlar, sevkiyatlar, bazıları birden çok araca
+uygun. **Tek satır alan kodu yok.**
+
+⚠️ Nakliye ürün kapsamında değil: karar tipi, `contracts.py` değişikliği,
+API ucu yok.
+
+**Bitti sayılır:** JSON'dan plan çıkıyor ve testte üretimle **aynı
+fonksiyonun** çağrıldığı doğrulanıyor. Çağrılmıyorsa "genel" iddiası düşer.

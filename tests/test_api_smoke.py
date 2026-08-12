@@ -75,9 +75,44 @@ def test_karar_endpointi_gerekce_istenince_metin_doner(istemci: TestClient):
 
 
 def test_shadow_modda_karar_uygulanmaz(istemci: TestClient):
-    """Varsayılan AUTONOMY_LEVEL=shadow olduğu için uygulandi False olmalı."""
-    govde = istemci.post("/v1/decisions/stock/reorder-review").json()
+    """Shadow modda karar üretilir, kaydedilir, UYGULANMAZ.
+
+    ⚠️ Otonomi seviyesi **testte sabitleniyor**, `.env`'den okunmuyor.
+
+    Faz 11'de `.env` `advisory`'ye alındı (otonomi yolu: önce öneri, sonra
+    eşikli, giderek tam otomatik) ve bu test kırıldı — çünkü ortamdan gelen
+    bir ayara bağlıydı. Shadow davranışını sınayan bir testin shadow modunu
+    kendisi kurması gerekir; ortam değiştiğinde kırılan test, davranışı
+    değil kurulumu ölçüyordu.
+    """
+    from app.contracts import OtonomiSeviyesi
+
+    app.dependency_overrides[ayarlar] = lambda: Ayarlar(autonomy_level=OtonomiSeviyesi.SHADOW)
+    try:
+        govde = istemci.post("/v1/decisions/stock/reorder-review").json()
+    finally:
+        del app.dependency_overrides[ayarlar]
+
     assert govde["politika"]["otonomi_seviyesi"] == "shadow"
+    assert govde["politika"]["uygulandi"] is False
+
+
+def test_ONERI_modunda_da_karar_uygulanmaz(istemci: TestClient):
+    """⭐ Bugünkü canlı ayar `advisory` — sistem öneriyor, uygulamıyor.
+
+    Otonomi yolu: şimdi öneri → sonra eşikli (küçükleri kendi uygular) →
+    giderek tam otomatik. Bu test yolun **birinci basamağını** koruyor:
+    advisory'de hiçbir karar uygulanmamalı.
+    """
+    from app.contracts import OtonomiSeviyesi
+
+    app.dependency_overrides[ayarlar] = lambda: Ayarlar(autonomy_level=OtonomiSeviyesi.ADVISORY)
+    try:
+        govde = istemci.post("/v1/decisions/stock/reorder-review").json()
+    finally:
+        del app.dependency_overrides[ayarlar]
+
+    assert govde["politika"]["otonomi_seviyesi"] == "advisory"
     assert govde["politika"]["uygulandi"] is False
 
 
@@ -103,9 +138,7 @@ def test_llm_erisilemezken_karar_endpointi_500_vermez(istemci: TestClient):
     assert gerekce["model_adi"] is None
 
 
-def test_karar_gerekceden_ONCE_kaliciya_yaziliyor(
-    istemci: TestClient, api_oturumu, monkeypatch
-):
+def test_karar_gerekceden_ONCE_kaliciya_yaziliyor(istemci: TestClient, api_oturumu, monkeypatch):
     """⭐ Gerekçe üretimi kararı riske atmamalı.
 
     Sıra ters olsaydı (önce LLM, sonra kayıt) 6 saniyelik üretim penceresinde

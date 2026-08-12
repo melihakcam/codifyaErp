@@ -75,8 +75,25 @@ def test_belirli_musteri_secilebiliyor(istemci: TestClient):
 
 
 def test_karar_shadow_modda_uygulanmiyor(istemci: TestClient):
-    """`AUTONOMY_LEVEL=shadow` — karar üretilir, kaydedilir, uygulanmaz."""
-    govde = istemci.post("/v1/decisions/finance/collection-review").json()
+    """Shadow modda karar üretilir, kaydedilir, uygulanmaz.
+
+    ⚠️ Otonomi seviyesi **testte sabitleniyor**, `.env`'den okunmuyor.
+
+    Faz 11'de `.env` `advisory`'ye alındı (otonomi yolu: önce öneri, sonra
+    eşikli, giderek tam otomatik) ve bu test kırıldı — çünkü ortamdan gelen
+    bir ayara bağlıydı. Shadow davranışını sınayan bir testin shadow modunu
+    kendisi kurması gerekir; ortam değiştiğinde kırılan test, davranışı
+    değil kurulumu ölçüyordu.
+    """
+    from app.contracts import OtonomiSeviyesi
+    from app.core.config import Ayarlar, ayarlar
+    from app.main import app
+
+    app.dependency_overrides[ayarlar] = lambda: Ayarlar(autonomy_level=OtonomiSeviyesi.SHADOW)
+    try:
+        govde = istemci.post("/v1/decisions/finance/collection-review").json()
+    finally:
+        del app.dependency_overrides[ayarlar]
 
     for kalem in govde:
         assert kalem["politika"]["uygulandi"] is False

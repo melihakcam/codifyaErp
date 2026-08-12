@@ -33,6 +33,7 @@ from app.contracts import (
 from app.core.audit import denetim_yaz, karari_kaydet
 from app.core.config import Ayarlar, ayarlar
 from app.core.db import OturumDep
+from app.core.isletme_profili import profil
 from app.core.policy import esikleri_yukle, politika_uygula
 from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret
 from app.domain.production.decide import uretim_kararlari_uret
@@ -40,6 +41,7 @@ from app.domain.stock.decide import stok_karari_uret
 from app.llm.client import OllamaIstemcisi
 from app.llm.explain import gerekce_uret
 from app.models import Approval
+from app.planlama.olcut import OLCUT_ACIKLAMALARI, OLCUTLER, VARSAYILAN_OLCUT
 
 router = APIRouter(prefix="/v1/decisions", tags=["kararlar"])
 
@@ -280,7 +282,16 @@ def uretim_emri_degerlendir(
     "/production/schedule",
     summary="Üretim çizelgesi (hangi iş, hangi hatta, hangi gün)",
 )
-def uretim_cizelgesi(ayar: AyarDep) -> dict:
+def uretim_cizelgesi(
+    ayar: AyarDep,
+    olcut: Annotated[
+        str,
+        Query(
+            description="Plan ölçütü: en_acil (varsayılan), en_cok_is, en_degerli. "
+            "'İyi plan' tanımı işe göre değişir; ölçüt onu seçiyor."
+        ),
+    ] = VARSAYILAN_OLCUT,
+) -> dict:
     """Açılması önerilen emirleri hat ve güne dizer.
 
     ## ⚠️ Bu uç KARAR ÜRETMİYOR
@@ -303,7 +314,14 @@ def uretim_cizelgesi(ayar: AyarDep) -> dict:
     from app.domain.production.decide import uretim_kararlari_uret
 
     emirler = [k for k in uretim_kararlari_uret() if k.tip.value == "uretim.emir_ac"]
-    cizelgeler = cizelge_kur(emirler)
+    try:
+        cizelgeler = cizelge_kur(emirler, olcut=olcut)
+    except KeyError as hata:
+        # ⚠️ Bilinmeyen ölçüt sessizce varsayılana düşmüyor: kullanıcı
+        # istediği ölçütü aldığını sanmamalı.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(hata)
+        ) from hata
 
     return {
         "hatlar": [
@@ -334,4 +352,65 @@ def uretim_cizelgesi(ayar: AyarDep) -> dict:
             }
             for h in cizelgeler
         ]
+    }
+
+
+@router.get(
+    "/production/schedule/compare",
+    summary="Üretim planı seçenekleri — karne ve gerekçeli öneri",
+)
+def uretim_plani_karsilastir(ayar: AyarDep) -> dict:
+    """Aynı emirlerden birkaç plan üretir, farkı sayıyla gösterir, birini önerir.
+
+    ## ⚠️ Sistem "en iyi planı" bilmiyor
+
+    "En iyi" işe göre değişir: bugün stoksuz kalmamak önemliyken yarın hattı
+    boş bırakmamak önemli olabilir. Bu uç tek bir plan dayatmıyor; aynı
+    veriden üç plan çıkarıp aralarındaki farkı **parayla** koyuyor.
+
+    Önerilen plan en düşük beklenen maliyetli olan. ⚠️ Maliyet bir **tahmin**
+    ve varsayımları cevabın içinde (`varsayimlar`) — tek bir sayıya
+    indirgeyip tabloyu gizlemek, bu projede beş kez yaşanan "sayı tek başına
+    yalan söyler" hatasının tekrarı olurdu.
+
+    Karar yine kullanıcıda: öneri bir işaret, dayatma değil.
+    """
+    _kapali_mi(ayar)
+    from app.domain.production.cizelge import emirleri_ise_cevir
+    from app.planlama.karsilastir import planlari_karsilastir
+    from app.planlama.yerlestirme import plan_kur
+
+    emirler = [k for k in uretim_kararlari_uret() if k.tip.value == "uretim.emir_ac"]
+    isler, kaynaklar = emirleri_ise_cevir(emirler)
+    if not isler:
+        return {"karneler": [], "onerilen": None, "gerekce": "Planlanacak emir yok."}
+
+    ufuk = profil().uretim.planlama_ufku_gun
+    karsilastirma = planlari_karsilastir(
+        {ad: plan_kur(isler, kaynaklar, ad, ufuk_gun=ufuk) for ad in OLCUTLER},
+        OLCUT_ACIKLAMALARI,
+    )
+
+    return {
+        "karneler": [
+            {
+                "olcut": k.olcut,
+                "aciklama": k.aciklama,
+                "yerlesen_is": k.maliyet.yerlesen_is,
+                "ufka_sigmayan": k.maliyet.sigmayan_is,
+                "karsilanamayan_deger_tl": k.maliyet.karsilanamayan_deger_tl,
+                "kaynak_dolulugu": round(k.doluluk, 3),
+                "maliyet": {
+                    "stoksuzluk_tl": k.maliyet.stoksuzluk_tl,
+                    "elde_tutma_tl": k.maliyet.elde_tutma_tl,
+                    "kurulum_tl": k.maliyet.kurulum_tl,
+                    "toplam_tl": round(k.maliyet.toplam_tl, 2),
+                },
+            }
+            for k in karsilastirma.karneler
+        ],
+        "onerilen": karsilastirma.onerilen_olcut,
+        "gerekce": karsilastirma.oneri_gerekcesi,
+        # ⚠️ Varsayımlar cevabın parçası, dipnot değil.
+        "varsayimlar": list(karsilastirma.karneler[0].maliyet.varsayimlar),
     }

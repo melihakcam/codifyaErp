@@ -929,3 +929,40 @@ def test_cizelge_ucu_KARAR_YAZMIYOR(istemci):
 
     istemci.get("/v1/decisions/production/schedule")
     assert sayi() == onceki
+
+
+def test_cizelge_ucu_OLCUT_parametresi_aliyor(istemci):
+    """⭐ "İyi plan" tanımı çağıranın seçimi; varsayılan bugünkü davranış."""
+    varsayilan = istemci.get("/v1/decisions/production/schedule")
+    degerli = istemci.get("/v1/decisions/production/schedule?olcut=en_degerli")
+
+    assert varsayilan.status_code == 200
+    assert degerli.status_code == 200
+
+    def ilk_isler(cevap):
+        return [h["isler"][0]["kalem_id"] for h in cevap.json()["hatlar"] if h["isler"]]
+
+    assert ilk_isler(varsayilan) != ilk_isler(degerli), "olcut plani degistirmiyor"
+
+
+def test_cizelge_ucu_bilinmeyen_olcutte_422(istemci):
+    """⚠️ Yazım hatası sessizce varsayılana düşmemeli."""
+    cevap = istemci.get("/v1/decisions/production/schedule?olcut=en_hizli")
+    assert cevap.status_code == 422
+
+
+def test_karsilastirma_ucu_KARNE_ve_oneri_donuyor(istemci):
+    """⭐ Kullanıcının istediği: birkaç plan, farkı görünür, biri önerili."""
+    cevap = istemci.get("/v1/decisions/production/schedule/compare")
+
+    assert cevap.status_code == 200
+    govde = cevap.json()
+
+    assert len(govde["karneler"]) >= 2, "tek plan karsilastirma degildir"
+    assert govde["onerilen"] in {k["olcut"] for k in govde["karneler"]}
+    assert "TL" in govde["gerekce"], "oneri parayla gerekcelendirilmeli"
+    # ⚠️ Varsayımlar cevabın parçası olmalı; öneri onları gizlememeli.
+    assert govde["varsayimlar"]
+
+    karne = govde["karneler"][0]
+    assert {"stoksuzluk_tl", "elde_tutma_tl", "kurulum_tl"} <= set(karne["maliyet"])

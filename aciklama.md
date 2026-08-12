@@ -3235,3 +3235,103 @@ ve o kapı bilerek kapalı — projenin kendi kuralı: *shadow modda ölçülmü
 doğruluk raporu olmadan threshold'a geçilmez.*
 
 Ve bütün bu sayılar simülasyondan. Gerçek ölçüt üç CSV'nin gelmesi.
+
+---
+
+## Genel planlama motoru — ve "genel" kelimesinin bedeli
+
+Amaç en baştan beri alan-özel çözümler değil, **genel bir karar
+mekanizması**. Kural motoru bu sınavı bir kez geçmişti: aynı iskelet stok,
+finans ve üretime yeniden yazılmadan taşındı.
+
+Planlama tarafında sınav verilmemişti. Çizelge üretimin içindeydi ve "hat",
+"emir", "parti" kelimeleriyle konuşuyordu — ikinci bir alan gelse
+kopyalanması gerekirdi.
+
+### Motor alan kelimelerinden arındırıldı
+
+```
+hat / arac / kisi / makine        ->  Kaynak
+uretim emri / sevkiyat / vardiya  ->  Is
+saat / km / adam-saat             ->  kapasite birimi
+```
+
+Motor "üretim" diye bir şey bilmiyor. Sıralıyor, yerleştiriyor, güne
+taşıyor. Aciliyetin **anlamı** alana ait; motor yalnızca sırayı biliyor.
+
+### Genellik nasıl kanıtlandı
+
+İki şeyle. Birincisi: üretim çizelgesi motora taşındıktan sonra **mevcut 9
+test değiştirilmeden geçti**. Değiştirmek gerekseydi davranış kaymış olurdu.
+
+İkincisi ve asıl olan: ikinci bir alan eklendi ve **tek satır kod
+yazılmadı** — sadece bir JSON dosyası. Motor araçları kendi dağıttı,
+uygunluk kısıtına uydu, bölünemez işi güne yaymadı.
+
+Bir test bunu bağlıyor: iki alan da `plan_kur`'u çağırmazsa test kırılıyor.
+Tek kullanıcısı olan bir "genel" motor genel değil, yalnızca soyutlanmıştır.
+
+⚠️ `ornekler/nakliye.json` bir **ürün özelliği değil, test verisi**. Karar
+tipi yok, API ucu yok, ekran yok. Adları da bilinçli olarak soyut ("Araç 1",
+"Teslimat A") — gerçek bir işletme temsil etmiyor.
+
+### "İyi plan" artık tarif edilebilir
+
+Sistem "en iyi planı" bilmiyor ve bilemez: en iyi işe göre değişir. Bunun
+yerine aynı veriden üç plan çıkarıp farkı **parayla** koyuyor. Gerçek üretim
+verisinde:
+
+```
+                  "en acil önce"  "en çok iş bitir"  "en değerli önce"
+yerleşen iş             92              95                 94
+ufka sığmayan            7               4                  5
+karşılanamayan    28.258 TL       16.642 TL           3.854 TL
+
+· stoksuzluk      70.645 TL       41.604 TL           9.634 TL
+· elde tutma       8.863 TL        6.988 TL           9.297 TL
+· kurulum         23.000 TL       23.750 TL          23.500 TL
+BEKLENEN MALİYET 102.509 TL       72.342 TL          42.431 TL
+
+→ "en değerli önce" öneriliyor: 29.912 TL düşük.
+```
+
+Öneri "bence" değil: maliyet bileşenleri işletme profilinde zaten tanımlı
+(stok tükenmesi ceza çarpanı 2,5; elde tutma %25; kurulum 250 TL).
+
+⚠️ Ve maliyet bir **tahmin**. Üç varsayıma dayanıyor ve üçü de tablonun
+altında basılıyor. Tek bir sayıya indirgeyip tabloyu gizlemek, bu projede
+beş kez yaşanan hatanın yeni bir biçimi olurdu. Mutlak değeri değil,
+planlar arasındaki **fark** anlamlı.
+
+### Çizelge hâlâ karar değil
+
+Motor karar üretmiyor, `DecisionCandidate` kurmuyor, DB'ye yazmıyor. Girdisi
+zaten onaylanabilir kararlar; yaptığı tek şey onları zamana dizmek. Onay
+modeli kalem bazında kalıyor.
+
+Bir test bu sınırı koruyor: çizelge kaynağında `DecisionCandidate(` geçerse
+kırılıyor.
+
+### Testin yakaladığı iki gerçek hata
+
+**1. Sıralamada rastgele UUID.** Eşitlik `karar_id` ile kırılıyordu ve o
+alan her karar üretiminde yeniden atanıyor. Aynı fabrika durumu iki kez
+hesaplandığında **farklı plan** çıkıyordu — "sistem neden fikir değiştirdi"
+sorusunun cevabı "değiştirmedi, zar attı" olurdu. Kapasite modülünde de aynı
+hata vardı ve oradaki test göremiyordu, çünkü aynı listeyi iki kez
+veriyordu.
+
+**2. Doluluk hesabı ufku saymıyordu.** %535 doluluk çıkıyordu: yük 14 gün
+boyunca birikirken kapasite günlüktü. Sözleşmenin bilmesi gereken bir şeyi
+(ufuk) çağıran tarafta yeniden hesaplamak tam olarak böyle hatalar üretir.
+
+### Otonomi bir basamak ilerledi
+
+`.env` artık `advisory`: sistem karar üretiyor, gerekçesini yazıyor,
+**hiçbir şeyi uygulamıyor**. Yol belli — önce öneri, sonra küçükleri kendi
+uygular, giderek tam otomatik. Kademe atlamanın tek kapısı ölçüm.
+
+⚠️ Bu değişiklik iki testi kırdı ve ikisi de haklı olarak kırıldı: ortamdan
+gelen bir ayara bağlıydılar. Shadow davranışını sınayan test shadow modunu
+kendisi kurmalı; ortam değişince kırılan test davranışı değil kurulumu
+ölçüyordu.

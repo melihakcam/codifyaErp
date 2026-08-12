@@ -1,6 +1,6 @@
-"""Üretim çizelgesi — hangi emir, hangi hatta, hangi gün.
+"""Üretim çizelgesi — genel planlama motorunun üretim adaptörü.
 
-Sahip: Kişi A · Faz 10 · Adım 7
+Sahip: Kişi A · Faz 10 Adım 7 → Faz 11 A11.4
 
 ## ⚠️ Çizelge bir KARAR DEĞİL, kararların takvime dizilmiş hâli
 
@@ -8,49 +8,62 @@ Adım 4'te çizelge kurmamanın gerekçesi şuydu: otonomi modeli kalem bazında
 insan onayına dayanıyor ve tek bir çizelgeyi onaylamak, içindeki yüzlerce
 örtük kararı görmeden onaylamak olurdu.
 
-O gerekçe hâlâ geçerli — ve bu modül onu **bozmuyor**. Buradaki çizelge yeni
-bir `KararTipi` üretmiyor, hiçbir şeyi onaya sunmuyor. Girdisi zaten üretilmiş
-`uretim.emir_ac` kararları; yaptığı tek şey onları zaman eksenine yerleştirmek.
-
-    karar katmani   : "bu urunden 1500 adet uret"        <- onaylanabilir
-    cizelge katmani : "1500 adetlik emir Pzt 08:00'de"   <- turetilmis gorunum
-
-Bir emir reddedilirse çizelgeden düşer ve kalanlar yeniden dizilir. Çizelgeyi
-onaylamak diye bir şey yok, çünkü çizelgede onaylanacak bir şey yok.
+O gerekçe hâlâ geçerli ve bu modül onu **bozmuyor**. Yeni bir `KararTipi`
+üretilmiyor, hiçbir şey onaya sunulmuyor. Girdisi zaten üretilmiş
+`uretim.emir_ac` kararları; yapılan tek şey onları zaman eksenine koymak.
 
 ⚠️ **Bu ayrım korunmalı.** Çizelgeye "şu işi öne al" gibi bir düğme
-eklendiği gün, çizelge karar üretmeye başlar ve onay modeli sessizce
-delinir. O noktada `KararTipi.URETIM_CIZELGE_DEGISIKLIGI` gibi bir tip ve
-kendi onay yolu gerekir.
+eklendiği gün çizelge karar üretmeye başlar ve onay modeli sessizce delinir.
+O noktada `KararTipi.URETIM_CIZELGE_DEGISIKLIGI` gibi bir tip ve kendi onay
+yolu gerekir.
 
-## Sıralama: en acil önce
+## Faz 11: yerleştirme mantığı buradan çıktı
 
-Ölçüt yine kapsama günü — eldeki mal kaç gün yeter (`kapasite.py` ile aynı,
-ters yönde). Kapasite kararı "en az acili ertele" diyordu; çizelge "en acili
-öne al" diyor. İkisi aynı ölçütün iki yüzü ve bilinçli olarak aynı
-fonksiyondan besleniyor: iki ayrı öncelik tanımı olsaydı sistem kendi
-içinde çelişirdi.
+Bu dosya artık **ince bir adaptör**. Yerleştirme, sıralama, gün taşırma ve
+tekrarlanabilirlik `app/planlama/` içinde ve orası alan kelimesi kullanmıyor.
+Burada kalan tek iş çeviri:
 
-⚠️ Bu **optimizasyon değil**, açgözlü (greedy) bir yerleştirme. Hazırlık
-sürelerini toplamayı, benzer ürünleri yan yana koymayı, teslim tarihlerine
-göre geriye planlamayı denemiyor. Gerçek bir çizelgeleyici bunları yapar ve
-bunu yapmadığımız yazılı olsun: burada üretilen çizelge "makul", "en iyi"
-değil.
+    uretim.emir_ac karari  ->  Is     (yuk = hat yuku saat)
+    hat                    ->  Kaynak (gunluk kapasite x hedef kullanim)
+    kapsama gunu           ->  oncelik
+
+Taşımanın kanıtı testlerde: `tests/test_uretim.py`'deki çizelge testleri
+**değiştirilmeden** geçiyor. Değiştirmek gerekseydi davranış kaymış olurdu.
+
+## Sıralama ölçütü kapasite kararıyla aynı
+
+`kapasite.py` "en az acili ertele" diyor, çizelge "en acili öne al". İkisi
+aynı ölçütün (`kapsama_gun`) iki yüzü ve bilinçli olarak aynı fonksiyondan
+besleniyor: iki ayrı öncelik tanımı sistemi kendi içinde çelişkiye sokardı.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
 from app.contracts import DecisionCandidate, KararTipi, UretimOzellikleri
 from app.core.isletme_profili import UretimProfili, profil
 from app.domain.production.kapasite import kapsama_gun
+from app.planlama.contracts import Is, Kaynak, KaynakPlani, PlanSatiri
+from app.planlama.olcut import VARSAYILAN_OLCUT
+from app.planlama.yerlestirme import plan_kur
+
+# Etiket anahtarları: motorun taşıdığı ama bakmadığı alan bilgisi.
+ETIKET_KALEM = "kalem_id"
+ETIKET_MIKTAR = "miktar"
+ETIKET_TUTAR = "tutar"
+ETIKET_KARAR = "karar_id"
 
 
 @dataclass(frozen=True)
 class CizelgeSatiri:
-    """Bir emrin çizelgedeki yeri."""
+    """Bir emrin çizelgedeki yeri — üretim diliyle.
+
+    ⚠️ `PlanSatiri`'nin üzerine ince bir görünüm. Alan tarafının "kalem",
+    "hat", "miktar" demeye devam etmesi için var; motor bu kelimeleri
+    bilmiyor ve bilmemeli.
+    """
 
     kalem_id: str
     kalem_adi: str
@@ -60,13 +73,27 @@ class CizelgeSatiri:
     baslangic: date
     bitis: date
     yuk_saat: float
-    # Emrin sırasını belirleyen sayı — "neden bu iş önce" sorusunun cevabı.
     kapsama_gun: float
     karar_id: str
 
     @property
     def gun_sayisi(self) -> int:
         return (self.bitis - self.baslangic).days + 1
+
+    @classmethod
+    def plandan(cls, satir: PlanSatiri) -> CizelgeSatiri:
+        return cls(
+            kalem_id=satir.etiketler.get(ETIKET_KALEM, satir.is_id),
+            kalem_adi=satir.ad,
+            hat_id=satir.kaynak_id,
+            hat_adi=satir.kaynak_adi,
+            miktar=int(float(satir.etiketler.get(ETIKET_MIKTAR, 0))),
+            baslangic=satir.baslangic,
+            bitis=satir.bitis,
+            yuk_saat=round(satir.yuk, 2),
+            kapsama_gun=round(satir.oncelik, 1),
+            karar_id=satir.etiketler.get(ETIKET_KARAR, ""),
+        )
 
 
 @dataclass(frozen=True)
@@ -86,142 +113,108 @@ class HatCizelgesi:
     def toplam_yuk_saat(self) -> float:
         return sum(s.yuk_saat for s in self.satirlar)
 
+    @classmethod
+    def plandan(cls, plan: KaynakPlani) -> HatCizelgesi:
+        return cls(
+            hat_id=plan.kaynak_id,
+            hat_adi=plan.kaynak_adi,
+            satirlar=tuple(CizelgeSatiri.plandan(s) for s in plan.satirlar),
+            gunluk_kapasite_saat=plan.gunluk_kapasite,
+            sigmayanlar=tuple(CizelgeSatiri.plandan(s) for s in plan.sigmayanlar),
+        )
 
-def _emir_satiri(karar: DecisionCandidate) -> tuple[UretimOzellikleri, int, float] | None:
-    ozellik = karar.ozellikler
-    if karar.tip is not KararTipi.URETIM_EMIR_AC:
-        return None
-    if not isinstance(ozellik, UretimOzellikleri):
-        return None
-    miktar = int(karar.aksiyon.get("emir_miktari") or 0)
-    yuk = float(karar.aksiyon.get("hat_yuku_saat") or 0.0)
-    if miktar <= 0 or yuk <= 0:
-        return None
-    return ozellik, miktar, yuk
+
+def emirleri_ise_cevir(emirler: list[DecisionCandidate]) -> tuple[list[Is], list[Kaynak]]:
+    """`uretim.emir_ac` kararları → genel motorun anladığı iş ve kaynaklar.
+
+    Adaptörün tamamı burada. Emir dışındaki karar tipleri atlanıyor: aksiyon
+    yok kararının hatta yükü yok, dolayısıyla çizelgede yeri de yok.
+
+    ⚠️ İş kimliği `karar_id` DEĞİL `kalem_id`. `karar_id` her karar
+    üretiminde yeniden atanan rastgele bir UUID; motor eşitliği `is_id` ile
+    kırdığı için onu kimlik yapmak aynı girdiye farklı plan üretirdi. Bu
+    hata bir kez yapıldı ve tekrarlanabilirlik testi yakaladı.
+    """
+    isler: list[Is] = []
+    kaynaklar: dict[str, Kaynak] = {}
+    p = profil().uretim
+
+    for karar in emirler:
+        ozellik = karar.ozellikler
+        if karar.tip is not KararTipi.URETIM_EMIR_AC:
+            continue
+        if not isinstance(ozellik, UretimOzellikleri):
+            continue
+
+        miktar = int(karar.aksiyon.get("emir_miktari") or 0)
+        yuk = float(karar.aksiyon.get("hat_yuku_saat") or 0.0)
+        if miktar <= 0 or yuk <= 0:
+            continue
+
+        kaynaklar.setdefault(
+            ozellik.hat_id,
+            Kaynak(
+                kaynak_id=ozellik.hat_id,
+                ad=ozellik.hat_adi,
+                # Hedef kullanım oranı burada çarpan: %100 dolu bir hat, tek
+                # gecikmede tüm planı kaydırır (`kapasite.py` ile aynı gerekçe).
+                gunluk_kapasite=ozellik.hat_gunluk_kapasite_saat * p.hedef_kapasite_kullanimi,
+                kapasite_birimi="saat",
+            ),
+        )
+        isler.append(
+            Is(
+                is_id=ozellik.kalem_id,
+                ad=ozellik.kalem_adi,
+                yuk=yuk,
+                oncelik=min(kapsama_gun(ozellik), 9999.0),
+                kaynak_id=ozellik.hat_id,
+                etiketler={
+                    ETIKET_KALEM: ozellik.kalem_id,
+                    ETIKET_MIKTAR: str(miktar),
+                    ETIKET_TUTAR: str(karar.tahmini_tutar_tl),
+                    ETIKET_KARAR: str(karar.karar_id),
+                },
+            )
+        )
+
+    return isler, list(kaynaklar.values())
 
 
 def cizelge_kur(
     emirler: list[DecisionCandidate],
     baslangic: date | None = None,
     uretim_profili: UretimProfili | None = None,
+    olcut: str = VARSAYILAN_OLCUT,
 ) -> list[HatCizelgesi]:
-    """Emirleri hat hat, gün gün yerleştirir.
+    """Emirleri hat ve güne dizer — genel motoru çağırır.
 
-    Her hat kendi takvimine sahip: hatlar paralel çalışıyor, bir hattaki
-    doluluk diğerini geciktirmiyor.
-
-    Yerleştirme günlük kapasiteye göre: bir emir bir güne sığmıyorsa ertesi
-    güne taşıyor (bölünebilir iş varsayımı). ⚠️ Gerçek fabrikada her iş
-    bölünemez — fırın bir kez yakılır, parti bitene kadar durmaz. Bölünmez
-    işler için bu yerleştirme iyimser kalır ve gerçek çizelgeleyici
-    geldiğinde ilk düzeltilecek varsayım budur.
+    `olcut` ile "iyi plan" tanımı değiştirilebiliyor
+    (`app/planlama/olcut.py`). Varsayılan `en_acil`, yani bugünkü davranış;
+    varsayılanı değiştirmek hiçbir şey istemeyen çağıranın planını sessizce
+    değiştirirdi.
     """
     p = uretim_profili or profil().uretim
-    ilk_gun = baslangic or date.today()
+    isler, kaynaklar = emirleri_ise_cevir(emirler)
+    if not isler:
+        return []
 
-    hatlar: dict[str, list[tuple[UretimOzellikleri, int, float, str]]] = {}
-    for karar in emirler:
-        cozum = _emir_satiri(karar)
-        if cozum is None:
-            continue
-        ozellik, miktar, yuk = cozum
-        hatlar.setdefault(ozellik.hat_id, []).append((ozellik, miktar, yuk, str(karar.karar_id)))
-
-    return [
-        _tek_hat_cizelgesi(hat_id, isler, ilk_gun, p) for hat_id, isler in sorted(hatlar.items())
-    ]
-
-
-def _tek_hat_cizelgesi(
-    hat_id: str,
-    isler: list[tuple[UretimOzellikleri, int, float, str]],
-    ilk_gun: date,
-    p: UretimProfili,
-) -> HatCizelgesi:
-    ornek = isler[0][0]
-    gunluk = ornek.hat_gunluk_kapasite_saat * p.hedef_kapasite_kullanimi
-
-    # En acil önce. Eşitlik `kalem_id` ile kırılıyor.
-    #
-    # ⚠️ Önce `karar_id` kullanılıyordu ve testi kırdı: `karar_id` her karar
-    # üretiminde yeniden atanan rastgele bir UUID. Aynı fabrika durumu iki
-    # kez hesaplandığında çizelge farklı çıkıyordu — "sistem neden fikir
-    # değiştirdi" sorusunun cevabı "değiştirmedi, zar attı" olurdu.
-    #
-    # Eşitliği kıran şey **iş anlamı taşıyan ve koşudan koşuya değişmeyen**
-    # bir alan olmak zorunda. `kalem_id` ikisini de sağlıyor.
-    sirali = sorted(isler, key=lambda i: (kapsama_gun(i[0]), i[0].kalem_id))
-
-    satirlar: list[CizelgeSatiri] = []
-    sigmayanlar: list[CizelgeSatiri] = []
-    gun_offset = 0
-    gun_kalan = gunluk
-
-    for ozellik, miktar, yuk, karar_id in sirali:
-        # Ufuk dışına taşan iş çizelgeye girmiyor — ama kaybolmuyor.
-        if gun_offset >= p.planlama_ufku_gun:
-            sigmayanlar.append(
-                _satir_kur(ozellik, miktar, yuk, ilk_gun, gun_offset, gun_offset, karar_id)
-            )
-            continue
-
-        bas_offset = gun_offset
-        kalan_yuk = yuk
-        while kalan_yuk > 0 and gun_offset < p.planlama_ufku_gun:
-            kullanilan = min(kalan_yuk, gun_kalan)
-            kalan_yuk -= kullanilan
-            gun_kalan -= kullanilan
-            if gun_kalan <= 0:
-                gun_offset += 1
-                gun_kalan = gunluk
-
-        bitis_offset = min(gun_offset, p.planlama_ufku_gun - 1)
-        satir = _satir_kur(ozellik, miktar, yuk, ilk_gun, bas_offset, bitis_offset, karar_id)
-        if kalan_yuk > 0:
-            # Ufuk bitti, iş yarım kaldı: çizelgeye koymak "yetişecek"
-            # demek olurdu.
-            sigmayanlar.append(satir)
-        else:
-            satirlar.append(satir)
-
-    return HatCizelgesi(
-        hat_id=hat_id,
-        hat_adi=ornek.hat_adi,
-        satirlar=tuple(satirlar),
-        gunluk_kapasite_saat=gunluk,
-        sigmayanlar=tuple(sigmayanlar),
+    planlar = plan_kur(
+        isler,
+        kaynaklar,
+        olcut=olcut,
+        ufuk_gun=p.planlama_ufku_gun,
+        baslangic=baslangic,
     )
-
-
-def _satir_kur(
-    ozellik: UretimOzellikleri,
-    miktar: int,
-    yuk: float,
-    ilk_gun: date,
-    bas_offset: int,
-    bitis_offset: int,
-    karar_id: str,
-) -> CizelgeSatiri:
-    return CizelgeSatiri(
-        kalem_id=ozellik.kalem_id,
-        kalem_adi=ozellik.kalem_adi,
-        hat_id=ozellik.hat_id,
-        hat_adi=ozellik.hat_adi,
-        miktar=miktar,
-        baslangic=ilk_gun + timedelta(days=bas_offset),
-        bitis=ilk_gun + timedelta(days=bitis_offset),
-        yuk_saat=round(yuk, 2),
-        kapsama_gun=round(min(kapsama_gun(ozellik), 9999.0), 1),
-        karar_id=karar_id,
-    )
+    return [HatCizelgesi.plandan(plan) for plan in planlar]
 
 
 def cizelge_metni(cizelgeler: list[HatCizelgesi]) -> str:
-    """Çizelgeyi insan okunur tabloya çevirir.
+    """Çizelgeyi insan okunur tabloya çevirir — üretim diliyle.
 
-    Ekran ve API sonradan gelir; önce çıktının doğru olduğu gözle
-    görülebilmeli. Bu projede birkaç kez yaşandı: sayı doğruydu ama neyi
-    ölçtüğü yanlıştı ve ancak basılınca fark edildi.
+    ⚠️ Genel motorun `plan_metni`'nden ayrı: orada "öncelik 3" yazıyor,
+    burada "stok 3g". Aynı sayı, ama üretim sorumlusunun okuduğu şey stok
+    kapsaması; genel motor o kelimeyi bilmiyor.
     """
     satirlar: list[str] = []
     for hat in cizelgeler:
@@ -248,4 +241,10 @@ def cizelge_metni(cizelgeler: list[HatCizelgesi]) -> str:
     return "\n".join(satirlar)
 
 
-__all__ = ["CizelgeSatiri", "HatCizelgesi", "cizelge_kur", "cizelge_metni"]
+__all__ = [
+    "CizelgeSatiri",
+    "HatCizelgesi",
+    "cizelge_kur",
+    "cizelge_metni",
+    "emirleri_ise_cevir",
+]

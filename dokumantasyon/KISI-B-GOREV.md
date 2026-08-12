@@ -859,3 +859,65 @@ olduğu gibi yapıştırılacak**, elle özetlenmeyecek.
 ile gelen hareket verisi.
 
 **Bitti sayılır:** aynı ölçüm gerçek veriyle koşuluyor ve iki sayı yan yana.
+
+---
+
+# FAZ 11 — Genel planlama motoru · B paketi
+
+> Tam plan: `dokumantasyon/FAZ-11-GENEL-PLANLAMA.md`
+> ⚠️ **Adım 0 (sözleşme dondurma) bitmeden kod yazılmaz.**
+
+## ⚠️ A'yı hiç beklemiyorsun
+
+Bu paketteki işlerin **hiçbiri `plan_kur()` çağırmıyor.** Maliyet, karne ve
+öneri girdi olarak `KaynakPlani` alıyor — yani donmuş sözleşmenin kendisini.
+Testlerini **elle kurduğun plan nesneleriyle** yazıyorsun; motor hiç koşmuyor.
+
+Motorla buluşma yalnızca en sonda, API ucunda ve o uç senin sahanda: tek
+satırlık bir çağrı.
+
+Faz 10'da aynı disiplin uygulandı — B tahmin çekirdeğini yazarken A üretim
+kuralını yazdı, ikisi `TalepTahmini` dışında hiç temas etmedi.
+
+## Sahiplik tablosu
+
+| Sende | A'da |
+|---|---|
+| `app/planlama/maliyet.py` | `app/planlama/yerlestirme.py` |
+| `app/planlama/karsilastir.py` | `app/planlama/olcut.py` |
+| `app/api/decisions.py` — plan uçları | `app/planlama/tanim.py` |
+| `app/core/isletme_profili.py` | `app/domain/production/cizelge.py` |
+| `app/llm/explain.py` | `ornekler/nakliye.json` |
+
+## B11.1 — `maliyet.py` · planın beklenen maliyeti 🔴
+
+`plan_maliyeti(plan: KaynakPlani, ...) -> MaliyetKirilimi`. Bileşenler
+profilde zaten var: `stoktukenmesi_ceza_carpani` (2,5),
+`yillik_elde_tutma_orani` (0,25), `siparis_maliyeti_tl` (250).
+
+⚠️ Maliyet bir **tahmin**. Varsayımları çıktının yanında yazılı olacak; tek
+sayıya indirgeyip tabloyu gizlemek "sayı tek başına yalan söyler" hatasının
+tekrarı olurdu.
+
+**Bitti sayılır:** iki elle kurulmuş plan için fark elle doğrulanabiliyor;
+kırılım (stoksuzluk / elde tutma / kurulum) ayrı görünüyor.
+
+## B11.2 — `karsilastir.py` · karne ve gerekçeli öneri 🔴
+
+Üç plan yan yana, önerilen **parayla** işaretli: *"B'yi öneriyorum: beklenen
+maliyeti A'dan 90.000 TL düşük."*
+
+⚠️ Tablo daima basılacak; öneri onu gizlemeyecek.
+⚠️ Öğrenen öneri kapsam dışı — geçmiş veri yok, açıklanabilirlik bozulur.
+
+## B11.3 — Servis uçları 🔴
+
+- `GET .../schedule?olcut=en_acil` (varsayılan = bugünkü davranış)
+- `GET .../schedule/compare` — üç plan + karne + öneri
+
+⚠️ İkisi de `GET`, DB'ye yazmıyor. Çizelge karar değil, kararların görünümü.
+
+## B11.4 — Plan özeti metni 🟡
+
+`explain.py`'ye Türkçe özet. ⚠️ Faz 8'in dersi: tip `_TIPE_GORE_ALANLAR`'a
+girmezse model **hiç çağrılmaz** ve metin sessizce şablona düşer. Önce test.
