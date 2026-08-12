@@ -800,7 +800,7 @@ bağladığı için en sona.
 
 ⚠️ `app/planlama/contracts.py` **ortak ve donmuş** — tek taraflı değişmez.
 
-## A11.1 — `yerlestirme.py` · genel yerleştirme 🔴
+## ✅ A11.1 — `yerlestirme.py` · genel yerleştirme — BİTTİ (`1636c8d`)
 
 `plan_kur(isler, kaynaklar, olcut, ufuk_gun, baslangic)`. Açgözlü: ölçüte
 göre sırala, kaynak dolunca ertesi güne.
@@ -815,19 +815,19 @@ göre sırala, kaynak dolunca ertesi güne.
 **Bitti sayılır:** aynı girdi iki koşuda bit bit aynı plan; atama, bölünemez
 iş, ufuk taşması testli.
 
-## A11.2 — `olcut.py` · "iyi plan" tanımları 🔴
+## ✅ A11.2 — `olcut.py` · "iyi plan" tanımları — BİTTİ (`1636c8d`)
 
 `en_acil`, `en_cok_is`, `en_degerli`. Her ölçüt `Is` → sayı (küçük = önce).
 Yeni ölçüt = bir satır.
 
 **Bitti sayılır:** ölçüt değişince plan sırası değişiyor, testi var.
 
-## A11.3 — `tanim.py` · alan tanımı okuyucu 🔴
+## ✅ A11.3 — `tanim.py` · alan tanımı okuyucu — BİTTİ (`1636c8d`)
 
 JSON → `Kaynak` + `Is`. "Yeni alan = bir dosya, kod yok" iddiasının
 taşıyıcısı. ⚠️ Eksik alan **yükleme anında** patlasın.
 
-## A11.4 — Üretimi motora taşı 🔴
+## ✅ A11.4 — Üretimi motora taşı — BİTTİ (`1636c8d`, 9 çizelge testi değişmeden geçti)
 
 `cizelge.py` ince adaptöre dönüşür. `kapasite.py`'deki `kapsama_gun` ortak
 kalır — iki ayrı öncelik tanımı sistemi kendi içinde çelişkiye sokar.
@@ -835,7 +835,7 @@ kalır — iki ayrı öncelik tanımı sistemi kendi içinde çelişkiye sokar.
 **Bitti sayılır:** `tests/test_uretim.py`'deki 9 çizelge testi
 **değiştirilmeden** yeşil. Değiştirmek gerekiyorsa davranış kaymıştır.
 
-## A11.5 — Nakliye · genelliğin asıl kanıtı 🔴
+## ✅ A11.5 — Nakliye · genelliğin asıl kanıtı — BİTTİ (`1636c8d`, `ornekler/nakliye.json`)
 
 `ornekler/nakliye.json` — araçlar, sevkiyatlar, bazıları birden çok araca
 uygun. **Tek satır alan kodu yok.**

@@ -128,6 +128,42 @@ Kalıp artık kurulu. Her yeni alan için aynı 5 adım:
 
 ---
 
+## Gerçekleşen — Faz 6'dan sonrası (2026-08-12'de hizalandı)
+
+Yukarıdaki takvim Faz 6'da yazıldı ve orada donmuş kaldı. Gerçekte yapılanlar,
+commit'lerden okunarak:
+
+| Faz | Ne oldu | İz |
+|-----|---------|-----|
+| **6** ✅ | Finans & Tahsilat — kalıp stoktan taşındı, dört sızıntı + bir güvenlik açığı bulundu | `f9081f5`…`49fef19` |
+| **7** ✅ | Finansın para metriği (sonuç **olumsuz**), kimlik doğrulama, karar kolları ortogonal | `6b5a7bb`…`c897d92` |
+| **9** ✅ | İşletme profili — müşteriye özel sayılar koddan çıktı (`profiller/*.json`) | `7231f7c`, `6a07598` |
+| **10** ✅ | Üretim & Planlama — talep tahmini, emir kararı, kapasite, MRP, gecelik koşu, çizelge | `3ba8f5b`…`6a5067e` |
+| **11** ✅ | Genel planlama motoru (`app/planlama/`); ikinci alan **kod yazılmadan** eklendi | `1636c8d` |
+| **12** ✅ | Genel arayüz — `/v1/ask` artık cevabın kendisini veriyor, sadece yönlendirmiyor | `ed4b4dd` |
+| **13** 🔴 | "Tam plan" — **tanımlanmadı.** Bkz. [KISI-B-GOREV.md](KISI-B-GOREV.md) sonu | — |
+
+**Plandan üç sapma, bilinçli olarak kaydedilmiştir:**
+
+1. **Satış & Fiyatlama atlandı.** Önerilen sıra Finans → Satış → Üretim'di;
+   Üretim öne alındı. Satış alanı hiç yapılmadı.
+2. **Faz 8 numarası kullanılmadı** (görev dosyalarında "Faz 8'in dersi" diye
+   geçen not Faz 7 sonrası iş bölümüne aittir).
+3. **Faz 12'nin plan dosyası yok.** Faz 10 ve 11'in var. Faz 12'nin tek yazılı
+   izi `OLCUMLER.md` §Faz 12 ve commit mesajı.
+
+⚠️ **Başarı metrikleri tablosu güncel değil.** Router hedefi *> %95 tam
+eşleşme*; Faz 12'de ölçülen **araç %86,7 · tam doğruluk %80,0**
+(`training/eval/router_sonuc_faz12-tur6.json`). Hedef 15 puan uzakta ve araç
+seçimi 7 araçla sınırlı.
+
+⚠️ **Motor genel, API yüzeyi değil.** `app/planlama/` alandan bağımsız çalışıyor
+ama servis uçları hâlâ üretime özel (`uretim_cizelgesi`,
+`uretim_plani_karsilastir`). Nakliye motorda koşuyor, dışarıdan çağrılamıyor.
+Faz 13'ün çözmesi gereken boşluk budur.
+
+---
+
 ## Paylaşılan Google Drive düzeni
 
 Faz 3'te ikinizin buluştuğu yer. **Bir kişi oluşturur, diğerine paylaşır.**

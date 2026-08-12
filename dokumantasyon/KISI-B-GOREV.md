@@ -889,7 +889,7 @@ kuralını yazdı, ikisi `TalepTahmini` dışında hiç temas etmedi.
 | `app/core/isletme_profili.py` | `app/domain/production/cizelge.py` |
 | `app/llm/explain.py` | `ornekler/nakliye.json` |
 
-## B11.1 — `maliyet.py` · planın beklenen maliyeti 🔴
+## ✅ B11.1 — `maliyet.py` · planın beklenen maliyeti — BİTTİ (`1636c8d`)
 
 `plan_maliyeti(plan: KaynakPlani, ...) -> MaliyetKirilimi`. Bileşenler
 profilde zaten var: `stoktukenmesi_ceza_carpani` (2,5),
@@ -902,7 +902,7 @@ tekrarı olurdu.
 **Bitti sayılır:** iki elle kurulmuş plan için fark elle doğrulanabiliyor;
 kırılım (stoksuzluk / elde tutma / kurulum) ayrı görünüyor.
 
-## B11.2 — `karsilastir.py` · karne ve gerekçeli öneri 🔴
+## ✅ B11.2 — `karsilastir.py` · karne ve gerekçeli öneri — BİTTİ (`1636c8d`)
 
 Üç plan yan yana, önerilen **parayla** işaretli: *"B'yi öneriyorum: beklenen
 maliyeti A'dan 90.000 TL düşük."*
@@ -910,7 +910,7 @@ maliyeti A'dan 90.000 TL düşük."*
 ⚠️ Tablo daima basılacak; öneri onu gizlemeyecek.
 ⚠️ Öğrenen öneri kapsam dışı — geçmiş veri yok, açıklanabilirlik bozulur.
 
-## B11.3 — Servis uçları 🔴
+## ✅ B11.3 — Servis uçları — BİTTİ (`1636c8d`; ⚠️ uçlar hâlâ ÜRETİME ÖZEL, bkz. Faz 13)
 
 - `GET .../schedule?olcut=en_acil` (varsayılan = bugünkü davranış)
 - `GET .../schedule/compare` — üç plan + karne + öneri
