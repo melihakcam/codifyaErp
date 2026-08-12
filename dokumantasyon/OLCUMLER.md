@@ -2981,3 +2981,69 @@ yanlış karar verilirdi.
 İlk deneme koşusu: duyarlılık 1,00 — **ama sipariş önerisi oranı da 1,00**.
 Yani sayı iyiliği değil ayrımsızlığı gösteriyordu. İki sayı birlikte
 okunmalı.
+
+---
+
+## Faz 12 · Genel arayüz — araç eklemenin ölçülmüş sınırı (2026-08-12)
+
+Ölçüm: `uv run python -m training.eval.router_taban --etiket faz12-tur6`
+Ham sonuç: `training/eval/router_sonuc_faz12-tur6.json`
+Soru seti: `router_taban_sorulari.jsonl` — **30 soruda donmuş, değiştirilmedi**
+
+Üretim ve planlama araçları `AracAdi`'ye eklendi (4 yeni araç). Sorulan soru:
+mevcut araçlardaki doğruluk bozuldu mu?
+
+| Ölçüt | tur5 | faz12-tur6 |
+|---|---|---|
+| Araç doğru | %80,0 | **%86,7** |
+| Araç + parametre tam | %73,3 | **%80,0** |
+| Şema hatası | 2 | 2 |
+
+**Bozulma yok.** ⚠️ Ama iyileşmeyi araç eklemeye bağlamak **yanlış olur**:
+iki koşu arasında iki şey değişti (model tur5→tur6 ve araç listesi). Aynı
+30 soruyla tur6 taban çizgisi hiç alınmamıştı, dolayısıyla ikisi ayrıştırılamaz.
+Söylenebilecek tek şey: **araç eklemek mevcut doğruluğu düşürmedi.**
+
+### ⭐ Asıl bulgu: yeni araçlar eğitilmiş kipte ULAŞILAMAZ
+
+Model 30 sorunun hiçbirinde yeni araçlardan birini seçmedi:
+
+```
+modelin sectigi araclar: gecelik_ozet, genel_stok_durumu, kritik_stok,
+                         olu_stok, onay_kuyrugu, siparis_onerisi,
+                         tedarikci_performansi
+YENI araclardan secilen: HICBIRI
+```
+
+Bu bir kusur değil, mimarinin sonucu. Eğitilmiş kipte istem araç listesi
+**taşımıyor** (`router.py::egitilmis_istem` — 600 token yerine 20). Model
+yalnızca ağırlıklarına işlenmiş adları üretebiliyor ve üretim araçlarını
+eğitimde hiç görmedi.
+
+Sonuç sözleşmeye yazıldı: `schemas.py::EGITILMIS_ARAC_ADLARI`. İki küme
+artık ayrı ve testi var:
+
+    AracAdi                -> calistirilabilir araclarin tamami (11)
+    EGITILMIS_ARAC_ADLARI  -> modelin secebildikleri (7)
+
+⚠️ Bir aracı `AracAdi`'ye eklemek onu **çalıştırılabilir** yapar, modelin
+onu **seçebilir** olmasını sağlamaz. İkisini bir tutmak, "model bunu da
+seçer" yanılgısını doğurur.
+
+### Bunun pratik karşılığı
+
+Genel arayüzün iki yarısı var ve **güvenilirlikleri farklı**:
+
+| katman | nasıl çalışıyor | güvenilirlik |
+|---|---|---|
+| araç çalıştırma (`app/llm/araclar.py`) | araç adı → fonksiyon | deterministik, LLM'siz |
+| araç seçimi (router) | Türkçe soru → araç | %86,7 ve 7 araçla sınırlı |
+
+Yeni araçlara model üzerinden ulaşmak için iki yol var:
+
+1. `llm_istem_bicimi="taban"` — istem araç listesi taşıyor, hepsi
+   seçilebiliyor. ⚠️ Genel doğruluğu daha düşük (tur öncesi %70).
+2. Yeni bir eğitim turu — üretim/planlama soruları eğitim verisine girer.
+   ⚠️ Colab bağımlı ve tur 4-7 saat.
+
+Karar verilmedi; ölçüm önce yapıldı çünkü ölçüm ucuz, eğitim turu pahalı.

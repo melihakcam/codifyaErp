@@ -921,3 +921,66 @@ maliyeti A'dan 90.000 TL düşük."*
 
 `explain.py`'ye Türkçe özet. ⚠️ Faz 8'in dersi: tip `_TIPE_GORE_ALANLAR`'a
 girmezse model **hiç çağrılmaz** ve metin sessizce şablona düşer. Önce test.
+
+---
+
+# FAZ 13 — "Tam plan" · B paketi 🔴
+
+> ⚠️ **Bu iş henüz TANIMLANMADI. Kod yazmadan önce Melih'le gereksinimi
+> netleştir.** Bu satırları yazan taraf (Claude) iki kez yanlış anladı ve
+> yanlış anladığı hâlini yazıya geçirmesin diye taslak kod **silindi**.
+
+## Bilinen
+
+Melih'in söylediği, olduğu gibi:
+
+> "Ben tamamen plan oluştur diye bir şeye tıkladığımda o alanda genel plan
+> oluşturan bir şey istiyorum. Mesela nakliyat mı, o bölümde 'oluştur'
+> diyeceğim, o bana bütün sistemin planını oluşturacak."
+
+Ve düzeltmesi:
+
+> "Düğmeyi örnek verdim, illa böyle bir şey olmasına gerek yok, genel
+> anlamda örnek verdim."
+
+Yani **düğme değil fikir**: tek bir şey söyleyince o alanın planının
+**tamamı** çıksın; parça parça değil.
+
+## ⚠️ İki kez yanlış anlaşıldı — tekrarlamamak için
+
+1. İlk okuma: "üretim çizelgesi yapalım" sanıldı → çizelge yazıldı, istenen
+   o değildi.
+2. İkinci okuma: "üretim planının bölümlerini tek belgede toplayalım"
+   sanıldı → toplayıcı modül yazılmaya başlandı, yine "yine anlamadın"
+   cevabı geldi.
+
+Ortak hata: **istek her seferinde üretim planlamasının bir parçası gibi
+kurgulandı.** Oysa Melih'in tekrar tekrar söylediği şey şu ve hafızada da
+yazılı: *amaç alan-özel çözüm değil, genel bir karar mekanizması.*
+
+Muhtemel doğru okuma (DOĞRULANMADI): "plan oluştur", alanı bilmeyen bir
+komut olmalı — hangi alan verilirse onun planını çıkarmalı. Üretim bir
+örnek, nakliye başka bir örnek. Ama bu da bir tahmin.
+
+## Yapılacak
+
+**1. Önce sor.** Melih'e şunu sordur: "plan oluştur dediğinde ekranda ne
+görüyorsun, sistem sana ne veriyor?" Cevap alınmadan kod yazma.
+
+**2. Sonra planla.** Faz 11'deki gibi: ortak plan dosyası, sözleşme
+dondurma, iki kişilik ayrık sahiplik tablosu.
+
+## Elde hazır olanlar (yeniden yazma)
+
+| ne | nerede |
+|---|---|
+| genel yerleştirme (kaynak/iş) | `app/planlama/yerlestirme.py` |
+| plan ölçütleri | `app/planlama/olcut.py` |
+| JSON alan tanımı okuyucu | `app/planlama/tanim.py` |
+| maliyet + karne + öneri | `app/planlama/maliyet.py`, `karsilastir.py` |
+| üretim adaptörü | `app/domain/production/cizelge.py` |
+| MRP | `app/domain/production/mrp.py` |
+| araç çalıştırma (LLM'siz) | `app/llm/araclar.py` |
+
+Yani parçalar var; eksik olan **onları birleştiren doğru kavram** ve o
+kavram henüz netleşmedi.

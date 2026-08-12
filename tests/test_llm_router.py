@@ -267,13 +267,22 @@ def test_taban_soru_seti_dengeli_ve_gecerli():
     Yalnızca açık sorularla ölçmek sayıyı yanıltıcı yüksek gösterir ve LoRA
     sonrası iyileşmeyi göremeyiz.
     """
+    from app.llm.schemas import EGITILMIS_ARAC_ADLARI
     from training.eval.router_taban import kayitlari_yukle
 
     kayitlar = kayitlari_yukle()
-    gecerli_araclar = {a.value for a in AracAdi}
 
+    # ⚠️ Taban soru seti 30 soruda DONMUŞ ve dondurulmuş kalmalı: eğitim
+    # öncesi/sonrası karşılaştırmasının tek dayanağı o. Faz 12'de eklenen
+    # üretim araçları buraya EKLENMEDİ — eklenseydi yeni koşular kayıtlı
+    # taban çizgiyle (%70 · 21/30) kıyaslanamaz hale gelirdi.
+    #
+    # Yani bu set modelin SEÇEBİLDİĞİ araçları kapsıyor, çalıştırılabilenlerin
+    # tamamını değil.
     assert len(kayitlar) == 30
-    assert {k.beklenen_arac for k in kayitlar} == gecerli_araclar, "7 araç da temsil edilmeli"
+    assert {k.beklenen_arac for k in kayitlar} == {str(a) for a in EGITILMIS_ARAC_ADLARI}, (
+        "eğitilmiş araçların tamamı temsil edilmeli"
+    )
 
     stiller = {k.stil for k in kayitlar}
     assert {"acik", "dolayli", "gunluk"} <= stiller

@@ -40,6 +40,12 @@ ARAC_ACIKLAMALARI: dict[AracAdi, str] = {
     AracAdi.ONAY_KUYRUGU: "insan onayı bekleyen kararlar, onay kuyruğu",
     AracAdi.GECELIK_OZET: "gecelik taramanın bulguları, gece üretilen rapor",
     AracAdi.GENEL_STOK_DURUMU: "deponun/envanterin genel durumu, toplu özet",
+    # Faz 12 — üretim ve planlama. ⚠️ Bu açıklamalar YALNIZCA taban kipinde
+    # isteme giriyor; eğitilmiş kipte istem araç listesi taşımıyor.
+    AracAdi.URETIM_EMIRLERI: "ne üretilmeli, açılması gereken üretim emirleri",
+    AracAdi.URETIM_CIZELGESI: "hangi iş hangi hatta hangi gün üretilecek, üretim takvimi",
+    AracAdi.KAPASITE_DURUMU: "hatların doluluğu, kapasite yetiyor mu, hat dolu mu",
+    AracAdi.PLAN_KARSILASTIR: "plan seçenekleri, hangi plan daha iyi, alternatif planlar",
 }
 
 # Few-shot örnekleri bilinçli olarak DOLAYLI ifadelerden seçildi. B2.2 ön

@@ -966,3 +966,58 @@ def test_karsilastirma_ucu_KARNE_ve_oneri_donuyor(istemci):
 
     karne = govde["karneler"][0]
     assert {"stoksuzluk_tl", "elde_tutma_tl", "kurulum_tl"} <= set(karne["maliyet"])
+
+
+# --- Genel arayüz: araç çalıştırma (Faz 12) ----------------------------------
+
+
+def test_uretim_araclari_CALISTIRILABILIR():
+    """⭐ Genel arayüzün güvenilir yarısı: araç çalıştırma LLM'siz.
+
+    Model hata yapsa da bu katman doğru çalışır; model erişilemese bile araç
+    doğrudan çağrılabilir.
+    """
+    from app.llm.araclar import araci_calistir
+    from app.llm.schemas import AracAdi
+
+    emirler = araci_calistir(AracAdi.URETIM_EMIRLERI)
+    assert emirler["adet"] > 0
+    assert emirler["emirler"][0]["miktar"] > 0
+
+    kapasite = araci_calistir(AracAdi.KAPASITE_DURUMU)
+    assert kapasite["hatlar"]
+    assert all("doluluk" in h for h in kapasite["hatlar"])
+
+    plan = araci_calistir(AracAdi.PLAN_KARSILASTIR)
+    assert len(plan["karneler"]) >= 2
+    assert plan["varsayimlar"], "oneri varsayimlarini gizlememeli"
+
+
+def test_baglanmamis_arac_SESSIZCE_BOS_donmuyor():
+    """⚠️ "Sistem cevap veremiyor" ile "cevap yok" karıştırılmamalı."""
+    import pytest as _pytest
+
+    from app.llm.araclar import AracCalistirilamadi, araci_calistir
+    from app.llm.schemas import AracAdi
+
+    with _pytest.raises(AracCalistirilamadi, match="çalıştırılabilir değil"):
+        araci_calistir(AracAdi.ONAY_KUYRUGU)
+
+
+def test_EGITILMIS_arac_kumesi_CALISTIRILABILIRDEN_ayri():
+    """⭐ Faz 12'nin ölçülmüş sınırı.
+
+    Bir aracı `AracAdi`'ye eklemek onu ÇALIŞTIRILABİLİR yapar; modelin onu
+    SEÇEBİLMESİNİ sağlamaz. Eğitilmiş kipte istem araç listesi taşımıyor —
+    model yalnızca eğitimde gördüğü adları üretebiliyor.
+
+    İkisi bir tutulursa yeni bir araç "model bunu da seçer" sanılır.
+    """
+    from app.llm.schemas import EGITILMIS_ARAC_ADLARI, AracAdi
+
+    tumu = {a.value for a in AracAdi}
+    egitilmis = {str(a) for a in EGITILMIS_ARAC_ADLARI}
+
+    assert egitilmis < tumu, "iki kume ayni ise sinir kaybolmus demektir"
+    assert "uretim_emirleri_sorgula" in tumu
+    assert "uretim_emirleri_sorgula" not in egitilmis

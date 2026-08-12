@@ -3335,3 +3335,74 @@ uygular, giderek tam otomatik. Kademe atlamanın tek kapısı ölçüm.
 gelen bir ayara bağlıydılar. Shadow davranışını sınayan test shadow modunu
 kendisi kurmalı; ortam değişince kırılan test davranışı değil kurulumu
 ölçüyordu.
+
+---
+
+## Genel arayüz: sistem artık cevabın kendisini veriyor
+
+Bugüne kadar `/v1/ask` şunu yapıyordu: Türkçe soruyu alıp **"hangi araç"**
+diye cevap veriyordu. Aracı çalıştırmıyordu.
+
+Bu bilinçliydi — ölçülen şey "doğru aracı seçebiliyor muyuz" idi ve
+çalıştırmayı aynı adıma sıkıştırmak, yanlış yönlendirmeyi doğru sonucun
+arkasına gizlerdi. O ölçüm yapıldı. Eksik olan cevabın kendisiydi.
+
+### İki yarısı var ve güvenilirlikleri farklı
+
+```
+arac calistirma   araç adı → fonksiyon      DETERMINISTIK, LLM'siz
+arac secimi       Türkçe soru → araç        %86,7 ve 7 araçla sınırlı
+```
+
+Bu ayrım pratik: model hata yapsa da araç katmanı doğru çalışıyor, model
+erişilemese bile araç doğrudan çağrılabiliyor. İkisini aynı yere koymak,
+arayüzün tamamını modelin doğruluğuna bağlardı.
+
+Artık `POST /v1/ask?calistir=true` cevabın kendisini döndürüyor. Örneğin
+kapasite sorusu:
+
+```json
+{"erteleme_onerisi": 7,
+ "hatlar": [{"hat": "Montaj Hattı", "yuk_saat": 116.7,
+             "kapasite_saat": 95.2, "doluluk": 1.226}]}
+```
+
+⚠️ Çalıştırma **varsayılan değil**. Yanlış seçilmiş bir aracı koşturmak,
+kullanıcıya "anlamadım" demekten daha kötü: yanlış cevabı doğru gibi sunar.
+
+### Ölçüm bir tahmini doğruladı
+
+Üretim ve planlama araçlarını ekledim, sonra sordum: mevcut doğruluk bozuldu
+mu? **Bozulmadı** (%80 → %86,7). Ama iyileşmeyi buna bağlamak yanlış olurdu —
+aynı anda model de tur5'ten tur6'ya geçmişti ve ikisi ayrıştırılamaz. Bunu
+olduğu gibi yazdım.
+
+**Asıl bulgu başkaydı:** model 30 sorunun hiçbirinde yeni araçlardan birini
+seçmedi. Hiçbirinde.
+
+Sebebi mimaride: eğitilmiş kipte istem araç listesi **taşımıyor** (600 token
+yerine 20). Model yalnızca ağırlıklarına işlenmiş adları üretebiliyor ve
+üretim araçlarını eğitimde hiç görmedi.
+
+Yani bir aracı eklemek onu **çalıştırılabilir** yapıyor, modelin onu
+**seçebilir** olmasını sağlamıyor. İki küme artık sözleşmede ayrı:
+
+```
+AracAdi                -> calistirilabilir araclarin tamami (11)
+EGITILMIS_ARAC_ADLARI  -> modelin secebildikleri (7)
+```
+
+Ve testi var: ikisi eşitlenirse test kırılıyor. Çünkü eşitlendiği gün "model
+bunu da seçer" yanılgısı doğar.
+
+### Üç test kırıldı ve üçü de haklıydı
+
+Araçları eklediğimde üç test kırıldı. Hiçbirini "gevşetmedim":
+
+- İkisi `AracAdi`'nin Kişi A'nın eğitim verisiyle **birebir aynı** olmasını
+  bekliyordu. Artık doğru soru şu: eğitilmiş **alt küme** aynı mı? Öyle.
+- Biri ölçüm soru setinin tüm araçları kapsamasını istiyordu. Yeni araçlar
+  o sete **eklenmedi** — eklenseydi 30 soruluk taban çizgi bozulur ve yeni
+  koşular kayıtlı sayıyla (%70 · 21/30) kıyaslanamaz hale gelirdi.
+
+Testler kuralı korudu; ben kuralı inceltmek zorunda kaldım. Doğru sıra bu.
