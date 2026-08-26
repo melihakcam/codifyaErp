@@ -1321,10 +1321,16 @@ bölme, sızıntı yok, golden set 7/7 araç kapsıyor. **Yalnızca golden set'i
 nihai onayı** ("ikiniz birlikte 300-500 örneği elle gözden geçirin") hâlâ
 bekliyor — bu, tanım gereği tek başına kapatılamayan tek adım.
 
-**3. ⬜ Hâlâ açık — `decisions.py` hâlâ `decide_stub()` çağırıyor.** Merge
-sonrası kontrol edildi, gerçek `stok_karari_uret()`/`gerekce_uret()`'e geçiş
-henüz yapılmadı. Kişi B'nin kararı — muhtemelen Faz 3 (LoRA) tamamlanınca,
-gerçek üretilmiş model hazır olduğunda yapılması mantıklı.
+**3. ✅ Kapandı (2026-08-05) — `decisions.py` artık `decide_stub()` çağırmıyor.**
+Faz 3 (LoRA, `codifya-router:tur2`) tamamlanınca geçiş yapıldı:
+`app/api/decisions.py` → `stok_karari_uret()`/`gerekce_uret()`,
+`app/jobs/nightly.py::_cli()` → `_gercek_karar_ureteci`/`llm_gerekce_ureteci`.
+`gecelik_tarama()`'nın kendi varsayılanları (stub) testler için bilinçli
+olarak kaldı. `test_api_smoke.py`'deki iki test, sabit stub değerleri yerine
+gerçek (sabit seed'li) motor çıktısına göre güncellendi — LLM'in stokastik
+olduğu (sıcaklık > 0, sabit tohum yok) göz önünde bulundurularak yapısal
+kontrole geçildi. SP3 doğrulaması: guard kabul oranı taban model %0 →
+eğitilmiş model %25,7 (bkz. `dokumantasyon/OLCUMLER.md`).
 
 **4. ✅ Kapandı — A3.2'deki 7 araç listesi.** Kişi B gerçek router şemasını
 (`app/llm/schemas.py::AracAdi`) A3.2'nin geçici listesiyle **birebir aynı**
@@ -1393,3 +1399,2010 @@ Sonra <http://localhost:8000> → Swagger arayüzü açılır.
 | 2026-08-02 | **B:** B2.2 (yapılandırılmış çıktı), B2.3 (router + `/v1/ask`), B2.5 (guard, 41 test — Kişi A bağımsız doğruladı), B2.4 (gerçek gerekçe üretimi, 261 test — Kişi A bağımsız doğruladı), B2.6 ölçümü (2.000 SKU / 5,31 dk, karar-gerekçe arası 88x fark) tamamlandı. **Faz 2 kapandı.** |
 | 2026-08-02 | **A:** A3.5 sonrası — Kişi B'nin bulduğu router dengesizliği (3.808x→~143x), `sku_adi`→`sku_id` düzeltmesi, golden set yeniden dengelendi (2/7→7/7 araç) + `tedarikci_onayli=False` sentetik vaka eklendi. `StockFeatures`'ın 3 açık alanı kesinleştirildi. |
 | 2026-08-03 | **Ortak:** PR #2 (`faz2-llm`→`main`, 36 commit) her iki tarafın bağımsız doğrulamasından (yerel + GitHub Actions CI) geçip merge edildi (`6a50f7d8`). 6 eski branch güvenle silindi (`git merge-base --is-ancestor` ile tek tek doğrulanarak). `main` artık projenin tek gerçek kaynağı. Sırada: Kişi B'nin Faz 3'ü (LoRA eğitimi) ve golden set'in nihai ortak onayı. |
+| 2026-08-03 | **B:** Faz 3 basladi — B3.1 (Colab ortami, dort olcut Colab'da dogrulandi), B3.2 (100 ornekle boru hatti provasi, 4/4), B3.3 1. tur (15k ornek, ~56 dk, dogrulama kaybi 0,225→0,188, ezberleme yok). Guard'da kucuk sayi hatasi bulundu ve duzeltildi (siparis gerekcelerinin %16,9'u bosuna reddediliyordu). 1. tur router olcumu %70→%40 **dustu**; sebep veri seciminde bulundu (uc arac egitime hic girmemis) ve verinin eski kopya oldugu **A** tarafindan kanitlandi. |
+
+---
+---
+
+# FAZ 3 — LoRA EĞİTİMİ (Kişi B)
+
+Faz 2'de dil modelini **kullandık**. Faz 3'te onu **eğiteceğiz**.
+
+Neden gerek var: B2.4 ölçümünde gördük ki 1.5B taban model Türkçeyi kabaca
+yazıyor — devrik cümleler, zayıf fiiller. İstem düzelterek buraya kadar
+geldik, gerisi eğitimle düzelir. Melih'in ürettiği **40.293 gerekçe** ve
+**43.798 router sorusu** tam bunun için var.
+
+Eğitim **Colab'ın GPU'sunda** yapılacak, bilgisayara yük binmeyecek.
+
+## B3.1 · Colab ortamı (bitti ✅, Colab'da doğrulandı)
+
+`training/train_lora.ipynb` — Colab'da açılacak defter. Eğitim yapmıyor,
+eğitimin **koşabileceği ortamı kurup kanıtlıyor**.
+
+Ücretsiz Colab'ın üç kısıtı tasarımı belirliyor:
+
+| kısıt | sonucu |
+|---|---|
+| Tek T4 GPU | 55 bin örnek için 4-7 saat |
+| Oturum ~90 dk boşta, ~12 saatte kesin kopar | **Tek koşu büyük olasılıkla yarıda kesilir** |
+| `/content` uçucu | Oturum kapanınca dosyalar gider |
+
+Bu yüzden eğitim kaldığı yerden devam edebilen bir süreç olacak ve her şey
+Drive'da duracak.
+
+### Eğitime girmeden bulunan iki sorun
+
+Defteri yazarken veriye baktım ve ikisi de eğitimi çöpe atacak cinsten.
+
+**1. Ürün adı çelişkisi.** Melih'in eğitim verisindeki gerekçelerin
+**%100'ünde** ürün adı geçiyor. Ama B2.4'te istemden ürün adını **bilerek
+çıkarmıştım** — taban model adları bozuyordu ("Astar Boya" → *starboy*).
+
+Bu ikisi uyuşmak zorunda. İsteme ad koymayıp hedefte ad varsa, model *yoktan
+ad uydurmayı* öğrenir — "starboy" sorununu ağırlıklara işlemiş oluruz.
+
+**Karar: ad isteme konacak.** Böylece model adı *kopyalamayı* öğrenir. Taban
+model beceremiyordu çünkü hiç öğretilmemişti. B3.2'de 100 örnekle sınanacak —
+tam eğitimden önce, ucuz.
+
+**2. Guard eğitim verisinin %17'sini boşuna reddediyordu.**
+
+Bu bir hata ve düzeltildi. Ayrıntısı aşağıda.
+
+## Guard düzeltmesi — küçük sayılara haksızlık
+
+B2.5'te guard'a şu kuralı koymuştum: *"yazılan sayı gerçeğinden en fazla %2
+sapabilir."* Amaç `0,94 → "1"` gibi kaba yuvarlamaları kesmekti.
+
+Ama kural küçük sayılara haksızlık ediyor:
+
+```
+gercek   0,14444...
+yazilan  "0,14"        <- 2 ondalikta DOGRU yazim, kimse 0,14444 demez
+fark     %3,08         <- %2 sinirini asiyor
+sonuc    RED
+```
+
+Sayı küçüldükçe aynı yuvarlama yüzde olarak büyüyor. 1.000 TL'lik üründe %2
+tolerans 20 TL demek — makul. 0,14'lük değerde 0,003 demek — imkânsız.
+
+Etkisi ölçüldü:
+
+```
+stok.tasfiye        0/1059   %0,0
+stok.aksiyon_yok    0/3639   %0,0
+stok.siparis       51/ 302  %16,9   <- her alti siparis gerekcesinden biri
+```
+
+Sadece eğitim verisini değil **çalışma zamanını da** etkiliyordu: günlük talebi
+1'in altında olan her SKU'da gerekçe sessizce şablona düşüyordu. B2.4
+ölçümünde fark etmemiştim çünkü oradaki 10 ürünün değerleri şans eseri sınırın
+içinde kalmış.
+
+### Düzeltme
+
+Kurala bir istisna eklendi: **virgülden sonra 2 basamak yazılmışsa bağıl sınır
+aranmaz.** Kaç ondalık yazdığın, ne kadar hassas davrandığını ilan eder.
+`"0,14"` yazan iki basamak hassasiyet iddia ediyor; `"1"` yazan hiç.
+
+```
+"0,14"  ondalik 2  ->  KABUL   (duzeltme)
+"1"     ondalik 0  ->  RED     (eskisi gibi)
+"5"     ondalik 0  ->  RED     (eskisi gibi)
+```
+
+Asıl amaç korundu — `0,94 → "1"` ve `4,75 → "5"` hâlâ reddediliyor.
+
+Sonuç: **5.000 eğitim hedefinin 5.000'i geçiyor** (önce 4.949).
+
+3 yeni test. Toplam **274 test yeşil**.
+
+⚠️ Guard'ı Melih incelemiş ve onaylamıştı; bu değişiklik ona bildirilecek.
+
+### Colab'da koşturuldu — dört ölçüt de geçti
+
+```
+GECTI  GPU baglandi: Tesla T4          (14,6 GB VRAM)
+GECTI  Drive bagli: MyDrive/codifya
+GECTI  unsloth import edildi           (kurulum 37 sn)
+GECTI  veri/ okunabiliyor ve bicim dogru
+B3.1 TAMAM
+```
+
+Veri Drive'a yüklendi ve satır sayıları birebir doğrulandı: `gerekce_train`
+40.293, `router_train` 43.798. İstem/cevap biçimi de defterde gösterildi.
+
+Yol boyunca çıkan tek engel: Colab "çok fazla oturum var" dedi. Sabah açılan
+eski defter GPU'yu tutuyordu; oturumu sonlandırınca çözüldü. Ücretsiz Colab
+aynı anda tek GPU oturumuna izin veriyor — B3.3'te uzun eğitim koşarken bunu
+akılda tutmak gerek, ikinci bir defter açmak eğitimi düşürür.
+
+### Sırada
+
+- ⬜ B3.2 — 100 örnekle boru hattı provası (eğit → kaydet → merge → GGUF →
+  Ollama). Görev dosyası "bu adımı atlama" diyor: tam eğitim 4-7 saat sürüyor
+  ve 3. saatte çıkacak bir biçim hatası hem eğitimi hem Colab oturumunu yakar.
+
+## B3.2 · 100 örnekle boru hattı provası (bitti ✅)
+
+Görev dosyasının "atlanmaz" dediği adım. Amaç kalite değil, **hattın uçtan uca
+çalıştığını kanıtlamak**: yükle → eğit → kaydet → üret.
+
+```
+egitilen parametre   18,4 milyon / 1,56 milyar  =  %1,18
+kayip                0,77 -> 0,54 -> 0,43 -> 0,39   (duzenli dusuyor)
+egitim suresi        63 saniye
+LoRA boyutu          81,4 MB    (tam model 3 GB olurdu)
+olcutler             4/4 GECTI
+```
+
+Kayıp düzenli düşüyor — eğitim gerçekten oluyor. Boru hattı sağlam.
+
+### Ürün adı sınavı: cevap aldık sandık, almadık
+
+Üç örnekte de ürün adı **birebir doğru** kopyalandı. "starboy" yok. İlk bakışta
+B3.1'deki kararımız doğrulanmış görünüyor.
+
+**Ama üretilen metinler hedeflerle harfi harfine aynı çıktı.** Model o üç
+örneği ezberlemiş — 100 örnek, 30 adım ve 0,39 kayıpla beklenen şey bu.
+
+Yani cevapladığımız soru *"adı kopyalayabiliyor mu"* değil, *"ezberleyebiliyor
+mu"* idi. İkisi aynı şey değil.
+
+Doğru sınav modelin **hiç görmediği** örnekle yapılır. `gerekce_val.jsonl` tam
+bunun için ayrılmış; deftere o bölümü ekledim, B3.3'ün yanında koşacak.
+
+Bunu kaydetmeye değer çünkü **ölçüm yaparken en kolay düşülen tuzak bu:
+eğitim verisinden ölçmek.** B2.4'te de benzeri olmuştu — guard "7/10 geçti"
+demişti ama metinler istemin kopyasıydı. Sayı doğru, soru yanlış.
+
+### B3.3 için çıkan tahmin
+
+100 örnek 63 saniye sürdü. 40.293 örnek için kabaca **4-6 saat** — görev
+dosyasının 4-7 saat tahminiyle uyumlu. LoRA 81 MB olduğu için ara kayıtlar
+Drive'da rahat sığar.
+
+### Sırada
+
+- ⬜ B3.3 — tam LoRA eğitimi (40.293 örnek, 4-6 saat, kesintiye dayanıklı)
+
+## B3.3 · 1. tur eğitimi (bitti ✅)
+
+15.000 örnekle (7.500 gerekçe + 7.500 router) tek model eğitildi, **~56 dakika**.
+Ayrım `GOREV:` etiketiyle yapılıyor. Eğitilmiş adaptör Drive'da:
+`cikti/b33_tur1_lora/`.
+
+### Sonuç: ölçüt karşılandı
+
+```
+dogrulama kaybi   0,2250  ->  0,1878     dusup yataylasti
+egitim kaybi      0,2988  ->  0,1877
+```
+
+**Ezberleme yok.** Eğitim kaybı 0,1877, doğrulama 0,1888 — ikisi neredeyse aynı.
+Eğitim kaybı doğrulamanın belirgin altına inseydi ezberleme olurdu; burada aralık
+yok.
+
+### Ama iyileşme sertçe yavaşlıyor
+
+```
+ilk yari    (200 -> 1000)   0,2250 -> 0,1944    fark 0,0306
+ikinci yari (1000 -> 1875)  0,1944 -> 0,1888    fark 0,0056
+```
+
+İkinci yarı, benzer miktarda veriyle ilkinin **beşte birini** kazandırdı. Bu, 2.
+tur (35 bin örnek) için doğrudan bir uyarı: kayıp tarafında büyük kazanç
+beklenmemeli.
+
+### Kayıp yanlış soru olabilir
+
+`0,188` bize **router doğruluğunun** ne olduğunu söylemiyor. B2.3'te ölçtüğümüz
+taban çizgi araç doğruluğu **%70,0**, araç+parametre **%66,7** idi. Eğitimin işe
+yarayıp yaramadığı ancak aynı 30 soruluk set yeniden koşturulunca anlaşılır.
+
+Görev dosyası da 1. turun amacını böyle tanımlıyor: *"Tek oturumda biter. **Router
+doğruluğunu ölç.**"*
+
+**Karar: 2. tura geçmeden önce ölçüm yapılacak.** Eğitim ucuz değil (56 dakika);
+neyi kazandırdığını bilmeden ikincisini koşturmak körlemesine olur.
+
+### Sırada
+
+- ⬜ 1. tur ölçümü — 30 soruluk router seti + görülmemiş örnekte ürün adı
+- ⬜ Ölçüme göre karar: 2. tur (35k) mı, yoksa veri kalitesi mi
+
+## 1. tur ölçümü: doğruluk DÜŞTÜ — sebebi benim veri seçimim
+
+```
+arac dogrulugu    %70,0  ->  %40,0     dustu
+arac + parametre  %66,7  ->  %26,7     dustu
+sema hatasi        2/30  ->   8/30     artti
+olu_stok_sorgula    1/5  ->   4/5      IYILESTI
+```
+
+### Ne oldu
+
+Veriyi hazırlarken router dosyasının **ilk 7.500 satırını** aldım, rastgele
+seçmedim. Dosya araca göre sıralıymış:
+
+```
+                                  EGITIME GIREN    TUM DOSYA
+  siparis_onerisi_sorgula              6.742         41.886   %90
+  gecelik_ozet_sorgula                     0             66   SIFIR
+  onay_kuyrugu_sorgula                     0             14   SIFIR
+  genel_stok_durumu_sorgula                0             11   SIFIR
+```
+
+**Üç araç eğitime hiç girmedi.** Model hiç görmediği aracı seçemez — ölçümde de
+o üçünü hiç seçmedi. Taban çizgide bu üçlü 9/10 doğru cevap veriyordu; düşüşün
+büyük kısmı burada.
+
+Eğitimin çalıştığının kanıtı da aynı tabloda: `olu_stok_sorgula` 99 örnek gördü
+ve **1/5'ten 4/5'e** çıktı. Sorun eğitimde değil, neyi eğittiğimizde.
+
+### Ölçüm de tam adil değildi
+
+Taban çizgi Ollama'nın **JSON şema zorlamasıyla** ölçülmüştü — model geçersiz
+JSON üretemiyordu. Bu ölçümde zorlama yok, ham üretim var. 8 şema hatasının bir
+kısmı modelin değil, kurulumun farkı. Geçerli JSON çıkan 22 sorunun 12'si doğru
+= %54,5.
+
+**Ders: iki ölçümü karşılaştırırken yalnızca modeli değil, çevre koşullarını da
+eşitle.** Yoksa hangi farkın neyden geldiği bilinmez.
+
+### 2. tur için
+
+1. **Sınıf ağırlıklı örnekleme** — her araca taban kota, seyrek olanlar
+   tekrarlanarak. Görev dosyası B3.3'te bunu zaten istiyordu; atlamışım.
+2. **Rastgele örnekleme** — sıralı alma bir daha yapılmayacak.
+3. **Şema zorlaması** — ölçüm taban çizgideki gibi JSON kısıtıyla yapılmalı.
+4. Melih'e sorulacak: dengelenmiş router dışa aktarımı var mı? Elimizdeki dosya
+   hâlâ **3.808 kat** dengesiz (41.886 vs 11).
+
+## 2. tur hazırlığı: sınıf ağırlıklı örnekleme
+
+1. turun hatası düzeltildi. Yeni örnekleyici her araca **taban kota** veriyor ve
+seyrek olanları tekrarlıyor — ama tekrarı sınırlayarak.
+
+```
+dengesizlik   68x (+ uc arac SIFIR)  ->  3,0x
+disarida kalan arac                  ->  0
+ozgun soru                           ->  %42,5
+```
+
+### `TAVAN_KAT` neden var
+
+11 örnekli bir aracı sınırsız tekrarlamak modele o **11 cümleyi ezberletir**,
+aracı öğretmez. Tavan tekrar katsayısını bağlıyor. Yerelde ölçülen denge:
+
+| tavan | özgün soru | en seyrek kota | dengesizlik |
+|---|---|---|---|
+| 10 | %47,5 | 110 | 15,0x |
+| 20 | %44,4 | 220 | 6,5x |
+| **40** | **%42,5** | **440** | **3,0x** |
+| 80 | %37,2 | 880 | 1,3x |
+
+İlginç olan: tavanı 10'dan 80'e çıkarmak dengesizliği **15x'ten 1,3x'e**
+indiriyor ama özgünlüğü sadece %47'den %37'ye düşürüyor. Denge ucuz. **40**
+seçildi.
+
+### Ama bu bir yama
+
+**Hiçbir örnekleme 11 özgün soruyu çoğaltamaz.** Ölçüm iyileşebilir — model o 11
+kalıbı öğrenir — ama aynı aracın *yeni* bir soruluşunu tanıması beklenmez.
+Gerçek çözüm seyrek araçlar için daha çeşitli soru üretmek, o da Melih'in tarafı.
+
+### Gerekçe verisi etkilenmemişti
+
+Aynı hatayı gerekçe tarafında da yapmıştım ama zararsız kalmış:
+
+```
+                     ILK 7.500   gercek dagilim
+  aksiyon_yok          %72,3        %67,6
+  tasfiye              %20,5        %24,8
+  siparis               %7,2         %7,5
+  hic girmeyen tip: yok
+```
+
+Yine de 2. turda gerekçe tarafı da rastgele ve dengeli örnekleniyor.
+
+## İki düzeltme
+
+### Elimizdeki veri eski kopyaymış
+
+Melih kanıtladı: `41.886 = 52.000 × (1611/2000)` — dosyamız dengeleme
+uygulanmamış ham sürüm. Onun güncel dosyasında `siparis_onerisi_sorgula`
+train'de **1.633**.
+
+Yani **1. turun bütün dağılım sayıları eski veriye ait.** Yeni veriyle
+tekrarlanmalı.
+
+### "Dosya araca göre sıralı" teşhisim yanlıştı
+
+Doğrusu: dosya **bloklu**. Üç seyrek aracın hiçbiri 20.090. satırdan önce yok:
+
+```
+genel_stok_durumu     ilk gorunum  20.131. satir
+onay_kuyrugu          ilk gorunum  20.090. satir
+gecelik_ozet          ilk gorunum  20.098. satir
+```
+
+İlk ~20.000 satır bir üretim partisi (yalnızca 4 araç), sonrası ikinci parti.
+İlk 7.500 satırı almak o üçünü **hiçbir koşulda** yakalayamazdı. Etki aynı,
+sebep farklı.
+
+**Ders: bir dosyanın "karışık" olduğunu varsayma, bak.** Yazdığım basit "her
+değer tek blok mu" kontrolü bunu yakalayamadı — *"sıralı değil"* dedi. Gerçeği
+gösteren şey konum dağılımı oldu.
+
+### Seyrek araçlar için Melih çözüm hazırlamış
+
+`--sablon-ihrac-araclar` bayrağı 3 seyrek aracın 28 şablonunu ayrı dosyaya
+çıkarıyor; parafraz defterindeki `VARYANT_SAYISI` 2'den 12-15'e çıkarılınca
+gerçek çeşitlilikte yeni sorular üretiliyor.
+
+Bu, benim tekrarlama yamamdan **çok daha iyi**. Tekrarlamak 11 cümleyi
+ezberletiyordu; bu yöntem 11'i 150-200 farklı soruya çıkarıyor.
+
+## `GOREV:` biçimi çalışma zamanına taşındı
+
+Eğitilmiş modeli sisteme takmadan önce yapılması gereken iş. Eğitimde modele şu
+biçim öğretildi:
+
+```
+GOREV: router              GOREV: gerekce
+SORU: ...                  VERILER: ...
+                           GEREKCE:
+ARAC:
+```
+
+Ama `router.py` ve `explain.py` hâlâ B2.3/B2.4'ün taban model istemlerini
+kullanıyordu — kurallar bloğu, few-shot örnek, uzun sistem promptu. Eğitilmiş
+modeli o istemle çalıştırmak, modelin **hiç görmediği** bir girdi göndermek
+demek; eğitim ne kadar iyi olursa olsun sonuç bozulur.
+
+### Yapılan
+
+Yeni ayar: `llm_istem_bicimi = "taban" | "egitilmis"`. Varsayılan `taban` —
+eğitilmiş model henüz üretime hazır değil.
+
+| | taban kip | eğitilmiş kip |
+|---|---|---|
+| sistem promptu | var (~600 token) | **yok** |
+| kurallar + örnek | var | **yok** |
+| ürün adı (gerekçe) | **yok** | **var** |
+| istem uzunluğu | ~600 token | ~60 token |
+
+### Ürün adı: iki kip zıt, ikisi de doğru
+
+B2.4'te adı istemden **çıkarmıştım** çünkü taban model bozuyordu (`Astar Boya`
+→ *starboy*). Eğitim verisindeki gerekçelerin ise **%100'ünde** ad geçiyor;
+eğitilmiş kipte adı koymazsak model *yoktan ad uydurmayı* öğrenmiş olur.
+
+Yani aynı sorunun iki modelde iki farklı doğru cevabı var. Test bunu kilitliyor:
+`test_egitilmis_istem_URUN_ADINI_TASIYOR` biri koyuyor, diğeri koymuyor diye
+ikisini birden doğruluyor.
+
+### Etiketlerde Türkçe karakter yok
+
+Eğitim verisi `gunluk ortalama talep`, `tedarik suresi` diye üretilmişti.
+Düzeltmek cazip ama **model bunu gördü**; değiştirmek eğitimin kazandırdığını
+çöpe atar. Test bunu da kilitliyor.
+
+### Bilinen sınır: eğitilmiş kipte yeniden deneme çalışmıyor
+
+Taban kipte guard reddedince isteme *"şu sayıları kullanma"* uyarısı ekleniyor.
+Eğitilmiş modelde böyle bir satır eğitimde hiç geçmedi; eklemek modeli dağılım
+dışına çıkarır.
+
+Sonucu: eğitilmiş kipte ikinci deneme birincinin aynısı olur (açgözlü üretimde
+birebir) ve boşa gider. Çözümü hazır — yeniden denemede sıcaklığı yükseltmek,
+istemi değiştirmeden çıktıyı değiştirir. Model üretime alınırken yapılacak.
+
+7 yeni test. Toplam **282 test yeşil**.
+
+## Ölçüm adaleti: ayrı betik değil, aynı betik
+
+1. tur ölçümünü Colab'da ham `generate()` ile yapmıştım; taban çizgi ise
+Ollama'nın **JSON şema zorlamasıyla** ölçülmüştü. 30 sorunun 8'i "şema hatası"
+sayıldı ama bir kısmı modelin değil, **kurulumun** farkıydı.
+
+İlk düşüncem Colab'da şema zorlamasını taklit etmekti. Daha iyi bir yol var:
+`training/eval/router_taban.py` zaten `soruyu_yonlendir()` kullanıyor — yani
+taban çizgiyle **birebir aynı kod yolu**. Tek eksik, modeli seçebilmekti.
+
+İki bayrak eklendi:
+
+```bash
+uv run python -m training.eval.router_taban   --model codifya-router:tur2 --istem-bicimi egitilmis --etiket lora-tur2
+```
+
+Artık B3.5 ölçümü şu olacak: **aynı betik, aynı 30 soru, aynı puanlama, aynı
+şema kısıtı, aynı sıcaklık ve tohum. Tek değişen model.**
+
+`--istem-bicimi egitilmis` bir önceki bölümde eklenen ayarı kullanıyor — model
+eğitimde gördüğü kısa `GOREV:` istemini alıyor, taban modelin uzun istemini
+değil.
+
+### Ön şart
+
+Bu ölçüm ancak eğitilmiş model **Ollama'da** olunca çalışır. Yani B3.4 (merge →
+GGUF → `ollama create`) tamamlanmadan koşturulamaz. Colab'daki ara ölçümler
+gidişat için bilgi verir ama **karşılaştırma sayısı** buradan çıkacak.
+
+Toplam **282 test yeşil**.
+
+## Güncel veri geldi ve doğrulandı
+
+Melih'in parafraz turu sonrası dosyalar indirildi ve kontrol edildi:
+
+```
+DENGELENMIS       siparis_onerisi 1.633  (once 41.886)
+eksik arac        yok
+sizinti           train/val/test uclusu de TEMIZ
+ozgun soru        3.674/3.674  (%100)
+```
+
+Seyrek araçlar arttı (eğitim bölümü): `genel_stok_durumu` 11→26,
+`onay_kuyrugu` 14→39, `gecelik_ozet` 66→155. Bölümler toplamı Melih'in verdiği
+sayılarla tutuyor.
+
+⚠️ **Dosya hâlâ araca göre sıralı.** Yani 1. turdaki hata bu veriyle de tekrar
+ederdi — dengeli örnekleme zorunluluğunu koruyor. Kontrol betiği bu sefer
+uyarıyı bastı (eski dosyada basamamıştı, sebebi bloklu yapıydı).
+
+### Örnekleme ayarı yeniden ölçüldü
+
+Havuz 43.798'den 3.674'e indiği için 7.500 router hedefi anlamsızlaştı:
+
+| router hedefi | özgün | en çok tekrar |
+|---|---|---|
+| 7.500 | %38,3 | 40,0x |
+| **2.000** | **%64,5** | **11,0x** |
+| 1.400 | %72,9 | 7,7x |
+
+Denge her ayarda tam (1,0x); fark özgünlükte. Tekrarlanan örnek ilk birkaç
+geçişten sonra neredeyse hiçbir şey öğretmiyor, yani düşük özgünlük boşa hesap.
+
+**Seçilen: router 2.000, gerekçe 8.000.** Toplam 10.000 — Tur 1'den küçük ama
+üç aracın hiç görülmediği bir 15.000'den kesinlikle iyi.
+
+## `veri_hazirla.py` repoya taşındı
+
+2. tur eğitimi Melih'e devredilirken bir eksik ortaya çıktı: defterin okuduğu
+gerekçe dosyaları **benim yerelde dönüştürdüğüm biçimde** (`istem` / `cevap`),
+ama dönüştüren betik scratchpad'de duruyordu — yani repoda yoktu.
+
+Melih ham dosyaları doğrudan Drive'a koysa defter `KeyError: 'istem'` verirdi.
+
+Betik `training/veri_hazirla.py` olarak taşındı ve komut satırından
+çalışacak hâle getirildi:
+
+```bash
+uv run python -m training.veri_hazirla --kaynak <ham_klasor> --hedef <cikti_klasor>
+```
+
+Ne yapıyor:
+
+```
+gerekce_*.jsonl   ->  {istem, cevap} bicimine cevrilir     103 MB -> 27 MB
+router_*.jsonl    ->  oldugu gibi kopyalanir  (defter kendi bicimlendiriyor)
+golden_set        ->  oldugu gibi kopyalanir
+```
+
+`izinli_sayilar` yalnızca val/test dosyalarında korunuyor — B3.5 ölçümünde
+guard'ı koşturmak için gerekli, eğitimde gereksiz.
+
+⚠️ Betikteki etiketler `app/llm/explain.py::_EGITILMIS_ETIKETLER` ile birebir
+aynı olmak zorunda. İkisi ayrışırsa eğitilmiş model çalışma zamanında
+tanımadığı bir istem görür. Dosya başına bu uyarı yazıldı.
+
+### Devir sebebi
+
+GPU kotası tekrar doldu (bugün ~1,5 saat T4 kullanıldı). 2. tur eğitimi
+Kişi A'ya devredildi; defter, veri ve hazırlık betiği repoda hazır.
+
+## 2. tur eğitimi bitti (Melih koşturdu)
+
+GPU kotam dolduğu için eğitimi Melih devraldı. Defter, veri ve hazırlık betiği
+repodan aldı.
+
+```
+                  1. tur              2. tur
+ornek             15.000              9.993
+router            7.500 (3 arac YOK)  1.995 = 285 x 7 arac
+gerekce           7.500               7.998 = 2.666 x 3 tip
+denge             68x + uc arac yok   TAM DENGELI
+sure              56 dk               44 dk
+```
+
+### Kayıp eğrisi
+
+```
+adim    egitim   dogrulama
+ 200    0,2421    0,2920
+ 600    0,1982    0,2439
+1000    0,1822    0,2192
+1250    0,1797    0,2134
+```
+
+Doğrulama kaybı baştan sona düştü, hiç yükselmedi — **ezberleme yok**.
+
+⚠️ **1. turun kaybıyla karşılaştırılamaz.** 1. turda 0,1888'di, şimdi 0,2134.
+Daha yüksek görünüyor ama **veri değişti**: bu turda seyrek araçların örnekleri
+çok daha ağırlıklı ve onlar daha zor. Farklı veri kümesinde ölçülen kayıplar
+yan yana konmaz. Karşılaştırılabilir tek şey **router doğruluğu**.
+
+### Benim hatam çıktı ve düzeltildi
+
+`veri_hazirla.py`, `karar_tipi` alanını yalnızca val/test dosyalarına
+koyuyordu — "boyut küçültme" diye. Ama defterin dengeleme kodu o alanı eğitim
+dosyasında arıyordu, `KeyError` verdi. Melih geçici olarak istem metninden
+çıkarmış, veri kaybı olmamış.
+
+Kalıcı düzeltme yapıldı: `karar_tipi` artık **her dosyada**. Alan başına ~20
+bayt, 40 bin satırda 800 KB — dengeli örneklemenin çalışması için ödenecek
+bedel bu değildi.
+
+**Ders: aynı veriyi üreten ve tüketen iki kod parçası varsa, aralarındaki
+varsayım tek yerde yazılı olmalı.** Burada yazılı değildi; biri alan çıkardı,
+diğeri o alanı aradı.
+
+## B3.4 hazır: merge → GGUF → Ollama
+
+Eğitilmiş LoRA'yı taban modelle birleştirip Ollama'nın anlayacağı biçime
+çeviren bölüm deftere eklendi. Bundan sonra model **yerelde**, ERP'nin yanında
+çalışacak.
+
+**GPU gerekmiyor** — birleştirme ve dönüştürme işlemci işi. Kota doluysa
+"GPU olmadan bağlan" ile de koşar.
+
+### Neden `q8_0`
+
+```
+f16      ~3,1 GB   kayipsiz
+q8_0     ~1,6 GB   pratikte kayipsiz    <- secilen
+q4_k_m   ~1,0 GB   hafif kayip + llama-quantize derlemesi ister
+```
+
+`convert_hf_to_gguf.py` `q8_0`'ı doğrudan üretiyor, derleme gerekmiyor. 1,5B
+modelde kalite farkı ölçülemeyecek kadar küçük.
+
+### ⚠️ En kritik ayar: `TEMPLATE`
+
+Ollama varsayılan olarak modelin **sohbet şablonunu** uygular
+(`<|im_start|>user ...`). Ama bu model **ham metinle** eğitildi:
+
+```
+GOREV: router
+SORU: kritik stok var mi
+
+ARAC:
+```
+
+Sohbet şablonu araya girerse model eğitimde hiç görmediği bir sarmalayıcı görür
+ve LoRA'nın kazandırdığı **tamamen kaybolur**. `training/Modelfile`'daki
+`TEMPLATE {{ .Prompt }}` bunu engelliyor — istem olduğu gibi geçiyor.
+
+Bu, kolayca gözden kaçıp "eğitim işe yaramadı" sonucuna götürecek türden bir
+ayrıntı. Modelfile'a gerekçesiyle yazıldı.
+
+### Modelfile'daki diğer ayarlar
+
+```
+stop <|im_end|>, <|endoftext|>   egitim metinleri EOS ile bitiyordu
+temperature 0, seed 42           olcum tekrarlanabilir olmali
+num_predict 256                  router JSON'u kisa, gerekce iki cumle
+num_thread 4                     isi korumasi (B2.1'de olculdu)
+```
+
+### Adaptör seçimi
+
+Defterin 2. hücresi `cikti/` altındaki klasörleri **tarih ve boyutuyla**
+listeliyor. Melih'in raporundaki yol `b33_tur1_lora` görünüyordu; 2. tur oraya
+mı kaydedildi yoksa yazım hatası mı, listeden görülecek. Yanlış adaptörle
+ölçüm yapmak, yanlış modeli ölçmek demek.
+
+## B2 · Kişi A'nın Faz 3-4-5 işi incelendi
+
+### Sözleşme değişikliği — onaylandı
+
+`contracts.py::ORAN_ALANLARI`'na `onerilen_iskonto_orani` eklenmiş. Dondurulmuş
+dosya olduğu için bağımsız doğruladım; **kanıt Melih'in raporundan daha güçlü**
+çıktı:
+
+```
+tasfiye iskonto oranlari : 0,15 (4.706) · 0,30 (2.181) · 0,50 (3.113)
+hedefte yuzde yazilmis   : 10.000 / 10.000
+guard_sonucu = gecti     : 10.000 / 10.000
+```
+
+Sadece "%15, 886 kez" değil — üç oranın tamamı, on binin on bini. Veri, bu
+alanın ×100 karşılığının izinli olduğu bir guard sürümüyle üretilmiş.
+
+Genişlemenin dar olduğunu da test ettim:
+
+```
+iskonto %15 iken  "15" -> KABUL    "20" -> RED
+                "0,15" -> KABUL    "30" -> RED
+```
+
+### İki kipli ayrım — onaylandı
+
+```
+                   taban    egitilmis   fark
+stok.siparis         6         6        tedarikci_skoru
+stok.tasfiye         4         5        onerilen_iskonto_orani
+stok.aksiyon_yok     3         3        -
+```
+
+Taban kipin dar tutulması B2.4'te ölçülmüş bir kalite kararıydı (sayı artınca
+model veri döküyor). Eğitilmiş kip ise hedefin kullandığı **tüm** sayıları
+içermek zorunda. İkisi ayrı kalmalı — doğru yapılmış.
+
+### Yapısal koruma — en değerli parça
+
+`veri_hazirla.py` artık kendi alan listesini taşımıyor,
+`explain.py::egitilmis_istem_govdesi`'ni çağırıyor. Eğitim ile çalışma zamanının
+ayrışması **yapısal olarak imkânsız** hale gelmiş. Test de bağını doğruluyor.
+
+Veri tutarlılık kapısını yerelde koşturdum (`data/*` gitignore'da olduğu için
+veriyi yeniden ürettim): **%79,4 → %0,0**.
+
+### Bir inceleme notu: API artık LLM'i bekliyor
+
+`decisions.py`'de `?gerekce=true` artık senkron olarak LLM çağırıyor. B2.4'te
+bunu **bilerek yapmamıştım** — mimarinin ikinci kuralı ("ERP asla LLM'i
+beklemez") ve veritabanı oturumunun açık kalması yüzünden.
+
+Melih'in gerekçesi savunulabilir: `gerekce=true` isteğe bağlı, karar yolu
+etkilenmiyor, `gerekce_uret` hata fırlatmıyor.
+
+Somut maliyet: **veritabanı oturumu LLM çağrısı boyunca açık kalıyor** (~6 sn,
+zaman aşımında 60 sn'ye kadar). Demo/geliştirme ucu için kabul edilebilir,
+üretim yükünde bağlantı birikmesine yol açar.
+
+Engellemiyorum; not olarak kalsın, üretime çıkarken tekrar bakılmalı.
+
+### Gürültü payı iddiasına düzeltme
+
+Melih *"router'daki değişim ±7 puan gürültü payında"* demiş. O 7 puan
+**sıcaklık 0,2'den** geliyordu; artık sıcaklık 0 + sabit tohumla ölçüyoruz,
+aynı model iki kez koşunca **birebir aynı** sonucu veriyor. Gürültü sıfır.
+
+Belirsizlik başka yerden: **30 soru az.** Wilson %95 güven aralığı:
+
+```
+19/30 = %63,3  ->  %45,5 - %78,1
+21/30 = %70,0  ->  %52,1 - %83,3
+27/30 = %90,0  ->  %74,4 - %96,5
+```
+
+Yani 2. turun %63,3'ü tabandan **anlamlı şekilde kötü bile değil** — aralıklar
+çakışıyor. Sonucu doğru, sebebi farklı: örneklem küçüklüğü.
+
+Anlamlı bir iyileşme iddiası için kabaca **27/30'un üstüne** çıkmak gerekiyor.
+
+## B3 · Eğitilmiş kipte yeniden deneme düzeltildi
+
+Kendi bıraktığım eksik. Eğitilmiş kip `onceki_red`'i isteme yazamıyor (o satır
+eğitimde hiç geçmedi). İstem aynı kalınca sıcaklık 0'da çıktı da **birebir
+aynı** oluyordu — ikinci deneme bir model çağrısı harcayıp hiçbir şey
+kazandırmıyordu.
+
+Çözüm istemi değil **üretimi** değiştirmek:
+
+```
+ilk deneme      sicaklik 0,0   tohum 42
+yeniden deneme  sicaklik 0,7   tohum 43
+istem                    AYNI  (egitimde gorulmeyen satir eklenmiyor)
+```
+
+Tohum da değişmeli — sıcaklık yükselse bile aynı tohum aynı örneklemeyi verir.
+
+`0,7` seçildi: 0,2-0,3 açgözlü üretimden yeterince ayrışmıyor, 1,0 üstü
+uydurmayı artırıyor. Guard ikinci denemeyi de denetlediği için risk yok;
+tutmazsa şablona düşülür.
+
+Taban kipte hiçbir şey değişmedi — orada çözüm zaten istem tarafında.
+
+2 yeni test. Toplam **320 test yeşil**.
+
+## Golden set incelemesi (Kişi B tarafı)
+
+`training/eval/golden_set_inceleme.py` — golden set ölçümlerin tamamının
+referansı olduğu için **tek kişi kapatamaz**. Bu betik benim incelememi
+üretiyor, karar ortak verilecek.
+
+### Temiz çıkanlar
+
+```
+train / val sizintisi   0        <- en kritik kontrol
+tekrar                  0/400
+guard uyumu             240/240  (%100)
+sozlesme uyumu          tum arac ve karar tipleri gecerli
+```
+
+**Sızıntı kontrolünde kendi hatamı düzelttim.** İlk sürüm "400 sızıntı" diye
+alarm verdi — çünkü golden set'in 400 satırının tamamı `*_test.jsonl`'de de
+var. Ama bu **sızıntı değil**: golden set zaten ayrılmış test bölümünden
+seçiliyor, örtüşme beklenen ve doğru olan. Tehlikeli olan `train`/`val`
+çakışması, o da **sıfır**.
+
+Bu ayrım betiğe yazıldı; yanlış alarm bir daha çıkmayacak.
+
+### Ortak onaydan önce konuşulacak iki şey
+
+**1. İki araç ölçülemeyecek kadar ince**
+
+```
+onay_kuyrugu_sorgula        3 ornek   tek hata = %33 oynama
+genel_stok_durumu_sorgula   3 ornek   tek hata = %33 oynama
+```
+
+Bu araçlar için "ölçtük" demek doğru olmaz. Ya golden set'te sayıları
+artırılmalı ya da raporlarda bu iki aracın sonucu **ayrı** verilmeli.
+
+**2. `stok.tedarikci_degisim` hiç yok**
+
+240 gerekçe örneğinin hiçbirinde bu karar tipi geçmiyor. Kural motoru bu tipi
+üretmiyorsa beklenen bir durum — ama öyleyse `KararTipi`'nde neden duruyor,
+Melih'le netleşmeli.
+
+### Dağılım notu
+
+```
+stok.aksiyon_yok   159/240  (%66)
+stok.tasfiye        61/240  (%25)
+stok.siparis        20/240  (%8)
+```
+
+Doğal dağılıma yakın, ama ölçümün üçte ikisi en kolay vakayı (aksiyon yok)
+sınıyor. Zor vakalar (sipariş) 20 örnekle temsil ediliyor.
+
+## İnceleme notunu düzeltmeye çevirdim: karar artık gerekçeden önce yazılıyor
+
+İncelemede *"`?gerekce=true` senkron LLM çağırıyor, engellemiyorum ama not
+olsun"* demiştim. Nota bakınca asıl sorunun performans değil **veri kaybı**
+olduğunu gördüm:
+
+```
+ESKI SIRA:  karar uret -> LLM (6 sn) -> veritabanina yaz
+```
+
+O altı saniyede süreç ölürse **karar tamamen kayboluyordu** — oysa karar zaten
+üretilmişti, kaybedilecek bir şey yoktu.
+
+```
+YENI SIRA:  karar uret -> veritabanina yaz -> commit
+                       -> LLM (6 sn) -> gerekceyi ekle -> commit
+```
+
+`nightly.py` zaten bu deseni kullanıyordu (kararlar bir commit, gerekçeler
+ikinci commit). API'ye de taşındı — mimarinin ikinci kuralının veri
+katmanındaki karşılığı bu.
+
+Melih'in eklediği özellik olduğu gibi duruyor; yalnızca sırası değişti.
+
+### Yan etki: iki denetim satırı
+
+`?gerekce=true` artık **iki** denetim satırı yazıyor:
+
+```
+1. karar kaydedilirken        guard_sonucu = ATLANDI  (gerekce henuz yok)
+2. gerekce uretildikten sonra gercek guard sonucu
+```
+
+Bu bir kusur değil, denetim izinin amacı: "ne zaman ne oldu" görünsün.
+`nightly.py` de aynısını yapıyor. Mevcut test bir satır bekliyordu, gerekçesiyle
+güncellendi.
+
+### Teste bağlandı
+
+`test_karar_gerekceden_ONCE_kaliciya_yaziliyor` — gerekçe üretimi zorla
+patlatılıyor, kararın yine de veritabanında olduğu doğrulanıyor. Sıra geri
+çevrilirse bu test kırılır.
+
+Toplam **321 test yeşil**.
+
+
+---
+
+## Ek soru seti: ölçemediğimiz iki araç
+
+### Sorun
+
+Modelin doğru aracı seçip seçmediğini 30 soruluk bir setle ölçüyoruz. Ama o
+30 soru 7 araca **eşit dağılmıyor**:
+
+```
+genel_stok_durumu_sorgula   2 soru
+gecelik_ozet_sorgula        3 soru
+```
+
+İki soruyla "bu araç %100 doğru" demek ölçüm değil. Yazı tura attık, iki kez
+tura geldi. Üçüncü atışta ne olacağını bilmiyoruz.
+
+Ve bu set önemsiz bir set değil — sistemin gerçekten karar vermeye
+başlamasına (`threshold` seviyesi) izin verecek olan kapı bu.
+
+### Neden o sete soru eklemedik
+
+Ekleyemezdik. Taban çizgi sayımız (**%70,0**) tam olarak o 30 soruyla
+ölçüldü. Eğitimin işe yarayıp yaramadığını anlamanın tek yolu **aynı**
+soruları eğitimden sonra tekrar sormak. Sete bir soru eklersek "%70'ten
+%75'e çıktı" cümlesi anlamsızlaşır — soru seti değişmiş olur.
+
+O dosya donmuş kabul ediliyor.
+
+### Ne yaptık
+
+Ayrı bir dosya açtık: `router_ek_sorular.jsonl`, 18 yeni soru, elle yazıldı.
+
+```
+genel_stok_durumu   2 soru  ->  10 soru
+gecelik_ozet        3 soru  ->  10 soru
+onay_kuyrugu        5 soru  ->   8 soru
+```
+
+Ayrı koşuyor, ayrı raporlanıyor. Taban sayıya karışmıyor:
+
+```bash
+uv run python -m training.eval.router_taban --ek
+```
+
+Yeni soruların hiçbiri eğitim verisinde yok — kontrol edildi. Olsaydı model
+cevabı ezberlemiş olabilirdi ve ölçüm şişerdi.
+
+### İlk sonuç: model iki aracı birbirine karıştırıyor
+
+Eğitilmemiş model 18 sorunun 13'ünü doğru bildi (%72,2). İlginç olan
+**hataların şekli** — beşinin dördü aynı iki araç arasında ve **iki yönde
+birden**:
+
+```
+"Bugün depoda genel tablo nedir?"     genel stok  ->  gecelik ozet   X
+"Ben yokken sistem ne tespit etti?"   gecelik ozet ->  genel stok    X
+```
+
+Bir yönde olsa "model bu aracı seviyor" derdik. İki yönde olması şunu
+söylüyor: **model bu iki aracı birbirinden ayıramıyor.** İkisi de kulağa
+"bana durumu anlat" gibi geliyor. Aradaki fark zamansal — biri *şu anki*
+durum, diğeri *gece boyunca olanlar* — ve model bu farkı görmüyor.
+
+2 ve 3 soruyla bunu asla fark edemezdik. Eğitim bittiğinde bakacağımız ilk
+yer burası olacak: model bu ayrımı öğrenebildi mi?
+
+### Bir de yanlış alarm yakaladık
+
+Sistemde "çöküş dedektörü" var: model bütün sorulara aynı cevabı vermeye
+başlarsa uyarı basıyor. Eşik %40 — yani bir araç cevapların %40'ından
+fazlasını alırsa alarm.
+
+Ek seti ilk koşturduğumuzda **alarm çaldı.** Ama model çökmemişti.
+
+Sebep: %40 eşiği 7 araçlı set düşünülerek konmuştu. 7 araç varsa her birine
+düşen normal pay ~%14; %40 bunun neredeyse 3 katı, gerçekten anormal. Ama ek
+sette sadece 3 araç var — orada normal pay zaten ~%33. Eşik normal davranışı
+anormal sayıyordu.
+
+Eşik artık sete göre hesaplanıyor:
+
+```
+7 araç  ->  %40    (değişmedi)
+3 araç  ->  %83
+```
+
+Taban çizgi yeniden koşturuldu, sayı aynı çıktı: **%70,0**. Değişiklik eski
+ölçümü bozmuyor.
+
+### Düzeltmenin kendisi de bir kusur doğurdu
+
+İlk yazdığımız formül bir testi kırdı. Testin hatası değildi, formülünkü.
+
+Eşiği "araç sayısına böl" diye hesaplayınca, **tek araçlı** bir sette eşik
+%250 çıkıyordu. Bir araç cevapların en fazla %100'ünü alabilir — yani o sette
+alarm asla çalamaz. Dedektör var gibi görünüyor ama çalışmıyor.
+
+Bu, yanlış alarmdan daha kötü: yanlış alarmı duyan gelip bakar, hiç çalmayan
+alarmı kimse fark etmez.
+
+Eşiğe üst sınır koyduk: en fazla %90. İki test yazıldı, biri eşiğin taban
+sette değişmediğini, diğeri hiçbir sette %100'ü aşmadığını kontrol ediyor.
+
+### Bir de: ölçümler birbirinin üstüne yazıyormuş
+
+Ek seti test ederken yanlışlıkla olmayan bir modele soru sordum. Hepsi hata
+verdi, sorun değil — ama o başarısız deneme **taban çizgi kaydımızı sildi.**
+
+Sebep: bütün ölçümler tek bir dosyaya yazıyordu. Taban çizgi, ek set, 1. tur,
+2. tur, hepsi `router_taban_sonuc.json`'a. Yani dosyada her zaman sadece en
+son koşturduğumuz şey duruyordu.
+
+Oysa o dosyanın amacı şuydu: "sonradan puanlamayı değiştirirsek modeli
+tekrar çalıştırmayalım, kayıtlı cevaplara bakalım." Bu söz hiç tutulmuyormuş
+ve kimse fark etmemiş.
+
+Artık her ölçüm kendi dosyasına yazıyor:
+
+```
+taban cizgi   ->  router_taban_sonuc.json
+3. tur        ->  router_sonuc_lora-tur3.json
+3. tur ek set ->  router_sonuc_lora-tur3-ek.json
+```
+
+Taban çizgiyi tekrar ürettik, eski kayıtla birebir aynı çıktı — yalnızca
+süreler farklı. Yani ölçüm gerçekten tekrarlanabilir.
+
+Toplam **324 test yeşil**.
+
+---
+
+## Ölçmeden önce tahmin yazdık
+
+Ek set, modelin iki aracı karıştırdığını göstermişti. Sıradaki soru: eğitim
+bunu düzeltir mi?
+
+3. tur hâlâ eğitilirken bu sorunun cevabına **veriye bakarak** yaklaşmak
+mümkündü. Baktık ve tahminimizi ölçümden **önce** yazdık. Sebebi basit:
+sonucu gördükten sonra "zaten böyle olacağını biliyorduk" demek çok kolay.
+Önceden yazılan tahmin ya tutar ya tutmaz.
+
+### Veride ne var
+
+Önce iyi haber: model bu iki aracı ayırt edecek işareti bulabiliyor.
+
+```
+"genel"     -> genel stok sorularinin %69'unda,  gecelik'te HIC
+"stok"      -> %42'sinde,                        gecelik'te HIC
+"bugün"     -> genel stokta HIC,                 gecelik'in %24'unde
+"özet"      -> %35                               %42     <- tek belirsiz kelime
+```
+
+Kötü haber, örnek sayıları:
+
+```
+genel_stok_durumu     26 ornek     (tum egitim verisinin %0,7'si)
+gecelik_ozet         155 ornek
+siparis_onerisi     1633 ornek
+```
+
+Üstelik o 26 örneğin 7'si aynı cümlenin nezaket çeşitlemesi:
+*"Envanterin genel özetini gösterir/açıklar/paylaşır mısınız?"*
+
+`gecelik_ozet`'te ise 155 örnekte 140 farklı cümle yapısı var — gerçek
+çeşitlilik.
+
+Yani ortak kelime olan "özet" geldiğinde model 155'e karşı 26 görüyor.
+
+### Tahminimiz
+
+1. **`gecelik_ozet` düzelecek** — bol ve çeşitli örneği var. 5/7'den 6-7/7'ye.
+2. **`genel_stok_durumu` düzelmeyecek, kötüleşebilir** — 26 örnek yetmez.
+   6/8'den aşağı.
+3. **Karışma tek yönlü kalacak** — şu an iki yönlü. Eğitimden sonra sadece
+   `genel_stok -> gecelik` yönü kalacak, çünkü hacim o tarafta.
+
+Tahmin tutmazsa hipotezimiz yanlış demektir ve sorun sandığımız yerde değil.
+O da öğrenilecek bir şey.
+
+### Bir şeyi yapmadık: etiket değiştirmedik
+
+Ek setteki 18 soruyu eğitim verisine karşı denetledik. Birinde çelişki çıktı:
+
+> *"Bugün depoda genel tablo nedir?"* — biz `genel_stok_durumu` dedik. Ama
+> "bugün" kelimesi eğitimde `gecelik_ozet`'e ait bir işaret.
+
+Etiketi **değiştirmedik.** Çünkü anlamca haklıyız: "depoda genel tablo" stok
+durumudur, oradaki "bugün" "şu an" demek. Soruyu dosyada "bilinçli zor vaka"
+diye işaretledik, o kadar.
+
+Modelin yanlış cevabına bakıp doğru cevabı değiştirmek, sınavı öğrenciye
+uydurmaktır. O andan sonra sınav hiçbir şey ölçmez.
+
+---
+
+## Tahminimiz yanlıştı — ve daha ölçüm gelmeden anladık
+
+Yukarıda bir tahmin yazmıştık: *"`genel stok durumu` aracının 26 örneği var,
+`gecelik özet`'in 155. Model kararsız kalınca çok gördüğünü seçer, yani küçük
+olan kaybeder."*
+
+**Bu yanlış.** Sebebini yazalım.
+
+### Hata neredeydi
+
+Ham dosyadaki sayılara baktık. Ama eğitim o dosyayı olduğu gibi kullanmıyor —
+sınıfları **eşitliyor**. Modelin gerçekten gördüğü şu:
+
+```
+arac                     ozgun cumle   egitimde gorulen   tekrar
+siparis onerisi              1633            285          0,2x
+gecelik ozet                  155            285          1,8x
+onay kuyrugu                   39            285          7,3x
+genel stok durumu              26            285         11,0x
+```
+
+Hepsi **285**. Yani hacim farkı diye bir şey yok, tahminimizin dayanağı yok.
+
+Fark başka yerde: `genel stok durumu` 26 cümleyi 11 kez tekrar ediyor,
+`gecelik özet` ise 155 farklı cümle gösteriyor. Aynı ağırlık, çok farklı
+çeşitlilik.
+
+### Elimizde kanıt zaten varmış
+
+2. turun sonuçları duruyordu ve bakmamıştık. Baktık:
+
+```
+arac                     taban     2. tur
+siparis onerisi          5 bekle/6 sec   5/3   <- AZ secilir oldu
+tedarikci performansi    5/4             5/1   <- AZ secilir oldu
+genel stok durumu        2/3             2/4   <- FAZLA secilir oldu
+onay kuyrugu             5/5             5/7   <- FAZLA secilir oldu
+```
+
+2. turun dört hatasının **dördü de** o iki küçük sınıfa gitmiş.
+
+Yani az çeşitlilikli sınıf kaybetmiyor — **çöp kutusu oluyor.** Eşit ağırlık
+alıyor ama dar kalıpları olduğu için sınırı bulanık; başka hiçbir sınıfa tam
+uymayan soruyu kapıyor.
+
+### Düzeltilmiş tahmin
+
+Eskisini silmedik, üstüne yazdık. Sonucu görüp geçmişi düzeltmek tahmini
+anlamsız kılar.
+
+1. `genel stok durumu` **fazla** seçilecek, az değil. Bizim o araç için
+   yazdığımız 8 soru muhtemelen iyi puan alacak.
+2. Asıl zarar **başka araçlarda** görünecek — onlardan bu ikisine kaçış olacak.
+3. Karışma yönü **tersine dönecek**. (Eski tahmin tam tersini söylüyordu.)
+
+### Asıl çözüm ne
+
+Daha çok eğitim turu bunu çözmez. Örnekleme ayarını oynatmak da çözmez.
+
+Tek çözüm: bu iki araç için **çeşitli soru yazmak**. Aynı cümlenin
+"gösterir misiniz / açıklar mısınız / paylaşır mısınız" çeşitlemesi değil,
+gerçekten farklı soruluşlar. Her biri için ~150 özgün soru.
+
+Bu Melih'in tarafı (veri üretimi).
+
+---
+
+## Ölçümümüz sandığımız kadar sağlam değilmiş
+
+### Nasıl anladık
+
+Rapora yeni bir bölüm ekleyip taban çizgiyi tekrar koşturduk. Sayı değişti:
+
+```
+onceki:  20/30 dogru
+simdi :  21/30 dogru
+```
+
+Ama hiçbir şey değişmemişti. Kod aynı, model aynı (dosya 1 Ağustos'tan beri
+hiç değişmemiş), ayarlar aynı.
+
+### Sebep: modelin "ısınmış" olması
+
+Ollama modeli belleğe yüklüyor. Model yeni yüklendiyse bir cevap, bir süredir
+çalışıyorsa başka bir cevap verebiliyor.
+
+Denedik:
+
+```
+modeli her seferinde bellekten atarak, 3 kez  ->  hep 20/30
+isinmis modelle,                       2 kez  ->  hep 21/30
+```
+
+İkisi de kendi içinde tutarlı, ama birbirinden farklı.
+
+Oynayan tek soru şuydu: *"Bizi kim geciktiriyor?"* — model bazen boş parametre
+veriyor (doğru), bazen "Bizi Kim Geciktiriyor" diye uyduruyor. İki seçenek
+başa baş gidiyor, en ufak fark birini öne geçiriyor.
+
+### Neden önemli
+
+30 soruda **1 soru = 3,3 puan**.
+
+3. tur modeli gelip %73,3 verseydi ne diyecektik? "Eğitim işe yaradı." Ama
+o fark tam olarak bir sorudan geliyor — yani belki de sadece modelin ısınmış
+olmasından.
+
+Kodda şöyle bir cümle vardı ve yanlıştı:
+
+> "Sıcaklık 0 + sabit tohum ile model aynı girdiye aynı cevabı veriyor."
+
+Sıcaklık 0 gürültünün çoğunu alıyor (eskiden 7 puan oynuyordu, şimdi 3,3), ama
+hepsini almıyor.
+
+### Çözüm
+
+Ölçüm artık her seferinde **modeli bellekten atarak** başlıyor. Yani her ölçüm
+aynı yerden başlıyor.
+
+Üç kez üst üste koşturduk, üçü de aynı: **%70,0 / %66,7** — resmî taban
+çizgiyle birebir.
+
+Modeli atamazsak ölçüm yine yapılıyor, sadece garanti kalkıyor. Ölçümü buna
+bağlamak yanlış olurdu.
+
+---
+
+## 3. tur geldi — üç şey buldum
+
+Melih 3. tur sonucunu gönderdi. Sonuçları kendi aracımla yeniden puanladım
+(modeli hiç çalıştırmadan, kayıtlı cevaplardan).
+
+### 1. Tahminimiz tuttu
+
+"Az çeşitlilikli sınıf çöp kutusu olur" demiştik. 3. turda aynen öyle:
+
+```
+genel stok durumu   (cesitlilik %9)    2 beklendi -> 3 secildi   FAZLA
+onay kuyrugu        (cesitlilik %14)   5 beklendi -> 6 secildi   FAZLA
+kritik stok         (cesitlilik %90)   5 beklendi -> 3 secildi   AZ
+olu stok            (cesitlilik %84)   5 beklendi -> 4 secildi   AZ
+```
+
+Hangi soruların nereye kaçtığı bile öngördüğümüz gibi çıktı.
+
+### 2. Bir etiket hatam vardı, düzelttim
+
+Ek set ilk bakışta 3. turda düşmüş görünüyordu. Sebep model değil, **benim
+yazdığım yanlış doğru cevaptı.**
+
+`gecelik özet` aracı bir tarih parametresi alıyor ve eğitim verisindeki 155
+örneğin 155'i bunu kullanıyor. Ben 7 soruma "parametre yok" yazmıştım.
+Kontrol ettim: 6'sında haklıyım (soruda tarih geçmiyor), 1'inde haksızım —
+*"dun gece ne cikti"* sorusunda "dun" zaten var.
+
+Onu düzelttim.
+
+> Daha önce başka bir etiketi model itiraz etti diye **değiştirmemiştim**.
+> Fark şu: orada elimde model çıktısından başka kanıt yoktu. Burada
+> sözleşmenin kendisi ve 155 örneğin tamamı bana "yanlış yazmışsın" diyor.
+> Etiketi modele göre değil, kurala göre düzeltirsin.
+
+### 3. Melih'in raporunda görünmeyen bir gerileme var
+
+Doğru etiketle bakınca ek set şunu söylüyor:
+
+```
+                    taban      3. tur
+dogru arac sectiei   %72,2      %88,9    <- ciddi iyilesme
+tam dogru            %66,7      %66,7    <- degismedi
+UYDURMA parametre       0          4     <- GERILEME
+```
+
+Model doğru aracı çok daha iyi seçiyor **ama olmayan tarih uydurmaya
+başlamış**:
+
+```
+"gece raporu"                     -> tarih: "gecen gun"
+"Gece boyunca neler birikmis?"    -> tarih: "gecen gun"
+```
+
+Soruda öyle bir şey yok. Zaten "geçen gün" eğitimdeki geçerli dört değerden
+biri de değil — düpedüz uyduruyor.
+
+Araçtaki kazanç parametredeki kayıpla götürülmüş, o yüzden toplam sabit
+görünüyor.
+
+**30 soruluk set bunu göremedi**, çünkü orada 3 gecelik sorusu var, ek sette
+7. Ek seti tam da bunun için yazmıştık.
+
+### Bir de çekince
+
+Melih "tam doğruluk %66,7'den %70,0'a çıktı" diyor. Bu **tam olarak 1 soru**.
+Ve ben daha önce ölçmüştüm: modelin ısınma durumu tek başına 1 soru
+oynatabiliyor, hem de aynı tipte (parametre).
+
+Melih'in ölçümü benim soğuk başlangıç düzeltmemden önceki kodla yapılmış.
+Yani o +1 gerçek kazanç da olabilir, ısınma farkı da — bu koşuyla ayırt
+edilemez.
+
+Araç doğruluğundaki +2 daha sağlam duruyor: ısınma sürüklenmesi araç seçimini
+hiç değiştirmemişti, sadece parametreyi oynatmıştı.
+
+---
+
+## Tur 8 · B1: kaybolan kararlar
+
+### Sorun
+
+Bir müşteri aynı anda iki karar alabiliyor: "bu alacağa karşılık ayır" ve
+"bu müşterinin tahsilatını takip et". Kural motoru bunu Faz 7'de düzeltmişti.
+
+Ama **API hâlâ tek karar döndürüyordu.**
+
+```
+kural motoru : [karsilik_ayir, tahsilat_takibi]   iki karar
+API          : karsilik_ayir                       sadece ilki
+```
+
+Yani batık bir müşteri için ERP karşılığı görüyor, **aynı müşterinin
+tahsilat takibini hiç görmüyordu.** Karar üretilmiş, veritabanına yazılmış,
+ama dışarı hiç çıkmamış.
+
+### Ne yaptık
+
+Finans ucu artık **liste** döndürüyor. Bu bir sürüm kırılımı — ama bu ucun
+repo dışında kullanıcısı yok, o yüzden `/v2/` açmadık.
+`ERP-ENTEGRASYON.md`'ye yazdık; gerçek bir ERP bağlandıktan sonra aynı
+gerekçe geçerli olmayacak.
+
+**Stok ucuna dokunmadık** — orada bir ürün için aynı anda birden fazla karar
+üreten kural yok, çoğullaştırmak karşılığı olmayan bir kırılma olurdu.
+
+### Bir kuralı korumak için fazladan iş
+
+Kararları tek tek işlemek en kolayı olurdu. Ama sıralama şöyle olurdu:
+
+```
+karar1 kaydet -> gerekce1 uret -> karar2 kaydet -> gerekce2 uret
+```
+
+Gerekçe1 üretilirken (6 saniye sürüyor) süreç ölse **karar2 hiç
+yazılmamış** olurdu. Oysa ikisi de zaten üretilmişti.
+
+Doğrusu:
+
+```
+karar1 + karar2 kaydet -> commit -> gerekce1 + gerekce2 -> commit
+```
+
+Gecelik iş zaten böyle çalışıyordu, API'yi ona hizaladık. Tekil yol da artık
+kendi kopyasını taşımıyor, çoğul yola bağlandı — yani bu sıra **tek bir
+yerde** yaşıyor.
+
+### Yolda çıkan iki şey
+
+**1. Testler yanlış veritabanına yazıyormuş.** Finans testleri kendi
+`istemci`'sini kuruyordu ve bu, ortak test kurulumunu gölgeliyordu. Sonuç:
+testler geliştirme veritabanına yazıyormuş. Kimse fark etmemiş çünkü hiçbir
+test veritabanını saymıyordu — "kararların hepsi kaydedildi mi" testini
+yazınca sayaç 0 gösterdi. Aynı hata daha önce başka bir dosyada da vardı.
+
+**2. Bir karar tipi hiç üretilmiyor.** `finans.kredi_limiti_dusur` 800
+müşterinin hiçbirinde çıkmıyor. Görev tanımı "üç kararlı müşteri" diyordu
+ama demo dünyada azami **iki** karar var. Testi sabit sayı yerine dünyadan
+okunan azami sayıyla yazdık, o tip canlanınca kendiliğinden kapsayacak.
+`BILINEN-EKSIKLER.md` §14'e yazıldı — kural motoru Melih'in sahası.
+
+---
+
+## Kimlik anahtarı sessizce kısalıyormuş
+
+B2 ve B3'ü Melih yaptı (ben araştırma aşamasındaydım, kod yazmamıştım —
+çakışma olmadı). İnceledim; kimlik doğrulama tarafı sağlam çıktı: şifre
+karşılaştırması sabit zamanlı, üretimde anahtarsız açılış engelli, yanlış
+anahtarla eksik anahtar aynı cevabı alıyor.
+
+Ama bir tuzak buldum.
+
+### Sorun
+
+Anahtar biçimi şöyle: `anahtar:kullanıcı:rol`. İki nokta ayraç.
+
+Peki ya anahtarın **kendisinde** iki nokta varsa?
+
+```
+ayarlanan : "Xy9:aBcD3fGh1jKlMnOpQrStUvWxYz0123"   34 karakter
+etkin     : "Xy9"                                    3 karakter
+kullanici : "aBcD3fGh1jKlMnOpQrStUvWxYz0123"
+```
+
+Anahtar sessizce kırpılıyor, gerisi kullanıcı adı oluyor. **Hiçbir uyarı
+çıkmıyor.** Yönetici 34 karakterlik bir anahtar koyduğunu sanırken servis üç
+karakterle açılıyor — kaba kuvvetle saniyeler içinde bulunur.
+
+Rol yükseltme riski **yok** (kontrol ettim): anahtar kümesi yalnızca iki
+noktadan önceki kısmı tutuyor, yani `anahtar:ad:yonetici` göndermek
+eşleşmiyor. Sorun yetki değil, anahtarın gücü.
+
+### Çözüm
+
+Üretimde açılışta kontrol: her anahtar en az 16 karakter olmalı. Değilse
+servis açılmıyor ve hata mesajı sebebi söylüyor ("büyük ihtimalle anahtarda
+`:` var").
+
+Geliştirmede kısıt yok — orada "test" gibi anahtarlar yaygın ve zararsız,
+zorlamak günlük akışı kilitlerdi.
+
+⚠️ Hata mesajına anahtarın kendisi **yazılmıyor**. Süreç günlüğüne kimlik
+bilgisi düşürmek, çözmeye çalıştığımız sorunun başka bir hâli olurdu.
+
+### Ayrıca: gruplama anahtarı
+
+Melih kuyruğu `(alan, kalem_adi)` ile gruplamış — yani **görünen ada** göre.
+İki farklı müşteri aynı adı taşırsa tek başlık altında birleşirler.
+
+Ölçtüm: 800 müşteri, 800 özgün ad, **0 çakışma**. Yani bugün güvenli.
+
+Ama bunu garanti eden bir şey yok. Doğru çözüm kaleme kimlik alanı eklemek,
+o da `contracts.py` değişikliği demek — bu tur bana yasak. Melih'e bildirdim,
+kararı birlikte vereceğiz.
+
+---
+
+## Gecelik özet, arızayı gizliyormuş
+
+Melih B5'i yaptı ve **benim dosyamda** üç kusur buldu (`app/llm/explain.py`).
+Alan-bağımsız sandığımız katman aslında stoka bağlıymış:
+
+```
+sablon_gerekce -> o.sku_adi          finansta patliyor
+egitilmis_istem -> "urun:"           istem hic kurulamiyor
+tip->alan haritasinda finans yok     anlatilacak sayi hep "yok"
+```
+
+Birleşik etkisi: **her finans kararı 0 saniyede şablona düşüyordu, model hiç
+çağrılmıyordu.** Melih üçünü de düzeltti.
+
+### Asıl sorun düzeltilmedi
+
+Kusurlar gitti ama şunu sordum: bu neden aylarca fark edilmedi?
+
+Sinyal **vardı**. Her şablona düşen gerekçe `guard_sonucu="sablona_dustu"`
+diye kaydediliyordu. Ama gecelik iş özeti onu göstermiyordu:
+
+```
+gerekce uretilen : 25
+```
+
+Bu satır, 25 gerekçenin modelden mi geldiğini şablondan mı düştüğünü
+**ayırmıyordu**. Yani tamamen bozuk bir koşu, tamamen sağlıklı bir koşuyla
+birebir aynı görünüyordu.
+
+### Ne yaptık
+
+Özet artık kırılımı gösteriyor ve yarıdan fazlası şablonsa uyarı basıyor:
+
+```
+ARIZALI KOSU:
+  gerekce uretilen   : 25  (gecti 0 · yeniden 0 · sablon 25)
+  ⚠️  gerekcelerin %100'i SABLONA DUSTU (25/25).
+      Model cagrilmiyor ya da o karar tipinde patliyor olabilir.
+
+SAGLIKLI KOSU:
+  gerekce uretilen   : 25  (gecti 23 · yeniden 2 · sablon 0)
+```
+
+⚠️ Şablona düşmek tek başına arıza **değil** — LLM erişilemezse tasarım
+gereği olan budur. Arıza olan **oranın yüksekliği**. O yüzden eşik koyduk,
+her şablona düşende bağırmıyor.
+
+Bu, bugünün "sayı tek başına yalan söyler" vakalarından biri daha. Sayaç
+doğruydu, yanlış olan neyi saydığıydı.
+
+### Bir de sızıntı taraması
+
+`.env.yedek` yanlışlıkla commit edilip sonra silinmiş. Git geçmişinde
+duruyor, yani silmek yetmez — içeriğine baktım (değerleri ekrana basmadan):
+**gerçek sır yok.** Sadece yerel ayarlar; en "hassas" görünen
+`OLLAMA_BASE_URL` ve o da `localhost`. Rotasyon gerekmiyor.
+
+Ama `.gitignore` kuralı sızan dosyanın **adını** kapatmış, tehlikeli genel
+durumu değil:
+
+```
+.env.uretim      -> commitlenebilirdi   <- gercek anahtarlari tasiyacak olan
+.env.production  -> commitlenebilirdi
+.env.local       -> commitlenebilirdi
+```
+
+Kuralı tersine çevirdik: `.env` ile başlayan her şey yok sayılıyor, örnek
+dosyalar tek tek geri açılıyor. Yeni bir varyant uydurmak artık
+kendiliğinden korunuyor.
+
+---
+
+## Faz 10 başladı: talep tahmini
+
+Yeni iş: **üretim planlama.** Ama üretim planı "gelecekte ne kadar satacağız"
+sorusunun cevabına dayanır ve sistemde o cevap **hiç yoktu** — bugüne kadar
+her karar tek bir ortalamaya (`ort_gunluk_talep`) bakıyordu, ufka değil.
+
+O yüzden önce tahmin çekirdeğini kurduk ve **ölçtük**. Üç karar katmanını
+(üretim emri, kapasite, malzeme ihtiyacı) ölçülmemiş bir tahminin üstüne
+kurmak, bugün beş kez yaşadığımız "sayı tek başına yalan söyler" hatasının
+en pahalısı olurdu.
+
+### Neden bu ölçüm gerçekten güvenilir
+
+Melih'in geriye dönük testinde haklı bir uyarı var: geçmiş veride bir
+*politikayı* ölçmek imkânsız. Sistemin önerdiği sipariş o gün verilmedi,
+dolayısıyla sonucu da gözlenemez.
+
+Tahminde bu sorun yok. Tahmin et, gerçekleşeni oku, karşılaştır. "Ya şöyle
+yapsaydık" yok. Bu, sistemdeki en doğrudan yorumlanabilir ölçüm.
+
+### İlk sonuç yanılttı
+
+Ölçümü koşturduk, üç yöntem de "naif tabandan iyi" çıktı:
+
+```
+hareketli_ortalama   MASE 0,51
+mevsimsel_naif       MASE 0,38
+ussel_duzlestirme    MASE 0,58
+```
+
+Ama bir şey ters görünüyordu: **en basit yöntem, karmaşık modelden iyiydi.**
+Kazandığı yerde kaybetmesi gereken bir model varsa, ölçümde bir sorun vardır.
+
+### Katmanlara ayırınca tablo tersine döndü
+
+Katalog **aralıklı talep** ağırlıklıymış — medyan günlük satış **0,07**, yani
+iki haftada bir. Kalemleri talep hızına göre ayırdık:
+
+```
+katman            kalem   hareketli  mevsimsel   ussel
+hizli (>=2/gun)     197      0,98       0,93     0,84   <- model kazaniyor
+orta                273      0,98       0,94     1,06
+yavas (<0,3/gun)   1530      0,77       0,52     1,49   <- model FELAKET
+```
+
+Karmaşık model yalnızca **hızlı kalemlerde** işe yarıyor. Kataloğun
+**%76'sını** oluşturan yavaş kalemlerde naif tabandan **%49 kötü**.
+
+Sebebi de belli: klasik üssel düzleştirme çoğu günü sıfır olan seriler için
+yanlış model ailesi. Simülatör bile o kalemler için ayrı bir "aralıklı
+talep" süreci kullanıyor.
+
+### Sonuç: tek model seçilemez
+
+Rapor artık bunu **kendisi söylüyor**. Hiçbir yöntem her katmanda kazanmıyorsa
+uyarı basıyor:
+
+```
+⚠️ TEK BIR YONTEM HER KATMANDA KAZANMIYOR.
+   Kalem bazinda yontem secimi gerekiyor; tek model secmek
+   katalogun bir kismini bilerek kotu tahmine baglar.
+```
+
+Toplam satırının yanına da not düştük: *"bu satır tek başına karar dayanağı
+değil."*
+
+### İki kişilik bölüşme
+
+Yeni bir alan eklemek doğal olarak Melih'in sahasına düşüyordu (kural
+motoru, simülatör, sözleşme). Tahmini **ayrı bir servis** yaptık:
+
+```
+Melih:  fabrika dunyasi -> uretim kurallari --+
+                                              | cagirir
+Ben:                        app/forecast  <---+
+```
+
+Aramızdaki tek bağ `TalepTahmini` sözleşmesi — dondurulmuş, küçük, tek
+dosya. Onun dışında birbirimizi beklemeden çalışabiliyoruz.
+
+⚠️ Sözleşmede **bant zorunlu**, tek sayı yeterli değil. Üretim planı
+belirsizliği göremezse emniyet payını körlemesine seçer.
+
+---
+
+## Aralıklı talep modeli — ve ölçümün üç kez yanılttığı yer
+
+Kataloğun dörtte üçü yavaş satan kalem. Orada en iyi seçeneğimiz naif
+tabandı. Croston yöntemini yazdık — aralıklı talep için doğru model ailesi.
+
+### Croston'un fikri
+
+Seriyi ikiye böl:
+
+```
+gunluk seri : 0 0 0 0 3 0 0 0 0 0 0 2 0 0 0 0 4 ...
+buyukluk    : 3, 2, 4         (yalniz talep gunleri)
+aralik      : 7, 6, 8         (talepler arasi gun)
+```
+
+İkisini ayrı düzleştir, oranla. Sıfırlar artık seviyeyi bozmuyor; "ne kadar"
+ile "ne sıklıkta" ayrı öğreniliyor.
+
+### Yanılma 1 — teşhis yanlıştı
+
+Croston **+%91 yukarı yanlı** çıktı. SBA'nın varlık sebebi yanlılığı
+düşürmek olduğu için bu teoriye aykırıydı — ve teoriye aykırı sonuç, önce
+kendi kodundan şüphelenmeyi gerektirir. Başlangıç değerinde bir kusur
+bulundu ve düzeltildi.
+
+**Sayı neredeyse hiç oynamadı** (+%91 → +%94). Teşhis yanlıştı.
+
+### Yanılma 2 — hata koddaki değil ölçümdeki
+
+Ölçüm yalnızca serinin **son üç penceresinden** örnek alıyordu. O dönemde
+talep düşüktü, dolayısıyla her yöntem yukarı yanlı görünüyordu — en basit
+yöntem (`hareketli_ortalama`) bile **+%87**. Sayı modelin değil, örnekleme
+penceresinin özelliğiydi.
+
+Kesmeler kullanılabilir aralığın tamamına yayıldı. Croston teorinin
+söylediği yere indi: **%0 yanlılık.**
+
+### Yanılma 3 — MASE üretim planının sorusunu hiç sormuyor
+
+Ölçüm başından beri MASE kullanıyordu ve yavaş katmanda `mevsimsel_naif`'i
+kazandırıyordu. Sebebi şu: aralıklı seride günlerin çoğu gerçekten sıfır,
+dolayısıyla **"hiç satmayacağız" demek gün gün en yakın cevap.** MASE bunu
+ödüllendiriyor.
+
+Üretim planı ise `toplam()` ve `toplam_bandi()` okuyor — "önümüzdeki 14
+günde ne kadar satılacak, kötü senaryoda ne kadar". Ölçüme o soru eklendi
+ve üç yeni sütun açıldı: **yanlılık** (sapma hangi yönde), **bağıl hata**
+(sapma ne kadar), **sıfır oranı** (kaç pencerede "hiç üretme" diyor).
+
+⚠️ Yanlılık ve bağıl hata birbirinin yerine geçmiyor. Pencerelerde sırayla
++%100 ve −%100 sapan bir yöntem yanlılıkta **mükemmel** görünür; hatalar
+birbirini götürür. İkisi ayrı ayrı basılıyor, testi de var.
+
+### Ölçülen (2.000 kalem, ufuk 14 gün)
+
+```
+yontem              MASE(yavas)  yanlilik  sifir%  bagil hata(yavas)  bant
+croston                 1,12         0%     28%          1,59         93%
+sba                     1,08        -7%     28%          1,54         93%
+hareketli_ortalama      1,12        -1%     60%          1,59         92%
+mevsimsel_naif          1,08        +1%     68%          1,61         82%
+ussel_duzlestirme       1,55        +7%     34%          2,29         91%
+```
+
+MASE tablosunda `mevsimsel_naif` önde. Ama **pencerelerin %68'inde "hiç
+üretme" diyor** — üretimi sistematik olarak durdurur. Croston %28.
+
+**Karar: üretim emri kuralı Croston kullanacak.** Sebebi SBA'nın 0,05'lik
+bağıl hata üstünlüğü değil, yanlılık: SBA bu veride **−%7**, Croston **%0**.
+SBA'nın düzeltmesi düzeltecek bir yanlılık bulamayıp aşağı kaydırıyor.
+Üretim planında sistematik eksik tahmin = kronik stoksuzluk. Gerçek veride
+(B10.4) yeniden bakılacak; teori SBA'yı haklı çıkarabilir.
+
+### Bant, okunduğu yerde kalibre edildi
+
+İlk sürüm üst bandı "tipik bir talep gününün büyüklüğü" olarak koyuyordu.
+Sözleşme bandı gün gün taşıdığı ve `toplam_bandi()` onları topladığı için bu,
+10 günde bir 5 adet satan kalemde iki haftalık üst sınırı ~70 adete
+çıkarıyordu — gerçeğin on katı. Emniyet payı o sayıyı okuyacaktı.
+
+Şimdi bant geçmişteki **gerçek 14 günlük toplamların** ampirik
+kuantillerinden kuruluyor. Gerçek toplamın bandın içinde kalma oranı yavaş
+katmanda **%93** — ölçülmüş bir belirsizlik, varsayılmış bir dağılım değil.
+
+### Aynı işi iki kişi paralel yaptı
+
+B10.2'yi iki taraf da bağımsız yazdı ve ikisi de aynı asıl bulguya vardı
+(MASE üretim planı için yanlış ölçüt). Birleştirmede kalanlar: kesme
+penceresi düzeltmesi ve yanlılık/sıfır oranı ölçütleri bir taraftan, ampirik
+bant ve bağıl hata/bant kapsama ölçütleri diğerinden. İkisi çakışmıyor,
+tamamlıyor.
+
+Ama bedeli var: **görev dosyasındaki sahiplik tablosu tam bunu önlemek için
+vardı** (`app/forecast/**` tek tarafta). Aynı gün ikinci kez oldu.
+
+### Bugünün dersi, yedinci kez
+
+Sayı doğruydu; yanlış olan **neyi ölçtüğüydü**. Dört kez farklı biçimde
+çıktı:
+
+1. Toplam MASE, katmanlar arası farkı gizliyordu
+2. Kuyruktan örnekleme, yanlılığı modelin özelliği gibi gösteriyordu
+3. MASE'nin kendisi, üretim planının sorusunu sormuyordu
+4. Bant, okunduğu yerden başka bir yerde kalibre ediliyordu
+
+Ve bir de beşincisi, süreç tarafında: **yazıya geçen sayıların hiçbiri
+yeniden üretilemedi.** Adım 1-2'nin belgelediği tablo (yavaş katmanda 0,52)
+da, bu turun commit mesajındaki tablo (0,50 / −%20 / %90) da depodaki kodla
+koşulduğunda çıkmıyor. İkisi de doğrulandı: değişiklikler geri alınıp aynı
+kodla koşuldu, sayılar bugünküyle bit bit aynı çıktı.
+
+Sebep muhtemelen masum — ara bir koşunun çıktısı yazıya geçmiş, kod sonra
+değişmiş. Ama sonucu masum değil: bu belgede yazılı bir sayı, karar
+gerekçesi oluyor. Bundan sonra rapor çıktısı olduğu gibi yapıştırılacak,
+elle özetlenmeyecek.
+
+---
+
+## Sistem ilk kez "şu kadar üret" diyor
+
+Faz 10'un üçüncü adımı: tahmin katmanı artık "önümüzdeki 14 günde ne kadar
+satacağız" sorusunu cevaplıyordu, ama sistem o cevabı kullanıp bir şey
+**önermiyordu**. Şimdi öneriyor.
+
+Gerçek simülasyon verisinde:
+
+```
+uretilen kalem : 300 / 2000
+uretim.emir_ac         99
+uretim.aksiyon_yok    201
+```
+
+Örnek bir karar:
+
+```
+Taş Yünü Levha - Rockwool (S-01738) hat=H-01
+  tahmin 649,5 [649,5 - 1364,0] (croston) | elde 10
+  -> 1500 adet, 14,4 saat hat yuku, 195.583 TL, guven 0,67
+```
+
+### Kural, stok siparişinin ikizi — ama ROP formülü kopyalanmadı
+
+Stokta yeniden sipariş noktası şöyle: ortalama talep × tedarik süresi +
+emniyet stoğu. Emniyet stoğu normal dağılım varsayar.
+
+Üretilen kalemlerin bir kısmı aralıklı talepli ve orada o varsayım tutmuyor
+— dağılım sıfırda yığılmış. Ama elimizde zaten daha iyisi vardı: tahmin
+katmanı bandı **ampirik kuantillerden** kuruyor, yani "bu kalem 14 günde
+tarihsel olarak en fazla şu kadar sattı" bilgisi ölçülmüş durumda.
+
+Onun üstüne bir de normal varsayımlı emniyet stoğu hesaplamak, ölçülmüş bir
+sayının yerine varsayılmış bir sayı koymak olurdu. İhtiyaç doğrudan bandın
+üst sınırından geliyor.
+
+### İki katmanlı uyarlanabilirlik
+
+Kullanıcı şartı şuydu: *"farklı bir fabrikaya da uygun bilgiler verilirse ona
+da adapte olabilsin."* Bunu iki ayrı yere böldük ve bölmemek profili
+bakılamaz hâle getirirdi:
+
+```
+UretimProfili (JSON)        planlama ufku, emniyet payi, parti politikasi
+                            ~10 alan, is sahibi elle yazar
+
+fabrika ana verisi (CSV)    urun agaci, hatlar, rotalar, sureler
+                            binlerce satir, ERP'den gelir
+```
+
+Ürün ağacını profile koymak cazip ve yanlış: elle düzenlenen bir dosyaya
+binlerce satır koymak, onu kimsenin açmadığı bir dosyaya çevirir.
+
+### Üçüncü kez taşınan iskelet
+
+`UretimOzellikleri`, `StockFeatures` ve `FinansOzellikleri` ile **aynı
+iskelette**: kimlik, durum, davranış profili, sınıflandırma + hedef, para,
+karşı taraf, bağlam. ABC/XYZ sınıfları da yeniden kullanıldı, yenisi
+tanımlanmadı.
+
+Bir yerde ayrışmak zorunda kaldı: oto-uygulama engeli. Stokta "tedarikçi
+onaylı değil", finansta "kredi onaysız" — ikisi de **karşı tarafla** ilgili.
+Üretimde karşı taraf yok, fabrika bizim. Engeli tahminin kendisine bağladık:
+90 günden az geçmişi olan kalemde emir insan onayına düşüyor. Ölçülmemiş bir
+sayıya makine hızında para bağlamamak için.
+
+### Dürüst iki eksik
+
+**1. `emir_erteleme` kolu gerçek veride hiç tetiklenmedi.** Simülatörde parti
+büyüklüğü kalemin ~10 günlük talebi olarak seçiliyor, ekonomiklik eşiği ise 3
+gün — bir parti her zaman eşiği geçiyor. Kol birim testli ama sahada
+denenmemiş.
+
+Bunu "ölü tip" saymadık, çünkü gerçek fabrikada parti büyüklüğü talebe göre
+değil **hatta göre** belirlenir ve kural orada tetiklenir. Ama `tedarikci_degisim`
+tipinin aylarca ölü durduğunu da gördük; gerçek CSV geldiğinde ilk bakılacak
+şey bu diye yazıya geçti.
+
+**2. Gerekçe metni zayıf.** Üretim kararları `explain.py`'de kendi şablonuna
+sahip değil, alan-bağımsız son çareye düşüyor. Metin doğru ve **patlamıyor**
+— bunun testini önceden yazdık, çünkü Faz 6'da finans tam burada sessizce
+şablona düşmüştü. Şablonları yazmak Adım 6'nın işi.
+
+---
+
+## Hat dolduğunda ne olur
+
+Üretim emri kararı tek tek kalemlere bakıyordu: "bu üründen şu kadar üret."
+Ama fabrikanın bir kapasitesi var ve bütün emirler aynı hatlara düşüyor.
+Adım 4 o kısıtı görünür kılıyor.
+
+Gerçek veride ilk koşuda çıktı:
+
+```
+H-01: yuk     97,5 saat / kapasite   190,4 saat  ( 51%)
+H-02: yuk    116,7 saat / kapasite    95,2 saat  (123%)   <- asim
+H-03: yuk     27,1 saat / kapasite   285,6 saat  (  9%)
+```
+
+Montaj hattı %123 dolu. Sistem 7 emri erteliyor.
+
+### Hangi emir ertelenir — ve neden "para" yanlış cevap
+
+İlk akla gelen ölçüt tutar: küçük emirleri ertele, büyükleri koru. Bu yanlış
+olurdu. Pahalı bir kalemin stoğu bitmek üzereyken ucuz bir kalem için hattı
+açık tutmak, tam olarak kaçınmak istediğimiz şey.
+
+Doğru ölçüt **zaman**: eldeki mal kaç gün daha yeter.
+
+```
+kapsama_gun = eldeki + acik emirler / gunluk tahmin
+```
+
+2 gün yeten kalemi ertelemek stoksuzluk demek. 40 gün yeteni ertelemek
+yalnızca emri öteler. Gerçek koşuda ertelenenlerin kapsaması 43, 36, 32, 30,
+26 gün çıktı — kural amaçlandığı gibi davranıyor.
+
+### Ortogonal kol, ortogonal üretiliyor
+
+Kapasite kararı emir kararını **susturmuyor**. Bir kalem için hem "emir aç"
+hem "hat dolu, ertele" aynı anda doğru olabilir ve ikisi ayrı ayrı
+onaylanmalı.
+
+Bu, Faz 7'de pahalıya öğrenilen dersin doğrudan uygulaması: finansta üç karar
+kolu `elif` zincirine sokulmuştu ve biri diğerini sessizce susturuyordu. Kural
+şu: aynı soruya cevap veren kollar dışlayıcı olur, farklı sorulara cevap
+verenler listeye ayrı eleman olarak girer.
+
+### Ne kasıtlı olarak yapılmadı
+
+Vardiya planlama ve iş sırası optimizasyonu **kapsam dışı**. Bu teknik bir
+eksiklik değil, mimari bir sınır.
+
+Sistemin otonomi modeli kalem bazında insan onayına dayanıyor: her karar tek
+tek onaylanabilir, reddedilebilir, gerekçesi okunabilir. "Tüm fabrikayı
+optimize et" çıktısı bu modele sığmıyor — tek bir çizelgeyi onaylamak,
+içindeki yüzlerce örtük kararı görmeden onaylamak olurdu.
+
+Sistem kısıtı görünür kılıyor ve erteleme öneriyor. Çizelgeyi kurmuyor.
+Bu değişecekse önce mimari kararı konuşulmalı.
+
+---
+
+## Sistem artık kendi kendine plan çıkarıyor
+
+Adım 5 ve 6 birlikte, üretim planlamasını "elle çağrılan bir fonksiyon"dan
+"gece kendiliğinden koşan bir sistem"e çevirdi.
+
+### Adım 5 — MRP: iki alanı ilk kez birbirine bağlayan yer
+
+Üretim emri açıyorduk ama "bu emri koşturmak için hangi hammaddeden ne kadar
+lazım" sorusu cevapsızdı. MRP ürün ağacını patlatıp bunu çıkarıyor.
+
+**Ayrı bir karar türü yapmadık.** `uretim.malzeme_siparis` diye bir tip
+tanımlamak cazipti — ve yanlış olurdu: aynı hammadde için iki ayrı kaynaktan
+iki sipariş kararı çıkardı, ikisi birbirini görmezdi ve tam olarak kaçınmaya
+çalıştığımız şey olurdu: üst üste sipariş.
+
+Bunun yerine MRP çıktısı mevcut stok kararının **girdisi**:
+
+```
+StockFeatures.mrp_ihtiyaci  ->  yeniden siparis noktasinin USTUNE eklenir
+```
+
+Küçük ama önemli bir ayrıntı: ihtiyaç stoktan **düşülmüyor**, eşiğe
+ekleniyor. Düşseydik `kullanilabilir_stok` bozulurdu ve o sayı gerekçe
+metninde geçiyor — insan "elde 300 var" derken sistem 180 yazardı. Eşiği
+yükseltmek soruyu doğru soruyor: "satış talebi + üretim talebi toplamını
+karşılayacak stoğum var mı?"
+
+Alanın varsayılanı 0, yani eklenmesi tek başına hiçbir sayıyı oynatmıyor.
+Testi de var.
+
+### Ürün ağacında bir riski kontrol etmek yerine imkânsız kıldık
+
+Bileşenler yalnızca **satın alınan** kalemlerden seçiliyor. Sebebi:
+A parçası B'yi, B de A'yı içerirse patlatma sonsuza gider. Bunu bir döngü
+kontrolüyle yakalamak yerine, kurulumu döngü kuramayacak şekilde
+kısıtladık.
+
+Çok katmanlı ağaç (yarı mamul → mamul) sonraki iş. Önce tek katman
+doğrulanır; çok katmanlıda çıktı yanlışsa hatanın hangi katmanda olduğunu
+ayırt etmek zor.
+
+### Adım 6 — ve B5'in tekrarını önleyen test
+
+Servis katmanı üç parça: API ucu, gerekçe şablonları, gecelik tarama.
+
+Gerekçe tarafında bir tuzak vardı ve daha önce içine düşülmüştü. Faz 8'de
+"model finansı hiç görmedi" diye bir tespit vardı; sebebi eğitim eksikliği
+sanılmıştı. Gerçek sebep başkaydı: finans tipleri `_TIPE_GORE_ALANLAR`
+sözlüğünde yoktu, dolayısıyla modele verilecek sayı listesi boş dönüyor,
+"anlatılacak sayı var mı" sorusu False çıkıyor ve **model hiç
+çağrılmıyordu**. 25 kararın 25'i 0 saniyede şablona düşmüştü.
+
+Sessiz bir kusur — ancak ölçünce görünüyor. Üretim tipleri o yüzden dört
+tabloya birden, kod yazılmadan önce eklendi ve testi de önce yazıldı.
+
+### Gecelik tarama gerçekten koştu
+
+```
+taranan SKU        : 3.133
+kuyruga giren      : 1.155
+gerekce uretilen   : 10  (gecti 5 · yeniden 1 · sablon 4)
+TOPLAM             : 187,9 sn        (hedef < 600 sn)
+```
+
+Alan bazında guard kırılımı — planın doğrulama ölçütü tam buydu:
+
+```
+uretim.emir_ac    gecti              1
+uretim.emir_ac    yeniden_uretildi   1
+uretim.emir_ac    sablona_dustu      0
+```
+
+Şablona düşme oranı **%0** (eşik %50). B5'teki gibi sessiz bir kopukluk yok.
+
+⚠️ Ama örneklem küçük: yalnızca 2 üretim gerekçesi üretildi, çünkü gerekçe
+yalnızca en riskli ilk N karar için çıkarılıyor. Bu sayı "alan bağlanmamış"
+kusurunun **yokluğunu** gösteriyor; gerekçe kalitesi hakkında bir şey
+söylemiyor.
+
+### Faz 10 bitti — ve nerede durduğumuz
+
+Sistem artık gece kendiliğinden koşuyor, 3.133 kararı 188 saniyede üretiyor,
+üretim planını kendi çıkarıyor ve gerekçesini Türkçe yazıyor.
+
+Ama hâlâ `shadow` modda: karar veriyor, kaydediyor, **hiçbir şey
+uygulamıyor**. Kendi başına uygulaması için `threshold` moda geçmesi gerekiyor
+ve o kapı bilerek kapalı — projenin kendi kuralı: *shadow modda ölçülmüş
+doğruluk raporu olmadan threshold'a geçilmez.*
+
+Ve bütün bu sayılar simülasyondan. Gerçek ölçüt üç CSV'nin gelmesi.
+
+---
+
+## Genel planlama motoru — ve "genel" kelimesinin bedeli
+
+Amaç en baştan beri alan-özel çözümler değil, **genel bir karar
+mekanizması**. Kural motoru bu sınavı bir kez geçmişti: aynı iskelet stok,
+finans ve üretime yeniden yazılmadan taşındı.
+
+Planlama tarafında sınav verilmemişti. Çizelge üretimin içindeydi ve "hat",
+"emir", "parti" kelimeleriyle konuşuyordu — ikinci bir alan gelse
+kopyalanması gerekirdi.
+
+### Motor alan kelimelerinden arındırıldı
+
+```
+hat / arac / kisi / makine        ->  Kaynak
+uretim emri / sevkiyat / vardiya  ->  Is
+saat / km / adam-saat             ->  kapasite birimi
+```
+
+Motor "üretim" diye bir şey bilmiyor. Sıralıyor, yerleştiriyor, güne
+taşıyor. Aciliyetin **anlamı** alana ait; motor yalnızca sırayı biliyor.
+
+### Genellik nasıl kanıtlandı
+
+İki şeyle. Birincisi: üretim çizelgesi motora taşındıktan sonra **mevcut 9
+test değiştirilmeden geçti**. Değiştirmek gerekseydi davranış kaymış olurdu.
+
+İkincisi ve asıl olan: ikinci bir alan eklendi ve **tek satır kod
+yazılmadı** — sadece bir JSON dosyası. Motor araçları kendi dağıttı,
+uygunluk kısıtına uydu, bölünemez işi güne yaymadı.
+
+Bir test bunu bağlıyor: iki alan da `plan_kur`'u çağırmazsa test kırılıyor.
+Tek kullanıcısı olan bir "genel" motor genel değil, yalnızca soyutlanmıştır.
+
+⚠️ `ornekler/nakliye.json` bir **ürün özelliği değil, test verisi**. Karar
+tipi yok, API ucu yok, ekran yok. Adları da bilinçli olarak soyut ("Araç 1",
+"Teslimat A") — gerçek bir işletme temsil etmiyor.
+
+### "İyi plan" artık tarif edilebilir
+
+Sistem "en iyi planı" bilmiyor ve bilemez: en iyi işe göre değişir. Bunun
+yerine aynı veriden üç plan çıkarıp farkı **parayla** koyuyor. Gerçek üretim
+verisinde:
+
+```
+                  "en acil önce"  "en çok iş bitir"  "en değerli önce"
+yerleşen iş             92              95                 94
+ufka sığmayan            7               4                  5
+karşılanamayan    28.258 TL       16.642 TL           3.854 TL
+
+· stoksuzluk      70.645 TL       41.604 TL           9.634 TL
+· elde tutma       8.863 TL        6.988 TL           9.297 TL
+· kurulum         23.000 TL       23.750 TL          23.500 TL
+BEKLENEN MALİYET 102.509 TL       72.342 TL          42.431 TL
+
+→ "en değerli önce" öneriliyor: 29.912 TL düşük.
+```
+
+Öneri "bence" değil: maliyet bileşenleri işletme profilinde zaten tanımlı
+(stok tükenmesi ceza çarpanı 2,5; elde tutma %25; kurulum 250 TL).
+
+⚠️ Ve maliyet bir **tahmin**. Üç varsayıma dayanıyor ve üçü de tablonun
+altında basılıyor. Tek bir sayıya indirgeyip tabloyu gizlemek, bu projede
+beş kez yaşanan hatanın yeni bir biçimi olurdu. Mutlak değeri değil,
+planlar arasındaki **fark** anlamlı.
+
+### Çizelge hâlâ karar değil
+
+Motor karar üretmiyor, `DecisionCandidate` kurmuyor, DB'ye yazmıyor. Girdisi
+zaten onaylanabilir kararlar; yaptığı tek şey onları zamana dizmek. Onay
+modeli kalem bazında kalıyor.
+
+Bir test bu sınırı koruyor: çizelge kaynağında `DecisionCandidate(` geçerse
+kırılıyor.
+
+### Testin yakaladığı iki gerçek hata
+
+**1. Sıralamada rastgele UUID.** Eşitlik `karar_id` ile kırılıyordu ve o
+alan her karar üretiminde yeniden atanıyor. Aynı fabrika durumu iki kez
+hesaplandığında **farklı plan** çıkıyordu — "sistem neden fikir değiştirdi"
+sorusunun cevabı "değiştirmedi, zar attı" olurdu. Kapasite modülünde de aynı
+hata vardı ve oradaki test göremiyordu, çünkü aynı listeyi iki kez
+veriyordu.
+
+**2. Doluluk hesabı ufku saymıyordu.** %535 doluluk çıkıyordu: yük 14 gün
+boyunca birikirken kapasite günlüktü. Sözleşmenin bilmesi gereken bir şeyi
+(ufuk) çağıran tarafta yeniden hesaplamak tam olarak böyle hatalar üretir.
+
+### Otonomi bir basamak ilerledi
+
+`.env` artık `advisory`: sistem karar üretiyor, gerekçesini yazıyor,
+**hiçbir şeyi uygulamıyor**. Yol belli — önce öneri, sonra küçükleri kendi
+uygular, giderek tam otomatik. Kademe atlamanın tek kapısı ölçüm.
+
+⚠️ Bu değişiklik iki testi kırdı ve ikisi de haklı olarak kırıldı: ortamdan
+gelen bir ayara bağlıydılar. Shadow davranışını sınayan test shadow modunu
+kendisi kurmalı; ortam değişince kırılan test davranışı değil kurulumu
+ölçüyordu.
+
+---
+
+## Genel arayüz: sistem artık cevabın kendisini veriyor
+
+Bugüne kadar `/v1/ask` şunu yapıyordu: Türkçe soruyu alıp **"hangi araç"**
+diye cevap veriyordu. Aracı çalıştırmıyordu.
+
+Bu bilinçliydi — ölçülen şey "doğru aracı seçebiliyor muyuz" idi ve
+çalıştırmayı aynı adıma sıkıştırmak, yanlış yönlendirmeyi doğru sonucun
+arkasına gizlerdi. O ölçüm yapıldı. Eksik olan cevabın kendisiydi.
+
+### İki yarısı var ve güvenilirlikleri farklı
+
+```
+arac calistirma   araç adı → fonksiyon      DETERMINISTIK, LLM'siz
+arac secimi       Türkçe soru → araç        %86,7 ve 7 araçla sınırlı
+```
+
+Bu ayrım pratik: model hata yapsa da araç katmanı doğru çalışıyor, model
+erişilemese bile araç doğrudan çağrılabiliyor. İkisini aynı yere koymak,
+arayüzün tamamını modelin doğruluğuna bağlardı.
+
+Artık `POST /v1/ask?calistir=true` cevabın kendisini döndürüyor. Örneğin
+kapasite sorusu:
+
+```json
+{"erteleme_onerisi": 7,
+ "hatlar": [{"hat": "Montaj Hattı", "yuk_saat": 116.7,
+             "kapasite_saat": 95.2, "doluluk": 1.226}]}
+```
+
+⚠️ Çalıştırma **varsayılan değil**. Yanlış seçilmiş bir aracı koşturmak,
+kullanıcıya "anlamadım" demekten daha kötü: yanlış cevabı doğru gibi sunar.
+
+### Ölçüm bir tahmini doğruladı
+
+Üretim ve planlama araçlarını ekledim, sonra sordum: mevcut doğruluk bozuldu
+mu? **Bozulmadı** (%80 → %86,7). Ama iyileşmeyi buna bağlamak yanlış olurdu —
+aynı anda model de tur5'ten tur6'ya geçmişti ve ikisi ayrıştırılamaz. Bunu
+olduğu gibi yazdım.
+
+**Asıl bulgu başkaydı:** model 30 sorunun hiçbirinde yeni araçlardan birini
+seçmedi. Hiçbirinde.
+
+Sebebi mimaride: eğitilmiş kipte istem araç listesi **taşımıyor** (600 token
+yerine 20). Model yalnızca ağırlıklarına işlenmiş adları üretebiliyor ve
+üretim araçlarını eğitimde hiç görmedi.
+
+Yani bir aracı eklemek onu **çalıştırılabilir** yapıyor, modelin onu
+**seçebilir** olmasını sağlamıyor. İki küme artık sözleşmede ayrı:
+
+```
+AracAdi                -> calistirilabilir araclarin tamami (11)
+EGITILMIS_ARAC_ADLARI  -> modelin secebildikleri (7)
+```
+
+Ve testi var: ikisi eşitlenirse test kırılıyor. Çünkü eşitlendiği gün "model
+bunu da seçer" yanılgısı doğar.
+
+### Üç test kırıldı ve üçü de haklıydı
+
+Araçları eklediğimde üç test kırıldı. Hiçbirini "gevşetmedim":
+
+- İkisi `AracAdi`'nin Kişi A'nın eğitim verisiyle **birebir aynı** olmasını
+  bekliyordu. Artık doğru soru şu: eğitilmiş **alt küme** aynı mı? Öyle.
+- Biri ölçüm soru setinin tüm araçları kapsamasını istiyordu. Yeni araçlar
+  o sete **eklenmedi** — eklenseydi 30 soruluk taban çizgi bozulur ve yeni
+  koşular kayıtlı sayıyla (%70 · 21/30) kıyaslanamaz hale gelirdi.
+
+Testler kuralı korudu; ben kuralı inceltmek zorunda kaldım. Doğru sıra bu.

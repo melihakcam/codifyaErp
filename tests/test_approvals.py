@@ -90,8 +90,36 @@ def test_her_karar_denetim_satiri_birakir(istemci: TestClient, api_oturumu: Sess
 def test_gerekce_istenince_denetime_guard_sonucu_yazilir(istemci: TestClient, api_oturumu: Session):
     _karar_uret(istemci, gerekce=True)
 
-    kayit = api_oturumu.scalars(select(DecisionAudit)).one()
-    assert kayit.guard_sonucu is GuardSonucu.SABLONA_DUSTU
+    # ⚠️ `?gerekce=true` **iki** denetim satırı yazar, bir değil:
+    #
+    #   1. karar kaydedilirken   -> guard_sonucu = ATLANDI (gerekçe henüz yok)
+    #   2. gerekçe üretildikten sonra -> gerçek guard sonucu
+    #
+    # Sebebi yazma sırası: karar, LLM çağrısından ÖNCE kalıcı hale getiriliyor
+    # ki 6 saniyelik üretim penceresinde süreç ölse bile karar kaybolmasın
+    # (bkz. `app/api/decisions.py`). `nightly.py` de aynı deseni kullanıyor —
+    # gerekçe üretimi ayrı bir olay, ilk satırın üstüne yazılmıyor.
+    #
+    # Denetim izinin amacı zaten bu: "ne zaman ne oldu" görünsün.
+    kayitlar = api_oturumu.scalars(select(DecisionAudit)).all()
+    assert len(kayitlar) == 2, "karar olayı + gerekçe olayı ayrı satırlar olmalı"
+    assert kayitlar[0].guard_sonucu is GuardSonucu.ATLANDI
+
+    kayit = kayitlar[-1]
+    # ⚠️ Belirli bir guard sonucuna bağlanmıyor. Bu test stub döneminde
+    # `SABLONA_DUSTU` bekliyordu (`explain_stub` her zaman şablon dönerdi);
+    # gerçek model bağlandıktan sonra sonuç **hangi modelin yapılandırıldığına**
+    # bağlı hale geldi (taban model guard'ı geçiyor, eğitilmiş model çoğunlukla
+    # şablona düşüyor — bkz. OLCUMLER.md "2. turun KÖK NEDENİ").
+    #
+    # Burada doğrulanan asıl davranış: gerekçe istendiğinde denetim satırına
+    # **gerçek bir guard sonucu** yazılıyor, `ATLANDI` kalmıyor.
+    assert kayit.guard_sonucu is not GuardSonucu.ATLANDI
+    assert kayit.guard_sonucu in {
+        GuardSonucu.GECTI,
+        GuardSonucu.YENIDEN_URETILDI,
+        GuardSonucu.SABLONA_DUSTU,
+    }
 
     satir = api_oturumu.scalars(select(Decision)).one()
     assert satir.gerekce_metni is not None
@@ -176,12 +204,22 @@ def test_duzeltme_aksiyonu_feedbacke_yazilir(istemci: TestClient, api_oturumu: S
     assert geri.duzeltilmis_aksiyon == {"siparis_miktari": 800}
 
 
-def test_kullanici_zorunlu(istemci: TestClient):
-    """Kararı kimin verdiği bilinmeden denetim izi eksik kalır."""
+def test_kullanici_bos_birakilinca_varsayilana_dusuyor(istemci: TestClient):
+    """⚠️ Bu test B3'te değişti ve sebebi öğretici.
+
+    Önceden `kullanici` alanı zorunluydu (422) — "kararı kimin verdiği
+    bilinmeden denetim izi eksik kalır" gerekçesiyle. Ama o zorunluluk sahte
+    bir güvence veriyordu: alan serbest metindi, kutuya "genel müdür" yazan
+    herkes denetim kaydına öyle geçiyordu.
+
+    B3'te isim **anahtardan** gelmeye başladı. Doğrulama açıkken gövdedeki
+    alan yok sayılıyor; kapalıyken (bu test) beyana düşülüyor ve boşsa
+    varsayılan yazılıyor. Zorunlu tutmanın bir kıymeti kalmadı.
+    """
     karar_id = _karar_uret(istemci)["aday"]["karar_id"]
 
     cevap = istemci.post(f"/v1/approvals/{karar_id}", json={"eylem": "onayla"})
-    assert cevap.status_code == 422
+    assert cevap.status_code == 200
 
 
 def test_onay_karar_veren_ve_zamani_kaydeder(istemci: TestClient, api_oturumu: Session):

@@ -82,7 +82,7 @@ def sku_bolmelerini_olustur(
 ) -> dict[str, Bolme]:
     """Her SKU'yu tek bir bölmeye atar — o SKU'nun TÜM kayıtları bu bölmede kalır."""
     _oranlari_dogrula(oranlar)
-    sirali = sorted(set(sku_ids))
+    sirali = sorted(set(str(s) for s in sku_ids if s is not None))
     return {sku_id: _metne_gore_bol(sku_id, oranlar, tuz=f"sku-{seed}") for sku_id in sirali}
 
 
@@ -98,17 +98,27 @@ def gerekce_veri_setini_bol(
     metni. `gerekceler.jsonl` tek başına yeterli değil (bkz. `label_rationale.py`
     docstring'i) — girdi tarafı burada tamamlanıyor.
     """
-    gerekce_indeks = {(g["sku_id"], g["tarih"]): g for g in gerekceler}
+    # ⚠️ Birleştirme anahtarı ALAN-BAĞIMSIZ olmalı. Önceden `sku_id`'ye
+    # çakılıydı ve finans satırlarında o alan `None` — 8.309 finans kaydı
+    # sessizce düşüyordu. Sessizce: `eslesmeyen` sayacı bile artmıyordu,
+    # çünkü hem indeks hem sorgu aynı `None` anahtarını üretip birbirini
+    # tutuyordu ama `sku_bolmeleri`'nde `None` bulunmadığı için satır
+    # atılıyordu. Çıktı tam olarak stok sayısı kadar oluyor ve kimse fark
+    # etmiyordu.
+    def _kimlik(satir: dict[str, Any]) -> str:
+        return str(satir.get("kalem_id") or satir.get("sku_id") or satir.get("musteri_id"))
+
+    gerekce_indeks = {(_kimlik(g), g["tarih"]): g for g in gerekceler}
 
     sonuc: dict[Bolme, list[dict[str, Any]]] = {"train": [], "val": [], "test": []}
     eslesmeyen = 0
     for satir in karar_noktalari:
-        anahtar = (satir["sku_id"], satir["tarih"])
+        anahtar = (_kimlik(satir), satir["tarih"])
         gerekce = gerekce_indeks.get(anahtar)
         if gerekce is None:
             eslesmeyen += 1
             continue
-        bolme = sku_bolmeleri.get(satir["sku_id"])
+        bolme = sku_bolmeleri.get(_kimlik(satir))
         if bolme is None:
             continue
         birlesik = {
@@ -308,7 +318,11 @@ def _cli() -> None:
         print(f"  {arac}: {n}")
     print()
 
-    tum_sku_idler = {s["sku_id"] for s in karar_noktalari}
+    # ⚠️ Alan-bağımsız kimlik: finans satırlarında `sku_id` yok.
+    tum_sku_idler = {
+        str(s.get("kalem_id") or s.get("sku_id") or s.get("musteri_id"))
+        for s in karar_noktalari
+    }
     sku_bolmeleri = sku_bolmelerini_olustur(list(tum_sku_idler), seed=args.seed)
 
     gerekce_bolunmus = gerekce_veri_setini_bol(karar_noktalari, gerekceler, sku_bolmeleri)
@@ -332,7 +346,10 @@ def _cli() -> None:
         print(f"  {bolme}: {len(router_bolunmus[bolme])} satır")
 
     # Bütünlük kontrolü: hiçbir SKU iki bölmede birden görünmüyor.
-    gerekce_sku = {b: {s["sku_id"] for s in satirlar} for b, satirlar in gerekce_bolunmus.items()}
+    gerekce_sku = {
+        b: {str(s.get("kalem_id") or s.get("sku_id") or s.get("musteri_id")) for s in satirlar}
+        for b, satirlar in gerekce_bolunmus.items()
+    }
     kesisim = (
         (gerekce_sku["train"] & gerekce_sku["val"])
         | (gerekce_sku["train"] & gerekce_sku["test"])

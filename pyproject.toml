@@ -10,10 +10,12 @@ dependencies = [
     "httpx>=0.28.1",
     "numpy>=2.5.1",
     "pandas>=3.0.5",
+    "psutil>=7.2.2",
     "pyarrow>=25.0.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "python-dateutil>=2.9.0.post0",
+    "python-multipart>=0.0.32",
     "scikit-learn>=1.9.0",
     "scipy>=1.18.0",
     "sqlalchemy>=2.0.51",
@@ -70,8 +72,21 @@ ignore = [
 # Colab notebook'ları: hücrelerdeki uzun satırlar MODELE GÖNDERİLEN PROMPT
 # metinleridir, kod değil. Bölmek prompt'u değiştirir ve modelin davranışını
 # etkiler — biçim kuralı uğruna işin doğruluğunu bozmak yanlış takas.
-"training/**/*.ipynb" = ["E402", "I001", "E501"]
+#
+# F811 (tekrar tanımlama) ve E401 (tek satırda çoklu import): Colab
+# hücrelerinde import'lar KASITLI olarak tekrarlanır. Sebep, oturumun
+# kopabilmesi: kullanıcı tek bir hücreyi yeniden çalıştırdığında o hücrenin
+# kendi başına ayakta olması gerekir. Ruff bunu "önceki hücrede zaten var"
+# diye gereksiz sayıyor ama defteri baştan koşturmayan biri için gerekli.
+"training/**/*.ipynb" = ["E402", "I001", "E501", "F811", "E401"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    # Gercek veri hattini kosturan testler. Uretim karar uretimi olculdu:
+    # ilk kosu ~75 sn. Isaret, "atlanabilir" demek DEGIL -- varsayilan
+    # kosuda dahiller; isaret yalnizca sureyi hizli geri bildirim isteyen
+    # birinin `-m "not yavas"` ile ayirabilmesi icin.
+    "yavas: gercek veri hatti uzerinde kosan test (dakikalar surebilir)",
+]

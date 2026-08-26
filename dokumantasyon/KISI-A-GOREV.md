@@ -562,3 +562,404 @@ uv run ruff format .
 3. Her yer tutucu dosyanın docstring'inde **kimin, hangi fazda** yazacağı belirtilmiş
 4. Sözleşmede eksik bir alan varsa **kendi başına ekleme** — Kişi B ile konuş,
    tek PR'da birlikte ekleyin
+
+---
+
+# TUR 8 — Bağımsız iş paketi A (Alan & Ölçüm)
+
+> Yazıldı: 2026-08-10, Faz 7 bitiminde. **Bu paketteki hiçbir madde B
+> paketinden bir çıktı beklemiyor.** Sıra serbest, paralel çalışılabilir.
+>
+> Bağımsızlık dosya sahipliğiyle korunuyor — aşağıdaki tabloya bak.
+
+## Dosya sahipliği (çakışma önleme)
+
+| A'nın sahası | B'nin sahası |
+|---|---|
+| `app/domain/**` | `app/api/**` |
+| `app/adapters/**` | `app/core/**` |
+| `simulator/**` | `app/llm/**` |
+| `app/contracts.py` *(bu tur A'da)* | `app/jobs/**` |
+| — | `training/**` (veri üretimi dâhil) |
+
+⚠️ `training/**` tamamen **B'de** — `build_dataset.py` dâhil. B5 (model
+finansı hiç görmedi) o dosyayı genişletmek zorunda; A'nın listesinde ona
+dokunan iş yok. Eğitim verisi üreten kod, eğitimi yapanın elinde olsun.
+
+⚠️ `app/contracts.py` bu tur **A'nın sahasında**. B'nin listesinde
+sözleşmeye dokunan iş yok; bu yüzden A tek taraflı değiştirebilir — ama
+değişikliği B'ye **haber vermek zorunda**, çünkü B o tipleri tüketiyor.
+
+---
+
+## A1 — Finansın iş değeri sorusunu kapat ✅ ÖLÇÜLDÜ (2026-08-10)
+
+> **Sonuç: iş gücü iddiası da tutmuyor.** Kural motoru daha çok fatura
+> kurtarıyor ama daha az para; saat başına verimde vasat %22 önde. Teşhis:
+> takip eşiği anomaliye bakıyor, büyüklüğe bakmıyor. Tam tablo ve önerilen
+> tasarım değişikliği: `BILINEN-EKSIKLER.md` §12. Sırada **A4**.
+
+<details><summary>Özgün görev tanımı</summary>
+
+`BILINEN-EKSIKLER.md` §8 hâlâ açık. Limit kolu kapatıldıktan sonra kural
+motoru vasatla **başa baş** (küçük profil %-2,4, büyük profil %-0,3) ama
+maliyet üstünlüğü yok.
+
+Elde olan asıl sinyal başka yerde: **117 aramayla 81 fatura** kurtarılıyor,
+vasat 122 aramayla 74 kurtarıyor. Yani aynı işi daha az emekle.
+
+**Yapılacak:** iş gücü metriğini ölç ve raporla — arama başına personel
+dakikası × arama sayısı. `TAKIP_MALIYETI_TL` zaten bunun parasal karşılığı;
+onu saat cinsinden de ifade et. Ayrıca `duyarlilik_analizi_calistir`'ı
+koştur, iddianın hangi maliyet aralığında geçerli olduğunu tabloya dök.
+
+**Bitti sayılır:** "sistem, tahsilat ekibinin şu kadar saatini şu kadar
+tahsilata çeviriyor" cümlesi, sayıyla. Maliyet iddiası yoksa yok — zorlama.
+
+</details>
+
+## A2 — Stok karar önceliğini §9 gözüyle incele ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> **Sonuç: beklenen kusur yok, başka bir kusur var.** Dışlama ve eşik yönü
+> doğru çıktı; ama `son_hareket_gun_once` gerçek veride fiili satıştan
+> türediği için **stoksuzluk ölü stok gibi görünüyor**. Ayrıntı:
+> `BILINEN-EKSIKLER.md` §11. Düzeltme A4 ile birlikte yapılacak.
+
+<details><summary>Özgün görev tanımı</summary>
+
+Finansta bulunan kusur (`elif` zincirinin sorunlu kalemi tamamen susturması)
+stokta da olabilir. `app/domain/stock/decide.py`'deki `tasfiye → sipariş`
+dışlaması "doğru görünüyor" ama **hiç doğrulanmadı**.
+
+**Sorulacak:** ölü sayılan bir SKU aynı anda tedarikçi değişimi
+gerektirebilir mi? Tasfiye kararı onu susturuyor mu?
+
+**Bitti sayılır:** ya "dışlama doğru, şu yüzden" diye kanıtlı bir docstring
+notu, ya finanstaki gibi bir düzeltme + regresyon testi.
+
+</details>
+
+## A3 — `stok.tedarikci_degisim` ölü tipi ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> Kural yazıldı, ortogonal kol olarak bağlandı, kanıt kapısı kondu.
+> Ayrıntı: `BILINEN-EKSIKLER.md` §5. Sırada **A1**.
+
+<details><summary>Özgün görev tanımı</summary>
+
+`BILINEN-EKSIKLER.md` §5. Kural motoru bu tipi hiç üretmiyor; golden set'te
+örneği yok. Politika tablosunda ve `KararTipi`'nde tanımlı ama ölü.
+
+⚠️ **A2'den bağlayıcı çıktı:** kural yazılırsa `decide.py`'deki `elif`
+zincirine EKLENMEYECEK. Tedarikçi değişimi karşı taraf kararı; ölü stok
+tespiti onu geçersiz kılmaz. Ortogonal kol, ortogonal üretilir
+(`BILINEN-EKSIKLER.md` §9 ve §11).
+
+**Bitti sayılır:** ya kural + test, ya tipin kaldırılması. Ortada bırakma.
+
+</details>
+
+## A4 — Gerçek veri hattı ✅ HAT HAZIR (2026-08-10)
+
+> §7 ve §11 kapandı, geriye dönük test hattı yazıldı
+> (`app/adapters/geriye_donuk.py`, 7 test). **Eksik olan kod değil veri** —
+> üç CSV gelir gelmez koşuyor. Ayrıntı: `BILINEN-EKSIKLER.md` §13.
+> Sırada **A5**.
+
+<details><summary>Özgün görev tanımı</summary>
+
+`BILINEN-EKSIKLER.md` §4 ve §7. Tüm ölçümler simülasyonda; bu, `threshold`
+moduna geçişi engelleyen tek şey.
+
+**Yapılacak:** `app/adapters/csv_erp.py` yazıldı ama gerçek CSV ile hiç
+koşturulmadı. Üç CSV'nin (envanter, hareket, tedarikçi) beklenen şemasını
+netleştir, örnek dosyalarla uçtan uca koştur, `yoldaki_stok`'un 0
+varsayılmasının etkisini ölç.
+
+**Bitti sayılır:** geçmiş 12 aylık veriyle geriye dönük test koşabilecek
+bir hat. Veri henüz yoksa **hattın kendisi** ve eksik olanın listesi.
+
+</details>
+
+## A5 — Limit kolunun yeniden açılma koşulu ✅ ÇÖZÜLDÜ (2026-08-10)
+
+> **Sonuç: kol yeniden açıldı.** Altı risk senaryosunun beşinde kârlı;
+> belirleyici olan kaybın asimetrisi (11 kat). Ayrıntı:
+> `BILINEN-EKSIKLER.md` §14. **A paketi bitti.**
+
+<details><summary>Özgün görev tanımı</summary>
+
+`rules.LIMIT_KOLU_AKTIF = False` — A7.1'de ölçülerek kapatıldı. Ama kapatma
+gerekçesinin bir sınırı var: simülasyonda batak oranı %2 ve ufuk 1 yıl,
+oysa kredi limitinin asıl işi **nadir ama büyük** çöküşü engellemek.
+
+**Yapılacak:** batak oranını (%2 → %5, %10) ve ufku (1 → 3 yıl) değiştirip
+taramayı tekrarla. Kol hangi risk seviyesinden sonra kârlı hale geliyor?
+
+**Bitti sayılır:** "batak oranı %X'i geçtiğinde limit kolu açılmalı" gibi
+bir eşik, ya da "hiçbir makul senaryoda açılmamalı" sonucu. İkisi de değerli.
+
+</details>
+
+---
+
+# FAZ 10 — Üretim Planlama · A paketi
+
+> ⚠️ **Bu bölümü Kişi B yazdı** (2026-08-11), teklif niteliğinde. Tam plan:
+> `dokumantasyon/FAZ-10-URETIM-PLANI.md`. İtiraz/değişiklik varsa kod
+> başlamadan söyle — özellikle 3. maddedeki sözleşme.
+
+B tarafı **Adım 1-2'yi bitirdi ve itti** (`3ba8f5b`): talep tahmini çekirdeği
+ve ölçümü hazır. Aşağıdakiler senin paketin ve **hiçbiri B'yi beklemiyor** —
+tahmin sözleşmesi zaten yazılmış durumda.
+
+## Dosya sahipliği (çakışma önleme)
+
+| Sende | Bende (B) |
+|---|---|
+| `simulator/uretim.py` | `app/forecast/**` |
+| `app/domain/production/**` | `app/api/**` |
+| `contracts.py` — `URETIM_*` | `app/llm/**` |
+| `isletme_profili.py` — `UretimProfili` | `app/jobs/nightly.py` |
+| `app/adapters/` — BOM/rota CSV | `training/**` |
+
+## A10.1 — Fabrika dünyası 🔴
+
+`simulator/uretim.py`: kalemler **üretilen / satın alınan** diye ayrılır;
+üretilenlere hat, parti büyüklüğü, hazırlık ve işlem süresi verilir.
+
+⚠️ Sayılar koda gömülmemeli — `UretimProfili` (JSON) + CSV ana verisi.
+Kullanıcı şartı: *"farklı bir fabrikaya da uygun bilgiler verilirse ona da
+adapte olabilsin."* Yeni fabrika = bir JSON + üç CSV, kod değişmez.
+
+## A10.2 — Üretim emri kararı 🔴
+
+Stok sipariş kararının ikizi. Karar tipleri: `uretim.emir_ac`,
+`uretim.emir_erteleme`, `uretim.aksiyon_yok`.
+
+⚠️ **B'nin ölçtüğü bulgular bu kuralı doğrudan etkiliyor** (B10.2 sonrası
+güncel; eski 0,52'li tablo yanlıştı, ayrıntısı `KISI-B-GOREV.md`'de).
+
+**1. Hangi tahmin fonksiyonunu çağıracaksın:**
+`app.forecast.aralikli.croston`. Kataloğun %76'sı günde 0,3'ten az satıyor.
+Croston ufuk toplamında **yansız** (%0), pencerelerin yalnızca %28'inde
+"hiç talep yok" diyor ve bandı %93 kapsıyor. SBA'nın bağıl hatası kıl payı
+daha iyi ama −%7 yanlı — üretimde sistematik eksik tahmin demek. Hızlı
+katmanda günlük desen gerekiyorsa `model.ussel_duzlestirme` (MASE 0,89).
+
+**2. Tahmini tek bir sayı olarak kullanma.** Emniyet payı
+`tahmin.toplam_bandi()` üst sınırına bakmalı, `toplam()`'a değil. Yavaş
+kalemlerde bant geniş olacak — kusur değil, dürüstlük.
+
+**3. ⚠️ Günlük MASE tablosuna bakıp yöntem seçme.** Aralıklı seride o ölçüt
+"her gün sıfır" tahminini ödüllendiriyor; üretim emri o tahmini
+kullanamaz. `mevsimsel_naif` MASE'de önde ama pencerelerin **%68'inde
+"hiç üretme"** diyor. Karar dayanağı raporun **UFUK TOPLAMI** ve **SIFIR
+ORANI** satırları.
+
+## A10.3 — Kapasite 🟡
+
+`uretim.kapasite_asimi`: haftalık emir yükü hat kapasitesini aşıyorsa uyar,
+düşük öncelikliyi ertele.
+
+⚠️ **Vardiya/çizelge optimizasyonu kapsam dışı** — onay modeli kalem bazında;
+"tüm fabrikayı optimize et" tek tek onaylanamaz. Sistem kısıtı görünür kılar,
+çizelge kurmaz. Bunu değiştirmek istersen önce konuşalım.
+
+## A10.4 — MRP 🟡
+
+Ürün ağacını patlat, hammadde ihtiyacını çıkar. Çıktısı yeni bir karar türü
+**değil**, mevcut `stok.siparis` kararının girdisi. İki alanı ilk kez
+bağladığı için en sona.
+
+## Senden üç onay bekliyorum
+
+1. `app/forecast/` yeni bir üst paket — B'ye atanmasını kabul ediyor musun?
+2. `contracts.py`'ye `URETIM_*` + `UretimOzellikleri` — **donmuş dosya**,
+   ortak onay gerekiyor (`ORAN_ALANLARI` ile aynı yol).
+3. `app/forecast/contracts.py::TalepTahmini` alanları üretim kuralına yetiyor
+   mu? Eksik bir şey varsa **şimdi** söyle; dondurduktan sonra değiştirmek
+   ikimizi de kırar.
+
+---
+
+# FAZ 11 — Genel planlama motoru · A paketi
+
+> Tam plan: `dokumantasyon/FAZ-11-GENEL-PLANLAMA.md`
+> ⚠️ **Adım 0 (sözleşme dondurma) bitmeden kod yazılmaz.** Bittikten sonra
+> B'yi hiç beklemezsin — onun işlerinin hiçbiri `plan_kur()` çağırmıyor.
+
+## Sahiplik tablosu (çakışma önleme)
+
+| Sende | Bende (B) |
+|---|---|
+| `app/planlama/yerlestirme.py` | `app/planlama/maliyet.py` |
+| `app/planlama/olcut.py` | `app/planlama/karsilastir.py` |
+| `app/planlama/tanim.py` | `app/api/decisions.py` |
+| `app/domain/production/cizelge.py` | `app/core/isletme_profili.py` |
+| `ornekler/nakliye.json` | `app/llm/explain.py` |
+
+⚠️ `app/planlama/contracts.py` **ortak ve donmuş** — tek taraflı değişmez.
+
+## ✅ A11.1 — `yerlestirme.py` · genel yerleştirme — BİTTİ (`1636c8d`)
+
+`plan_kur(isler, kaynaklar, olcut, ufuk_gun, baslangic)`. Açgözlü: ölçüte
+göre sırala, kaynak dolunca ertesi güne.
+
+- `kaynak_id` boşsa `uygun_kaynaklar`'dan **en boş olana** ata
+- `bolunebilir=False` iş bir güne sığmazsa hiç yerleştirilmez
+- ufka sığmayan `sigmayanlar`'a düşer, sessizce kaybolmaz
+
+⚠️ Eşitlik **`is_id`** ile kırılacak. Bugün `cizelge.py` ve `kapasite.py`'de
+`karar_id` (rastgele UUID) kullanıldı ve aynı girdi iki farklı plan üretti.
+
+**Bitti sayılır:** aynı girdi iki koşuda bit bit aynı plan; atama, bölünemez
+iş, ufuk taşması testli.
+
+## ✅ A11.2 — `olcut.py` · "iyi plan" tanımları — BİTTİ (`1636c8d`)
+
+`en_acil`, `en_cok_is`, `en_degerli`. Her ölçüt `Is` → sayı (küçük = önce).
+Yeni ölçüt = bir satır.
+
+**Bitti sayılır:** ölçüt değişince plan sırası değişiyor, testi var.
+
+## ✅ A11.3 — `tanim.py` · alan tanımı okuyucu — BİTTİ (`1636c8d`)
+
+JSON → `Kaynak` + `Is`. "Yeni alan = bir dosya, kod yok" iddiasının
+taşıyıcısı. ⚠️ Eksik alan **yükleme anında** patlasın.
+
+## ✅ A11.4 — Üretimi motora taşı — BİTTİ (`1636c8d`, 9 çizelge testi değişmeden geçti)
+
+`cizelge.py` ince adaptöre dönüşür. `kapasite.py`'deki `kapsama_gun` ortak
+kalır — iki ayrı öncelik tanımı sistemi kendi içinde çelişkiye sokar.
+
+**Bitti sayılır:** `tests/test_uretim.py`'deki 9 çizelge testi
+**değiştirilmeden** yeşil. Değiştirmek gerekiyorsa davranış kaymıştır.
+
+## ✅ A11.5 — Nakliye · genelliğin asıl kanıtı — BİTTİ (`1636c8d`, `ornekler/nakliye.json`)
+
+`ornekler/nakliye.json` — araçlar, sevkiyatlar, bazıları birden çok araca
+uygun. **Tek satır alan kodu yok.**
+
+⚠️ Nakliye ürün kapsamında değil: karar tipi, `contracts.py` değişikliği,
+API ucu yok.
+
+**Bitti sayılır:** JSON'dan plan çıkıyor ve testte üretimle **aynı
+fonksiyonun** çağrıldığı doğrulanıyor. Çağrılmıyorsa "genel" iddiası düşer.
+
+---
+
+# FAZ 13 — "Tam plan" · A paketi
+
+> ✅ **Tanımlandı 2026-08-12.** Ortak plan:
+> [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md).
+>
+> ⚠️ Teslim edilen şey bir alan değil, alanı bilmeyen bir mekanizma. Nakliye
+> ve yapı malzemesi **örnektir**.
+
+## ✅ Adım 0 — ORTAK, tek PR — BİTTİ (`0902e3b`)
+
+`AtamaGerekcesi` ve `IslerKaynagi` donduruldu, 12 test. İkisi de
+**varsayılanlı ve geriye uyumlu** — Faz 11 çağrılarının hiçbiri değişmedi.
+
+| ne | nerede | garanti |
+|---|---|---|
+| `AtamaGerekcesi` (seçilen · adaylar · elenme nedenleri · belirleyici) | `app/planlama/contracts.py` | belirleyici **kapalı küme**; seçilen kaynak adaylarda olmak zorunda |
+| `PlanSatiri.gerekce` | aynı dosya | varsayılanı `None` — B, A'yı beklemiyor |
+| `IslerKaynagi` (`elle` · `tahmin` · `alan:<ad>`) | `app/planlama/tanim.py` | üst seviye anahtarlar kapalı küme: `isler_kaynak` yazan tanım **patlıyor** |
+| `AlanTanimi` + `alan_tanimi_oku/dosyadan` | aynı dosya | `dosyadan_yukle` aynen korundu |
+
+## ✅ A13.1 — Gerekçeli yerleştirme — BİTTİ
+
+`yerlestirme.py` her atama için `AtamaGerekcesi` doldurur: seçilen kaynak,
+aday kaynaklar, elenme nedenleri, belirleyici etken.
+
+Bilgi **zaten algoritmanın içinden geçiyor** — uygunluk süzgeci aday listesini
+biliyor, kapasite kontrolü elenme nedenini biliyor. Şu an atılıyor.
+
+⚠️ **Gerekçe veri, metin değil.** Serbest metin test edilemez ve LLM'in
+uydurmasına açık olur.
+
+⚠️ **Determinizm.** Faz 11'de sıralamada rastgele UUID vardı; aynı hata
+kapasite modülünde de bulundu. Gerekçe yeni bir sıralama noktası açıyor —
+`test_ayni_girdi_ayni_plan` gerekçeleri de karşılaştırmalı.
+
+## ✅ A13.2 — Alan adaptörleri — BİTTİ
+
+`app/domain/production/adapter.py` · `app/domain/logistics/adapter.py`.
+İkisi **aynı imzayı** taşır. Genellik iddiasını taşıyan dosyalar bunlar.
+
+| `isler_kaynagi` | nerede kanıtlanıyor | neden orada |
+|---|---|---|
+| `tahmin` | üretim | 3 yıllık geçmişi var |
+| `elle` | nakliye | geçmişi yok — komutun alanı bilmediğini kanıtlayan yer |
+| `alan:<ad>` | üretim → nakliye | bir alanın çıktısı başka alanın girdisi |
+
+⚠️ `app/forecast/` **yeniden yazılmayacak, yeniden adlandırılmayacak** (donmuş
+sözleşme). `croston(gecmis, ...)` girdisi düz liste — zaten genel. Adlandırma
+stok kokuyor; çeviriyi adaptör üstlenir.
+
+## ✅ A13.3 — Üçüncü alan tanımı — BİTTİ (`ornekler/vardiya.json`)
+
+`ornekler/` altına **tek JSON**, kod değişikliği **sıfır**. Demo değil; "yeni
+müşteriye kolay satılır" iddiasının tek kanıtı.
+
+⚠️ Alan bilinçli olarak üretimden ve nakliyeden **uzak** seçilir (ör. vardiya /
+personel çizelgesi). Yakın alan kapıyı geçirir, hiçbir şey kanıtlamaz.
+
+## Bu fazda `simulator/`'a dokunulmuyor
+
+Sevkiyat simülatörü (~1 hafta) plandan **çıkarıldı**. Mevcut üretim geçmişi
+yeterli; yeni veri üretmek genel mekanizmayı kanıtlamıyor.
+
+
+---
+
+# Faz 13 · A paketi — kapanış notları (26.08.2026)
+
+## Ne oldu
+
+| adım | sonuç |
+|---|---|
+| A13.1 | `yerlestirme.py` her atamaya `AtamaGerekcesi` koyuyor: seçilen kaynak, adaylar, elenme nedenleri, belirleyici |
+| A13.2 | `app/domain/production/adapter.py` (`tahmin`) · `app/domain/logistics/adapter.py` (`alan:uretim`) — **aynı imza** |
+| A13.3 | `ornekler/vardiya.json` — kaynak = insan, iş = nöbet. Sıfır kod |
+
+## Yol boyunca alınan kararlar
+
+**Sözleşmede bir kural gevşetildi.** Adım 0'da "elenme nedeni yalnızca aday
+kaynaklar için yazılabilir" denmişti. Gerçek kod bunun yanlış olduğunu
+gösterdi: uygunluk kısıtından elenen kaynak aday sayılmıyor ama
+kullanıcıya söylenmesi gereken bilgi tam olarak o ("Araç 3 bu işe uygun
+değil"). Kural yerine gerçek değişmez kondu: **seçilen kaynak aynı anda
+elenen olamaz.**
+
+**Doluluklar seçim anında ölçülüyor**, plan bittikten sonra değil. Sonradan
+bakılsaydı gerekçe kendini yalanlardı — iş yerleştikten sonra seçilen
+kaynak doluyor.
+
+**Yuvarlama gerekçeyi anlamsız yapıyordu.** İlk sürüm "doluluk %5, seçilen
+%5" yazıyordu. Şimdi ondalık gösteriliyor ve gerçek eşitlik ayrıca
+söyleniyor: orada seçimi doluluk değil, kararlı sıralama yaptı.
+
+**Üretim hatları JSON'a yazılmadı.** Hat listesi ana veriden, kapasiteler
+profil dosyasından geliyor; kopyalansaydı iki ayrı gerçek olurdu.
+Adaptörlere isteğe bağlı `kaynaklari_uret` eklendi. ⚠️ **Tanım her zaman
+üstün:** kaynak tanımda yazılıysa adaptöre sorulmuyor.
+
+**Alan-özel sayılar için `parametreler` bölümü eklendi.** Sevkiyatın "bir
+birim kaç saatte yüklenir"i koda gömülseydi ikinci müşteri kod değişikliği
+isterdi (Faz 9'un işletme profili kararıyla aynı gerekçe).
+
+## ⚠️ Ölçülen sınır: üretim planı ~70 sn
+
+`uretim_kararlari_uret()` ölçüldü: ilk koşu **74,7 sn**, ikinci **35,9 sn**.
+Motor iş ve kaynağı ayrı istediği için hesap iki kez koşacaktı; adaptöre
+süreli önbellek (`ONBELLEK_SANIYE = 300`) kondu, tek koşuya indi.
+
+Önbellek bilinçli olarak **süresiz değil**: uzun koşan bir serviste veri
+değiştikten sonra eski planı vermeye devam ederdi. `onbellek_temizle()`
+ile sıfırlanıyor.
+
+⚠️ **B13.3'ün çözmesi gereken sorun budur:** 70 saniyelik bir HTTP isteği
+kabul edilebilir değil. Gecelik işteki kalıp (sonucu hazır tut, uç hazırı
+versin) en yakın çözüm.

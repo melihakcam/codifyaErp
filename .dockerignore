@@ -1,0 +1,20 @@
+# Veri ve model dosyaları imaja girmez — GB'larca yer kaplar ve müşteri
+# verisi imaja gömülmemeli.
+data/
+training/*.gguf
+training/*.ipynb
+notebooks/
+.cache/
+.venv/
+__pycache__/
+*.pyc
+
+# Sırlar imaja ASLA girmez. .env çalışma anında --env-file ile veriliyor.
+.env
+.env.*
+
+# Geliştirme artıkları
+tests/
+.git/
+.ruff_cache/
+.pytest_cache/

@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol
@@ -78,6 +79,10 @@ SAYI_DESENI = re.compile(r"\d[\d.,]*\d|\d")
 # Yuvarlamada izin verilen bağıl sapma. %2: `27,38 → "%27"` (%1,4 sapma)
 # geçiyor, `4,75 → "5"` (%5,3 sapma) geçmiyor.
 YUVARLAMA_BAGIL_SINIRI = 0.02
+
+# Bu kadar ondalık basamakla yazılmış sayı için bağıl sınır aranmaz —
+# yazan zaten hassas davrandığını ilan etmiştir. Bkz. `sayi_izinli_mi`.
+HASSAS_ONDALIK = 2
 
 # Kayan nokta gürültüsü için birebir eşleşme payı.
 _EPSILON = 1e-9
@@ -176,13 +181,26 @@ def sayi_izinli_mi(yazilan: float, izinli: Iterable[float]) -> bool:
     İki koşuldan biri yeterli:
 
     1. **Birebir eşleşme** (kayan nokta payıyla).
-    2. **Doğru yuvarlama + bağıl sınır**: yazılan sayı, izinli bir değerin
-       kendi hassasiyetinde doğru yuvarlanmışı VE aradaki bağıl fark
-       `YUVARLAMA_BAGIL_SINIRI`'ni aşmıyor.
+    2. **Doğru yuvarlama**, artı şu ikisinden biri:
+       · bağıl fark `YUVARLAMA_BAGIL_SINIRI`'ni aşmıyor, **ya da**
+       · yazılan sayının en az `HASSAS_ONDALIK` ondalık basamağı var.
 
-    İkinci koşulun bağıl sınırı olmasa `0,94 → "1"` ve `4,75 → "5"` gibi kaba
-    yuvarlamalar geçerdi; bunlar gerekçede adet olarak okunur ve uydurma bir
-    sayı kullanıcıya gider.
+    Bağıl sınırın amacı `0,94 → "1"` ve `4,75 → "5"` gibi **kaba** yuvarlamaları
+    kesmek: bunlar gerekçede adet olarak okunur ve uydurma bir sayı kullanıcıya
+    gider.
+
+    ⚠️ Ondalık istisnası sonradan eklendi, çünkü bağıl sınır tek başına küçük
+    sayılara haksızlık ediyordu. Ölçülmüş vaka:
+
+        gerçek 0,14444…  →  metinde "0,14"  →  bağıl fark %3,08  →  REDDEDİLİYORDU
+
+    "0,14" iki ondalıkla **doğru** bir yazım; kimse "0,14444 adet" demez. Ama
+    sayı küçüldükçe aynı yuvarlama yüzde olarak büyür ve sınırı aşar. Kişi A'nın
+    eğitim verisinde bu, **sipariş gerekçelerinin %16,9'unu** boşuna reddediyordu
+    (tasfiye ve aksiyon_yok'ta %0 — orada değerler büyük).
+
+    Ayrım şu: kaç ondalık yazdığın, ne kadar hassas davrandığını ilan eder.
+    `"0,14"` yazan iki basamak hassasiyet iddia ediyor. `"1"` yazan hiç.
     """
     basamak = _ondalik_sayisi(yazilan)
 
@@ -191,6 +209,8 @@ def sayi_izinli_mi(yazilan: float, izinli: Iterable[float]) -> bool:
             return True
         if abs(yazilan - round(deger, basamak)) >= _EPSILON:
             continue
+        if basamak >= HASSAS_ONDALIK:
+            return True
         if abs(deger) < _EPSILON:
             continue  # sıfırın yuvarlaması yalnızca sıfırdır, o da yukarıda yakalandı
         if abs(yazilan - deger) / abs(deger) <= YUVARLAMA_BAGIL_SINIRI:
@@ -218,10 +238,105 @@ def sayilari_dogrula(
     return DogrulamaSonucu(gecti=not reddedilen, bulunan=bulunan, reddedilen=reddedilen)
 
 
+# ---------------------------------------------------------------------------
+# Metin kalitesi — guard'ın dil tarafındaki açığı
+# ---------------------------------------------------------------------------
+#
+# ⚠️ Guard yalnızca SAYILARI denetliyordu. Canlı onay kuyruğunda ölçüldü:
+# 500 kararın 14'ünde (%2,8) gerekçeye Çince/Japonca karakter sızmıştı ve
+# **hepsi `guard_sonucu="gecti"` damgasıyla geçmişti**:
+#
+#     "... bu tafiyetine契合したのは24 adet矣。"
+#
+# Guard'ın bunu geçirmesi tutarlı: içindeki `24` meşru bir sayı, kural
+# "metindeki her sayı izinli mi" idi ve o sağlanıyordu. Yani hata guard'ın
+# mantığında değil, kapsamındaydı — dil hiç denetlenmiyordu.
+#
+# Ayrıca 13 kayıtta (%2,6) gerekçe yerine yalnızca ürün adı yazılmıştı
+# ("İnşaat Demiri 10mm - Kardemir"). Sayı içermediği için o da geçiyordu.
+#
+# Bu kontroller bilinçli olarak `sayilari_dogrula`'ya EKLENMEDİ: o arayüz
+# Kişi A'nın etiketleme hattının sözleşmesi ve sade kalmalı (bkz. modül
+# başındaki not). Kontrol çalışma zamanı zincirine bağlandı — reddedilen
+# metin yeniden üretilir, yine olmazsa şablona düşer. Şablon deterministik
+# ve her zaman Türkçe, yani güvenli çıkış korunuyor.
+
+# Maskelemeden sonra geriye kalması gereken en az kelime sayısı.
+#
+# ⚠️ Önce karakter sayısı (15) denendi ve YANLIŞ ÇIKTI: `"Stok yeterli."`
+# gibi kısa ama meşru bir gerekçeyi kesiyordu (`test_guard.py`'deki mevcut
+# bir test bunu yakaladı). Karakter eşiği kırılgan — sınıra yakın meşru
+# metinler var, dolayısıyla eşiği güvenle koyacak bir yer yok.
+#
+# Kelime sayımı ayrımı keskin yapıyor, çünkü hedeflenen hata şudur: gerekçe
+# yerine YALNIZCA ürün adı yazılmış. Ad maskelenince geriye tire ve boşluktan
+# başka bir şey kalmıyor (0 kelime), meşru en kısa gerekçede ise 2 kelime var.
+ASGARI_KELIME_SAYISI = 2
+
+# En az bu kadar harften oluşan diziler kelime sayılır — tek harfli artıklar
+# ("a", "-") maskeleme kalıntısı olabilir.
+_KELIME_DESENI = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+
+
+def latin_disi_harfler(metin: str) -> list[str]:
+    """Metindeki Latin alfabesi dışındaki HARFLERİ döndürür.
+
+    Yalnızca harflere bakılıyor, tüm karakterlere değil — noktalama, para
+    birimi simgesi (₺), tırnak çeşitleri ve matematik işaretleri meşru ve
+    bunlara takılmak yanlış alarm üretirdi. Türkçe harfler (ı, ğ, ş, ç, ö, ü
+    ve büyükleri) Unicode'da LATIN olarak adlandırılır, yani geçerler.
+
+    Tespit ettiği: CJK ideogramları, hiragana/katakana, Kiril, Arap, Yunan.
+    Bunların hiçbirinin Türkçe bir gerekçede işi yok.
+    """
+    return [ch for ch in metin if ch.isalpha() and not unicodedata.name(ch, "").startswith("LATIN")]
+
+
+@dataclass(frozen=True)
+class MetinSonucu:
+    """Bir gerekçe metninin dil/içerik denetimi sonucu."""
+
+    gecti: bool
+    sorunlar: list[str]
+
+
+def metni_dogrula(metin: str, *, maskelenecek: Iterable[str] = ()) -> MetinSonucu:
+    """Metin Türkçe ve anlamlı bir gerekçe mi?
+
+    İki kontrol:
+
+    1. **Yazı sistemi.** Latin dışı harf içeriyorsa reddedilir.
+    2. **Asgari içerik.** Ad/kod alanları maskelendikten sonra geriye
+       `ASGARI_KELIME_SAYISI` kelimeden azı kalıyorsa reddedilir —
+       gerekçe yerine yalnızca ürün adı yazılmış demektir.
+
+    ⚠️ Maskeleme burada da zorunlu: ürün adı zaten ekranda ayrı bir sütunda
+    duruyor, gerekçenin bilgi taşıyan kısmı adın dışındaki kısımdır.
+    """
+    sorunlar: list[str] = []
+
+    yabanci = latin_disi_harfler(metin)
+    if yabanci:
+        ornek = "".join(dict.fromkeys(yabanci))[:12]
+        sorunlar.append(f"latin disi harf ({len(yabanci)} adet): {ornek}")
+
+    kelimeler = _KELIME_DESENI.findall(metni_maskele(metin, maskelenecek))
+    if len(kelimeler) < ASGARI_KELIME_SAYISI:
+        sorunlar.append(f"maskeleme sonrasi {len(kelimeler)} kelime kaldi — gerekce bos sayilir")
+
+    return MetinSonucu(gecti=not sorunlar, sorunlar=sorunlar)
+
+
 def maskelenecek_alanlar(aday: DecisionCandidate) -> list[str]:
-    """Bir karar adayında rakam içerebilen ad/kod alanları."""
-    o = aday.ozellikler
-    return [o.sku_adi, o.sku_id, o.tedarikci_adi, o.tedarikci_id]
+    """Bir karar adayında rakam içerebilen ad/kod alanları.
+
+    ⚠️ Hangi alanların maskeleneceğini **özellik sınıfı** bildiriyor
+    (`AlanOzellikleri.maskelenecek_alanlar`). Önceden burada
+    `o.sku_adi, o.tedarikci_adi` diye stok alanları elle yazılıydı; Faz 6'da
+    finans özellikleri geldiğinde `AttributeError` verirdi. Guard, alanların
+    ne olduğunu bilmemeli — yalnızca "bunları metinden sil" demeli.
+    """
+    return aday.ozellikler.maskelenecek_alanlar()
 
 
 def adayi_dogrula(metin: str, aday: DecisionCandidate) -> DogrulamaSonucu:
@@ -276,8 +391,12 @@ def gerekceyi_guvenceye_al(
             # loglarından izlenir.
             break
 
+        # ⚠️ Metin denetimi sayı denetiminden ÖNCE: Latin dışı harf içeren bir
+        # metnin sayıları doğru olsa bile kullanıcıya gitmesi kabul edilemez.
+        # Canlı kuyrukta tam bu oldu — 14 kayıt "gecti" damgasıyla geçti.
+        metin_sonucu = metni_dogrula(metin, maskelenecek=maskelenecek_alanlar(aday))
         sonuc = adayi_dogrula(metin, aday)
-        if sonuc.gecti:
+        if sonuc.gecti and metin_sonucu.gecti:
             return Gerekce(
                 karar_id=aday.karar_id,
                 metin=metin,
@@ -301,13 +420,17 @@ def gerekceyi_guvenceye_al(
 
 
 __all__ = [
+    "ASGARI_KELIME_SAYISI",
     "SAYI_DESENI",
     "YUVARLAMA_BAGIL_SINIRI",
     "DogrulamaSonucu",
     "GerekceUreteci",
+    "MetinSonucu",
     "adayi_dogrula",
     "gerekceyi_guvenceye_al",
+    "latin_disi_harfler",
     "maskelenecek_alanlar",
+    "metni_dogrula",
     "metni_maskele",
     "sayi_izinli_mi",
     "sayilari_cikar",

@@ -44,3 +44,22 @@ data/*
 .vscode/
 .idea/
 .claude/
+
+# Yerel .env dosyalari — sir tasiyabilir, asla commit edilmez.
+#
+# ⚠️ Once yalnizca sizan dosyanin ADI yok sayiliyordu (.env.yedek, .env.bak,
+# .env.*.yedek). O liste tehlikeli genel durumu KACIRIYORDU: `.env.uretim`,
+# `.env.production`, `.env.local` ve `env.yedek` hicbiri kapsanmiyordu --
+# yani gercek API_ANAHTARLARI'ni tasiyacak olan dosya tam da commit
+# edilebilir olanidi.
+#
+# Simdi tersi kuruldu: `.env` ile baslayan HER SEY yok sayilir, ornek
+# dosyalar tek tek geri acilir. Yeni bir varyant uydurmak (`.env.staging`,
+# `.env.yedek2`) artik kendiliginden korunuyor.
+.env*
+env.yedek
+env.bak
+
+# Ornekler commit EDILIR — icinde gercek deger yok, kurulum icin gerekli.
+!.env.example
+!.env.ornek

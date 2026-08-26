@@ -1,0 +1,18 @@
+{"soru": "Stokların genel durumu nasıl?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Envanterin özet tablosunu alabilir miyim?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Bugün depoda genel tablo nedir?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "acik", "not": "BILINCLI ZOR VAKA — celisen sinyal. Egitim verisinde 'bugun' gecelik_ozet'in %24'unde, 'genel' ise genel_stok'un %69'unda geciyor. Etiket anlamca dogru: 'depoda genel tablo' stok durumu, 'bugun' burada 'su an' demek. Model bunu kacirirsa sebebi hacim: gecelik_ozet'in 155 egitim ornegi var, genel_stok'un 26."}
+{"soru": "Toplamda kaç kalemimiz var, ne durumdayız?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Genel bir fotoğraf çekebilir misin?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Ambarda işler yolunda mı?", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "stok genel nasil", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "durum ozeti ver", "arac": "genel_stok_durumu_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "Gece taramasının sonuçlarını görebilir miyim?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Son gecelik koşunun raporunu aç.", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "acik"}
+{"soru": "Ben yokken sistem ne tespit etti?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Gece boyunca neler birikmiş?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Sabaha ne bırakmış sistem?", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "dun gece ne cikti", "arac": "gecelik_ozet_sorgula", "parametreler": {"tarih_ifadesi": ["dün", "dun"]}, "stil": "gunluk", "not": "DUZELTILDI — ilk yazimda parametresiz birakilmisti, YANLISTI. Gerekce modelin ciktisi DEGIL: schemas.py::ARAC_PARAMETRELERI bu araca tarih_ifadesi veriyor ve egitim verisindeki 155 ornegin 155'i parametreli. Kural: deger dort ifadeden biri ('dun','bugun','bu hafta','gecen hafta') ve soruda birebir geciyor. Burada 'dun' soruda var. Diger 6 gecelik sorusunda tarih ifadesi YOK, orada {} dogru."}
+{"soru": "gece raporu", "arac": "gecelik_ozet_sorgula", "parametreler": {}, "stil": "gunluk"}
+{"soru": "Hangi kararlar imzamı bekliyor?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Üzerimde kalan iş var mı?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}
+{"soru": "Karar vermem gereken neler birikti?", "arac": "onay_kuyrugu_sorgula", "parametreler": {}, "stil": "dolayli"}

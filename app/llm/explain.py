@@ -19,7 +19,16 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
-from app.contracts import ORAN_ALANLARI, DecisionCandidate, Gerekce, GuardSonucu, KararTipi
+from app.contracts import (
+    ORAN_ALANLARI,
+    Alan,
+    DecisionCandidate,
+    FinansOzellikleri,
+    Gerekce,
+    GuardSonucu,
+    KararTipi,
+    UretimOzellikleri,
+)
 from app.llm.client import OllamaIstemcisi
 from app.llm.guard import GerekceUreteci, gerekceyi_guvenceye_al
 from app.llm.schemas import GerekceCiktisi, yapilandirilmis_uret
@@ -37,6 +46,16 @@ def sablon_gerekce(aday: DecisionCandidate) -> str:
 
     Yalnızca `aday` içindeki sayıları kullanır, dolayısıyla guard'dan her
     zaman geçer. Akıcılığı LLM kadar iyi değil ama asla yanlış değil.
+
+    ⚠️ **Faz 8 / B5'te bulunan kusur.** Bu fonksiyon alan-bağımsız bir
+    katmanda duruyor ama stok alanlarını doğrudan okuyordu (`o.sku_adi`).
+    Finans kararı buraya düştüğü anda `AttributeError` — ve buraya düşmek
+    istisna değil, normal akış: anlatacak sayısı olmayan her karar ve
+    guard'ın reddettiği her gerekçe şablona geliyor.
+
+    Gecelik iş bunu yakalayıp yutuyor (`_finans_kararlari` try/except) ama
+    o zaman da finans kararları sessizce kuyruğa hiç girmiyordu.
+    `BILINEN-EKSIKLER.md` §1'in gözden kaçmış beşinci sızıntısı.
     """
     o = aday.ozellikler
 
@@ -65,7 +84,70 @@ def sablon_gerekce(aday: DecisionCandidate) -> str:
             f"üzerinde."
         )
 
-    return f"{o.sku_adi} için {aday.tip.value} kararı üretildi."
+    if isinstance(o, FinansOzellikleri):
+        if aday.tip is KararTipi.FINANS_TAHSILAT_TAKIBI:
+            return (
+                f"{o.musteri_adi} için {_tr_sayi(o.vadesi_gecen_tl)} TL vadesi geçmiş "
+                f"alacak var ve en eski fatura {_tr_sayi(o.en_eski_gecikme_gun)} gündür "
+                f"gecikmede. Bu müşteri ortalama {_tr_sayi(o.ort_odeme_gecikmesi_gun)} "
+                f"gün gecikmeyle ödüyor; tahsilat takibi öneriliyor."
+            )
+        if aday.tip is KararTipi.FINANS_KARSILIK_AYIR:
+            oran = aday.aksiyon.get("onerilen_karsilik_orani")
+            return (
+                f"{o.musteri_adi} alacağının en eskisi {_tr_sayi(o.en_eski_gecikme_gun)} "
+                f"gündür tahsil edilemiyor. {_tr_sayi(o.vadesi_gecen_tl)} TL vadesi geçen "
+                f"tutar için "
+                f"{_tr_sayi(float(oran) * 100) if oran is not None else '—'}% karşılık "
+                f"ayrılması öneriliyor."
+            )
+        if aday.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
+            yeni = aday.aksiyon.get("onerilen_kredi_limiti_tl")
+            return (
+                f"{o.musteri_adi} tahsilat oranı {_tr_sayi(o.tahsilat_orani * 100)}% ve "
+                f"ödeme davranışı öngörülemez. Kredi limitinin "
+                f"{_tr_sayi(o.kredi_limiti_tl)} TL'den "
+                f"{_tr_sayi(float(yeni)) if yeni is not None else '—'} TL'ye "
+                f"düşürülmesi öneriliyor."
+            )
+        return f"{o.musteri_adi} için aksiyon gerekmiyor: gecikme bu müşterinin olağan aralığında."
+
+    if isinstance(o, UretimOzellikleri):
+        if aday.tip is KararTipi.URETIM_EMIR_AC:
+            miktar = aday.aksiyon.get("emir_miktari")
+            return (
+                f"{o.kalem_adi} için önümüzdeki {o.tahmin_ufuk_gun} günde en fazla "
+                f"{_tr_sayi(o.tahmin_ust_band)} adet talep bekleniyor; elde ve açık "
+                f"emirlerde {_tr_sayi(o.net_pozisyon)} adet var. "
+                f"{_tr_sayi(float(miktar)) if miktar is not None else '—'} adet "
+                f"üretim emri açılması öneriliyor ({o.hat_adi})."
+            )
+        if aday.tip is KararTipi.URETIM_EMIR_ERTELEME:
+            miktar = aday.aksiyon.get("onerilen_miktar")
+            return (
+                f"{o.kalem_adi} için ihtiyaç var ama "
+                f"{_tr_sayi(float(miktar)) if miktar is not None else '—'} adetlik emir, "
+                f"{o.hat_adi} hattının {_tr_sayi(o.hazirlik_suresi_saat)} saatlik hazırlık "
+                f"süresini karşılayacak kadar büyük değil; emir erteleniyor."
+            )
+        if aday.tip is KararTipi.URETIM_KAPASITE_ASIMI:
+            asim = aday.aksiyon.get("asim_saat")
+            return (
+                f"{o.hat_adi} kapasitesi "
+                f"{_tr_sayi(float(asim)) if asim is not None else '—'} saat aşılıyor. "
+                f"{o.kalem_adi} için eldeki mal diğer kalemlere göre daha uzun süre "
+                f"yettiğinden bu emrin ertelenmesi öneriliyor."
+            )
+        return (
+            f"{o.kalem_adi} için üretim gerekmiyor: elde ve açık emirlerdeki "
+            f"{_tr_sayi(o.net_pozisyon)} adet, {o.tahmin_ufuk_gun} günlük talebi "
+            f"karşılıyor."
+        )
+
+    # ⚠️ Son çare, alan-bağımsız: `gorunen_ad` sözleşmenin bu soruya cevabı.
+    # Doğrudan `o.sku_adi` yazmak, yeni bir alan eklendiğinde burayı yeniden
+    # kırardı (bkz. yukarıdaki uyarı).
+    return f"{o.gorunen_ad} için {aday.tip.value} kararı üretildi."
 
 
 def explain_stub(aday: DecisionCandidate) -> Gerekce:
@@ -171,6 +253,17 @@ def sistem_istemi(tip: KararTipi) -> str:
 # durum — kullanıcıya yarım cümle gitmez.
 GEREKCE_MAX_TOKEN = 160
 
+# Eğitilmiş kipte yeniden denemede kullanılan sıcaklık.
+#
+# Neden gerekli: eğitilmiş kip `onceki_red`'i isteme yazamıyor (o satır
+# eğitimde hiç geçmedi). İstem aynı kalınca, sıcaklık 0'da çıktı da birebir
+# aynı olur ve ikinci deneme boşa gider.
+#
+# 0,7 seçildi: 0,2-0,3 açgözlü üretimden yeterince ayrışmıyor, 1,0 üstü
+# uydurmayı artırıyor. Guard ikinci denemeyi de denetlediği için risk yok —
+# tutmazsa şablona düşülür.
+YENIDEN_DENEME_SICAKLIGI = 0.7
+
 MAX_CUMLE = 2
 
 # Cümle sonu: nokta + boşluk + BÜYÜK harf, ya da metnin sonundaki nokta.
@@ -210,6 +303,67 @@ _TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
         "ort_gunluk_talep",
         "rop",
     ),
+    # ⚠️ Faz 8 / B5'te eklendi. Finans tipleri bu sözlükte YOKTU ve sonucu
+    # sessizdi: `sayi_etiketleri` boş liste döndürüyor, dolayısıyla
+    # `anlatilacak_sayi_var_mi` her finans kararında False oluyor ve
+    # **model hiç çağrılmıyordu**. Her finans gerekçesi şablona düşüyordu.
+    #
+    # Yani "model finansı hiç görmedi" tespiti doğruydu ama sebebi eğitim
+    # eksikliği değil, sorunun hiç sorulmamasıydı. Ölçüm bunu ancak
+    # koşturunca ortaya çıkardı — 25 kararın 25'i 0 saniyede şablona düştü.
+    KararTipi.FINANS_TAHSILAT_TAKIBI: (
+        "vadesi_gecen_tl",
+        "en_eski_gecikme_gun",
+        "ort_odeme_gecikmesi_gun",
+        "takip_esigi_gun",
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR: (
+        "en_eski_gecikme_gun",
+        "vadesi_gecen_tl",
+        "onerilen_karsilik_orani",
+        "karsilik_tutari_tl",
+    ),
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR: (
+        "musteri_risk_skoru",
+        "tahsilat_orani",
+        "kredi_limiti_tl",
+        "onerilen_kredi_limiti_tl",
+    ),
+    KararTipi.FINANS_AKSIYON_YOK: (
+        "en_eski_gecikme_gun",
+        "takip_esigi_gun",
+        "ort_odeme_gecikmesi_gun",
+    ),
+    # ⚠️ Faz 10 / Adım 6. Üretim tipleri buraya **kod yazılmadan önce**
+    # eklendi: B5'te finans tam bu sözlükte olmadığı için `sayi_etiketleri`
+    # boş dönüyor, `anlatilacak_sayi_var_mi` False oluyor ve model hiç
+    # çağrılmıyordu — 25 kararın 25'i 0 saniyede şablona düşmüştü. Sessiz
+    # bir kusur; ancak ölçünce görünüyor.
+    KararTipi.URETIM_EMIR_AC: (
+        "tahmin_toplam",
+        "tahmin_ust_band",
+        "net_pozisyon",
+        "emir_miktari",
+        "hat_yuku_saat",
+    ),
+    KararTipi.URETIM_EMIR_ERTELEME: (
+        "acik",
+        "onerilen_miktar",
+        "hazirlik_suresi_saat",
+        "tahmin_toplam",
+    ),
+    KararTipi.URETIM_KAPASITE_ASIMI: (
+        "toplam_yuk_saat",
+        "kapasite_saat",
+        "asim_saat",
+        "kapsama_gun",
+        "ertelenen_miktar",
+    ),
+    KararTipi.URETIM_AKSIYON_YOK: (
+        "net_pozisyon",
+        "tahmin_ust_band",
+        "tahmin_ufuk_gun",
+    ),
 }
 
 _ETIKETLER: dict[str, str] = {
@@ -223,6 +377,34 @@ _ETIKETLER: dict[str, str] = {
     "siparis_miktari": "önerilen sipariş miktarı (adet)",
     "rop": "yeniden sipariş noktası (adet)",
     "hedef_servis_seviyesi": "hedef servis seviyesi",
+    # Finans (B5)
+    "vadesi_gecen_tl": "vadesi geçmiş alacak (TL)",
+    "en_eski_gecikme_gun": "en eski faturanın gecikmesi (gün)",
+    "ort_odeme_gecikmesi_gun": "müşterinin ortalama ödeme gecikmesi (gün)",
+    "takip_esigi_gun": "takip eşiği (gün)",
+    "onerilen_karsilik_orani": "önerilen karşılık oranı",
+    "karsilik_tutari_tl": "karşılık tutarı (TL)",
+    "musteri_risk_skoru": "müşteri risk skoru (0-100)",
+    "tahsilat_orani": "tahsilat oranı",
+    "kredi_limiti_tl": "mevcut kredi limiti (TL)",
+    "onerilen_kredi_limiti_tl": "önerilen kredi limiti (TL)",
+    # Üretim (Adım 6)
+    "tahmin_toplam": "ufuk boyunca beklenen talep (adet)",
+    "tahmin_alt_band": "beklenen talebin alt sınırı (adet)",
+    "tahmin_ust_band": "beklenen talebin üst sınırı (adet)",
+    "tahmin_ufuk_gun": "planlama ufku (gün)",
+    "net_pozisyon": "elde + açık emirlerdeki miktar (adet)",
+    "emir_miktari": "önerilen üretim miktarı (adet)",
+    "onerilen_miktar": "önerilen üretim miktarı (adet)",
+    "ertelenen_miktar": "ertelenen üretim miktarı (adet)",
+    "hat_yuku_saat": "emrin hattı meşgul edeceği süre (saat)",
+    "toplam_yuk_saat": "hattaki emirlerin toplam yükü (saat)",
+    "kapasite_saat": "hattın kullanılabilir kapasitesi (saat)",
+    "asim_saat": "kapasite aşımı (saat)",
+    "kapsama_gun": "eldeki malın yeteceği süre (gün)",
+    "hazirlik_suresi_saat": "hat hazırlık süresi (saat)",
+    "acik": "karşılanamayan ihtiyaç (adet)",
+    "mrp_ihtiyaci": "üretim emirlerinden doğan ek ihtiyaç (adet)",
 }
 
 
@@ -239,6 +421,26 @@ _DURUM_IFADELERI: dict[KararTipi, str] = {
     KararTipi.STOK_SIPARIS: "kullanılabilir stok yeniden sipariş noktasının ALTINA düştü",
     KararTipi.STOK_AKSIYON_YOK: "kullanılabilir stok yeniden sipariş noktasının ÜZERİNDE",
     KararTipi.STOK_TASFIYE: "ürün uzun süredir hiç hareket görmedi",
+    # Finans (B5) — yön yine söyleniyor, hesaplatılmıyor.
+    KararTipi.FINANS_TAHSILAT_TAKIBI: (
+        "gecikme, bu müşterinin kendi olağan aralığının ÜSTÜNDE ya da alacak "
+        "takip maliyetini karşılayacak kadar BÜYÜK"
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR: "alacak, karşılık ayrılacak kadar ESKİ",
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR: "müşterinin risk skoru eşiğin ALTINDA",
+    KararTipi.FINANS_AKSIYON_YOK: "gecikme, bu müşteri için OLAĞAN aralıkta",
+    # Üretim (Adım 6) — yön yine söyleniyor, hesaplatılmıyor.
+    KararTipi.URETIM_EMIR_AC: (
+        "elde ve açık emirlerdeki miktar, ufuktaki talebin ÜST SINIRINI karşılamıyor"
+    ),
+    KararTipi.URETIM_EMIR_ERTELEME: ("açık var ama hattı kurmaya değecek kadar BÜYÜK DEĞİL"),
+    KararTipi.URETIM_KAPASITE_ASIMI: (
+        "hattaki emirlerin toplam yükü kapasitenin ÜSTÜNDE ve bu kalemin stoğu "
+        "diğerlerine göre DAHA UZUN süre yetiyor"
+    ),
+    KararTipi.URETIM_AKSIYON_YOK: (
+        "elde ve açık emirlerdeki miktar, ufuktaki talebi ZATEN karşılıyor"
+    ),
 }
 
 
@@ -263,7 +465,25 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     üretiyor, dolayısıyla guard'a takılmaz. Modele 0,90 vermek ise metne
     "hedef servis seviyesi 0,90" gibi iş diline yabancı bir ifade sokuyordu.
     """
-    izinli_adlar = _TIPE_GORE_ALANLAR.get(aday.tip, ())
+    return _sayi_etiketleri_kur(aday, _TIPE_GORE_ALANLAR.get(aday.tip, ()), _ETIKETLER)
+
+
+def _sayi_etiketleri_kur(
+    aday: DecisionCandidate,
+    izinli_adlar: tuple[str, ...],
+    etiket_sozlugu: dict[str, str],
+) -> list[tuple[str, float]]:
+    """`sayi_etiketleri` ile `egitilmis_sayi_etiketleri`'nin ortak gövdesi.
+
+    İki kip **aynı mantığı** kullanır (kaynaklar, oran×100, sıralama); yalnızca
+    hangi alanların geçeceği ve etiket metinleri farklıdır. Mantığı tek yerde
+    tutmak bilinçli: kopyalanırsa biri düzeltilip diğeri unutulur — bu dosyanın
+    zaten bir kez yaşadığı hata.
+    """
+
+    def etiketle(ad: str) -> str:
+        return etiket_sozlugu.get(ad, ad.replace("_", " "))
+
     ciftler: list[tuple[str, float]] = []
     gorulen: set[str] = set()
 
@@ -274,9 +494,9 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
             return
         gorulen.add(ad)
         if ad in ORAN_ALANLARI:
-            ciftler.append((f"{_etiketle(ad)} (%)", float(deger) * 100.0))
+            ciftler.append((f"{etiketle(ad)} (%)", float(deger) * 100.0))
         else:
-            ciftler.append((_etiketle(ad), float(deger)))
+            ciftler.append((etiketle(ad), float(deger)))
 
     for ad in izinli_adlar:
         ekle(ad, getattr(aday.ozellikler, ad, None))
@@ -291,8 +511,230 @@ def sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
     # İstemdeki sıra izin listesindeki sıra olsun — kaynağa göre değil.
     # Böylece "talep → tedarik süresi → stok → eşik → aksiyon" akışı korunur
     # ve model cümleyi bu mantıkla kurar.
-    sira = {_etiketle(a): i for i, a in enumerate(izinli_adlar)}
+    sira = {etiketle(a): i for i, a in enumerate(izinli_adlar)}
     return sorted(ciftler, key=lambda c: sira.get(c[0].removesuffix(" (%)"), 99))
+
+
+# ---------------------------------------------------------------------------
+# Eğitilmiş model kipi (Faz 3)
+# ---------------------------------------------------------------------------
+
+GOREV_ETIKETI_GEREKCE = "GOREV: gerekce"
+
+# ⭐ Eğitilmiş kipin alan listesi — 2. turun kök nedeninin düzeltmesi (2026-08-06).
+#
+# ÖNCEKİ SÜRÜM karar tipinden bağımsız **5 sabit alan** veriyordu. Hedef
+# metinler ise `training/label_rationale.py::SLOTLAR`'daki alanlardan
+# üretilmişti — iskonto oranı, sipariş miktarı, tedarikçi skoru, ROP...
+# İstemde olmayan bu sayıları model ancak **uydurarak** yazabilirdi ve
+# eğitim örneklerinin %79,4'ü tam olarak bunu öğretiyordu. Ölçülen sonuç:
+# eğitilmiş modelin guard kabulü %25,7, taban modelin %100.
+# (Tam analiz: dokumantasyon/OLCUMLER.md, "2. turun KÖK NEDENİ".)
+#
+# ⚠️ Bu liste `_TIPE_GORE_ALANLAR`'dan (taban kip) BİLİNÇLİ OLARAK AYRI.
+# Taban kipin listesi B2.4'te dar tutulacak şekilde ayarlandı: sayı arttıkça
+# model ilişki kurmayı bırakıp veri döküyor. Oradaki daraltma bir kalite
+# kararı; buradaki genişlik ise bir **zorunluluk** — hedef metnin kullandığı
+# her sayı istemde olmak zorunda. İkisini birleştirmek, birini bozmadan
+# diğerini düzeltmeyi imkânsız kılardı.
+#
+# ⚠️ `training/veri_hazirla.py` bu listeyi **doğrudan bu dosyadan** alıyor
+# (import ediyor). Eskiden iki yerde elle kopyalanmıştı ve ayrışma riski
+# taşıyordu; artık tek kaynak burası.
+_EGITILMIS_TIPE_GORE_ALANLAR: dict[KararTipi, tuple[str, ...]] = {
+    KararTipi.STOK_SIPARIS: (
+        "ort_gunluk_talep",
+        "tedarik_suresi_gun",
+        "kullanilabilir_stok",
+        "rop",
+        "siparis_miktari",
+        "tedarikci_skoru",
+    ),
+    KararTipi.STOK_TASFIYE: (
+        "son_hareket_gun_once",
+        "eldeki_stok",
+        "birim_maliyet_tl",
+        "bagli_sermaye_tl",
+        "onerilen_iskonto_orani",
+    ),
+    KararTipi.STOK_AKSIYON_YOK: (
+        "kullanilabilir_stok",
+        "ort_gunluk_talep",
+        "rop",
+    ),
+    # ⚠️ Faz 8 / B5'te eklendi. Finans tipleri bu sözlükte YOKTU ve sonucu
+    # sessizdi: `sayi_etiketleri` boş liste döndürüyor, dolayısıyla
+    # `anlatilacak_sayi_var_mi` her finans kararında False oluyor ve
+    # **model hiç çağrılmıyordu**. Her finans gerekçesi şablona düşüyordu.
+    #
+    # Yani "model finansı hiç görmedi" tespiti doğruydu ama sebebi eğitim
+    # eksikliği değil, sorunun hiç sorulmamasıydı. Ölçüm bunu ancak
+    # koşturunca ortaya çıkardı — 25 kararın 25'i 0 saniyede şablona düştü.
+    KararTipi.FINANS_TAHSILAT_TAKIBI: (
+        "vadesi_gecen_tl",
+        "en_eski_gecikme_gun",
+        "ort_odeme_gecikmesi_gun",
+        "takip_esigi_gun",
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR: (
+        "en_eski_gecikme_gun",
+        "vadesi_gecen_tl",
+        "onerilen_karsilik_orani",
+        "karsilik_tutari_tl",
+    ),
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR: (
+        "musteri_risk_skoru",
+        "tahsilat_orani",
+        "kredi_limiti_tl",
+        "onerilen_kredi_limiti_tl",
+    ),
+    KararTipi.FINANS_AKSIYON_YOK: (
+        "en_eski_gecikme_gun",
+        "takip_esigi_gun",
+        "ort_odeme_gecikmesi_gun",
+    ),
+    # ⚠️ Faz 10 / Adım 6. Üretim tipleri buraya **kod yazılmadan önce**
+    # eklendi: B5'te finans tam bu sözlükte olmadığı için `sayi_etiketleri`
+    # boş dönüyor, `anlatilacak_sayi_var_mi` False oluyor ve model hiç
+    # çağrılmıyordu — 25 kararın 25'i 0 saniyede şablona düşmüştü. Sessiz
+    # bir kusur; ancak ölçünce görünüyor.
+    KararTipi.URETIM_EMIR_AC: (
+        "tahmin_toplam",
+        "tahmin_ust_band",
+        "net_pozisyon",
+        "emir_miktari",
+        "hat_yuku_saat",
+    ),
+    KararTipi.URETIM_EMIR_ERTELEME: (
+        "acik",
+        "onerilen_miktar",
+        "hazirlik_suresi_saat",
+        "tahmin_toplam",
+    ),
+    KararTipi.URETIM_KAPASITE_ASIMI: (
+        "toplam_yuk_saat",
+        "kapasite_saat",
+        "asim_saat",
+        "kapsama_gun",
+        "ertelenen_miktar",
+    ),
+    KararTipi.URETIM_AKSIYON_YOK: (
+        "net_pozisyon",
+        "tahmin_ust_band",
+        "tahmin_ufuk_gun",
+    ),
+}
+
+# Türkçe karakter YOK ("gunluk", "suresi") — eğitim verisi böyle üretiliyor,
+# tokenizer'a gereksiz yük bindirmemek için. Etiket metinleri değişirse eğitim
+# verisi yeniden üretilmeli, yoksa model tanımadığı bir istem görür.
+_EGITILMIS_ETIKETLER: dict[str, str] = {
+    "ort_gunluk_talep": "gunluk ortalama talep (adet)",
+    "tedarik_suresi_gun": "tedarik suresi (gun)",
+    "kullanilabilir_stok": "kullanilabilir stok (adet)",
+    "eldeki_stok": "eldeki stok (adet)",
+    "son_hareket_gun_once": "son hareketten bu yana gecen gun",
+    "birim_maliyet_tl": "birim maliyet (TL)",
+    "bagli_sermaye_tl": "bagli sermaye (TL)",
+    "siparis_miktari": "onerilen siparis miktari (adet)",
+    "rop": "yeniden siparis noktasi (adet)",
+    "tedarikci_skoru": "tedarikci skoru",
+    "onerilen_iskonto_orani": "onerilen iskonto orani",
+}
+
+# Sipariş gerekçelerinde tedarikçi ADI da geçiyor (bkz. label_rationale
+# SLOTLAR: TEDARIKCI_ADI). Sayı değil ama aynı kural geçerli: istemde yoksa
+# model uydurur — üstelik guard metin uydurmasını **yakalayamaz**, çünkü
+# uydurulan şey sayı değil. Ürün adı B3.1'de aynı gerekçeyle eklenmişti.
+_EGITILMIS_METIN_ALANLARI: dict[KararTipi, tuple[tuple[str, str], ...]] = {
+    KararTipi.STOK_SIPARIS: (("tedarikci_adi", "tedarikci"),),
+}
+
+
+def egitilmis_sayi_etiketleri(aday: DecisionCandidate) -> list[tuple[str, float]]:
+    """Eğitilmiş kipin isteme koyacağı `(etiket, değer)` çiftleri.
+
+    `sayi_etiketleri` ile aynı mantık, farklı liste — gerekçesi
+    `_EGITILMIS_TIPE_GORE_ALANLAR`'ın açıklamasında.
+    """
+    return _sayi_etiketleri_kur(
+        aday, _EGITILMIS_TIPE_GORE_ALANLAR.get(aday.tip, ()), _EGITILMIS_ETIKETLER
+    )
+
+
+def egitilmis_istem_govdesi(aday: DecisionCandidate) -> str:
+    """İstemin `GOREV:` başlığı **olmadan** gövdesi.
+
+    ⭐ Eğitim verisini üreten `training/veri_hazirla.py` de bu fonksiyonu
+    çağırır. Başlığın ayrı olmasının sebebi tarihsel: eğitim defteri
+    (`train_lora.ipynb::gerekce_metni`) `GOREV: gerekce` satırını kendisi
+    ekliyor, `veri_hazirla` ise yalnızca gövdeyi yazıyor. Çalışma zamanı
+    ikisini birleştiriyor. Tek kaynak burası olduğu sürece üçü de tutar.
+    """
+    o = aday.ozellikler
+    # ⚠️ Kalem etiketi alana göre değişiyor (Faz 8 / B5). Önceden
+    # `f"urun: {o.sku_adi}"` yazılıydı ve finans kararı geldiği anda
+    # `AttributeError` veriyordu — istem hiç kurulamıyor, gerekçe şablona
+    # düşüyordu. Model finansı görmemesinin sebebi eğitim değil, buydu.
+    #
+    # ⚠️ Stok tarafında etiket **birebir korunuyor** (`urun:`). Eğitilmiş
+    # kipin istemi eğitimdekiyle aynı olmak zorunda; bir kelime değişse
+    # model tanımadığı bir girdi görür (bkz. modül üstündeki uyarı ve
+    # `OLCUMLER.md`'deki 4./5. tur vakası). Finans için `musteri:`
+    # kullanmak yeni bir biçim değil, olmayan bir biçimin ilki.
+    etiket = "musteri" if aday.alan is Alan.FINANS else "urun"
+    satirlar = [
+        "VERILER:",
+        f"{etiket}: {o.gorunen_ad}",
+        f"karar: {aday.tip.value}",
+    ]
+
+    # Metin alanları (tedarikçi adı gibi) sayılardan ÖNCE — hedef metinlerde
+    # de bu sırada geçiyorlar ve model cümleyi bu akışla kuruyor.
+    for alan, etiket in _EGITILMIS_METIN_ALANLARI.get(aday.tip, ()):
+        deger = getattr(o, alan, None)
+        if isinstance(deger, str) and deger:
+            satirlar.append(f"{etiket}: {deger}")
+
+    for etiket, deger in egitilmis_sayi_etiketleri(aday):
+        satirlar.append(f"{etiket}: {_tr_sayi(deger)}")
+
+    return "\n".join(satirlar) + "\n\nGEREKCE:"
+
+
+def egitilmis_istem_kur(aday: DecisionCandidate) -> str:
+    """Eğitilmiş modelin beklediği gerekçe istemi.
+
+    Taban kipten **üç farkı** var, üçü de bilinçli:
+
+    1. **Ürün adı VAR.** B2.4'te adı çıkarmıştım çünkü taban model bozuyordu
+       (`Astar Boya` → *starboy*). Ama eğitim verisindeki gerekçelerin
+       %100'ünde ad geçiyor; isteme koymazsak model *yoktan ad uydurmayı*
+       öğrenmiş olur. B3.1'de bu karara varıldı.
+    2. **Kurallar ve few-shot örnek YOK.** Davranış ağırlıklara işlendi.
+    3. **Alan listesi karar tipine göre değişir** — hedef metnin kullandığı
+       her sayı istemde olsun diye. (Önceki sürüm tipten bağımsız 5 sabit
+       alan veriyordu; 2. turun kök nedeni buydu.)
+
+    Bu fonksiyon "daha iyi bir istem" yazmaya çalışmaz; **eğitimdekini
+    tekrarlar.** İyileştirme yapılacaksa eğitim verisiyle birlikte yapılmalı —
+    artık ikisi de `egitilmis_istem_govdesi`'nden beslendiği için bu
+    otomatik.
+
+    ⚠️ **`onceki_red` alınmıyor ve bu bilinçli.** Taban kipte guard reddedince
+    isteme "şu sayıları kullanma" uyarısı ekleniyor; eğitilmiş modelde böyle
+    bir satır eğitimde hiç geçmedi, eklemek modeli tanımadığı bir girdiye
+    sokar.
+
+    Bunun bilinen sonucu: eğitilmiş kipte **ikinci deneme birincinin aynısı**
+    olur (açgözlü üretimde birebir). Yani guard reddettiğinde yeniden deneme
+    boşa gider ve doğrudan şablona düşülür.
+
+    Çözümü hazır ama eğitilmiş model üretime alınırken yapılmalı: yeniden
+    denemede sıcaklığı yükseltmek. İstemi değiştirmeden çıktıyı değiştirir.
+    Şu an `llm_istem_bicimi="taban"` olduğu için bu yol hiç çalışmıyor.
+    """
+    return f"{GOREV_ETIKETI_GEREKCE}\n{egitilmis_istem_govdesi(aday)}"
 
 
 def istem_kur(aday: DecisionCandidate, onceki_red: list[float] | None = None) -> str:
@@ -385,17 +827,77 @@ def llm_ureteci(
     sahte üreteçle çalışıyor). İstemciyi kapamada taşımak ikisini ayrı tutar.
     """
 
+    egitilmis = istemci.ayar.llm_istem_bicimi == "egitilmis"
+
     def uret(aday: DecisionCandidate, *, onceki_red: list[float] | None = None) -> str:
-        sonuc = yapilandirilmis_uret(
-            istemci,
-            GerekceCiktisi,
-            istem_kur(aday, onceki_red),
-            sistem=sistem_istemi(aday.tip),
-            max_token=GEREKCE_MAX_TOKEN,
-            sicaklik=sicaklik,
-            tohum=tohum,
-        )
-        return ilk_cumleleri_al(sonuc.deger.gerekce)
+        # ⚠️ Eğitilmiş kipte yeniden denemeyi ANLAMLI kılan tek şey bu.
+        #
+        # Taban kipte guard reddedince isteme "şu sayıları kullanma" uyarısı
+        # ekleniyor ve ikinci deneme birinciden farklı oluyor. Eğitilmiş kipte
+        # böyle bir satır eğitimde hiç geçmedi; eklemek modeli tanımadığı bir
+        # girdiye sokar.
+        #
+        # Sonuç: istem aynı, sıcaklık 0 ise çıktı da **birebir aynı** olur ve
+        # ikinci deneme boşa gider — bir model çağrısı, hiçbir kazanç.
+        #
+        # Çözüm istemi değil ÜRETİMİ değiştirmek: yeniden denemede sıcaklığı
+        # yükseltmek. Model aynı istemi görür ama farklı bir yol seçer.
+        yeniden = bool(onceki_red)
+        etkin_sicaklik = sicaklik
+        if egitilmis and yeniden:
+            etkin_sicaklik = max(YENIDEN_DENEME_SICAKLIGI, sicaklik or 0.0)
+
+        # Tohum da değişmeli: sıcaklık yükselse bile aynı tohum aynı
+        # örneklemeyi verir, yani yine aynı cümle çıkardı.
+        etkin_tohum = (tohum + 1) if (egitilmis and yeniden and tohum is not None) else tohum
+
+        if egitilmis:
+            # ⭐ EĞİTİLMİŞ KİPTE JSON ŞEMASI KULLANILMAZ.
+            #
+            # Şema (`GerekceCiktisi`) B2.1'de TABAN model için konmuştu: düz
+            # metin istendiğinde taban model girdiyi liste hâlinde geri yazıp
+            # başına başlık ekliyordu. Orada hâlâ gerekli.
+            #
+            # Ama eğitilmiş modelde şema **zarar veriyor**, çünkü eğitim ile
+            # çalışma zamanı biçimi uyuşmuyor:
+            #
+            #     egitimde hedef  :  Porselen Karo - Vitra urununun 97 gun...
+            #     calisma zamani  :  {"gerekce": "..."}   <- HIC GORULMEDI
+            #
+            # Model `{"gerekce": ...}` sarmalayıcısını eğitimde hiç görmedi;
+            # Ollama'nın grammar kısıtı onu tanımadığı bir kalıba sokuyor.
+            #
+            # ⚠️ Ölçüldü (2026-08-08, aynı 20 karar, tek değişken şema):
+            #
+            #     tur5  semali  ->   7/20 kabul      tur3  semali  -> 20/20
+            #     tur5  semasiz -> *20/20* kabul     tur3  semasiz -> 20/20
+            #
+            # Yani şema, 4. ve 5. turun "gerekçe tarafını bozduğu" sonucunun
+            # tek sebebiydi. Model bozuk değildi, kısıt bozuktu. Kaldırmak
+            # tur5'i kurtarıyor ve tur3'e hiç dokunmuyor.
+            #
+            # Biçim güvencesi kaybolmuyor: guard metni zaten doğruluyor
+            # (sayı + dil), `ilk_cumleleri_al` fazla cümleyi kırpıyor ve
+            # geçmezse şablona düşülüyor.
+            ham = istemci.uret(
+                egitilmis_istem_kur(aday),
+                max_token=GEREKCE_MAX_TOKEN,
+                sicaklik=etkin_sicaklik,
+                tohum=etkin_tohum,
+            ).metin
+        else:
+            sonuc = yapilandirilmis_uret(
+                istemci,
+                GerekceCiktisi,
+                istem_kur(aday, onceki_red),
+                sistem=sistem_istemi(aday.tip),
+                max_token=GEREKCE_MAX_TOKEN,
+                sicaklik=etkin_sicaklik,
+                tohum=etkin_tohum,
+            )
+            ham = sonuc.deger.gerekce
+
+        return ilk_cumleleri_al(ham.strip())
 
     return uret
 

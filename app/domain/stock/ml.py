@@ -202,9 +202,7 @@ def xgboost_talep_modeli_egit(
     ise bu modeli üretimde kullanma; naif tahmini kullan ve bunu raporla.
     """
     ort_gunluk_talep_sku = talep.groupby("sku_id")["talep_miktari"].mean()
-    hizli_sku_idler = ort_gunluk_talep_sku[
-        ort_gunluk_talep_sku >= GUNLUK_HIZLI_HAREKET_ESIGI
-    ].index
+    hizli_sku_idler = ort_gunluk_talep_sku[ort_gunluk_talep_sku >= GUNLUK_HIZLI_HAREKET_ESIGI].index
 
     talep_hizli = talep[talep["sku_id"].isin(hizli_sku_idler)]
     ozellik_df = ozellik_matrisi_olustur(talep_hizli, sku_df).dropna(
@@ -287,9 +285,7 @@ def anomali_tespit_et(
     return df[["tarih", "sku_id", "talep_miktari", "talep_orani", "anomali_mi"]]
 
 
-def fiyat_sapmasi_tespit_et(
-    siparisler: pd.DataFrame, kontaminasyon: float = 0.02
-) -> pd.DataFrame:
+def fiyat_sapmasi_tespit_et(siparisler: pd.DataFrame, kontaminasyon: float = 0.02) -> pd.DataFrame:
     """SKU başına gerçekleşen birim fiyatın kendi geçmiş ortalamasına göre
     sapmasını IsolationForest ile işaretler (fiyat zammı patolojisini yakalamak için).
 
@@ -464,9 +460,7 @@ def politika_karsilastirmasi_calistir(
             sevkiyat = np.minimum(talep_bugun, s["stok"])
             s["karsilanamayan_toplam"] += talep_bugun - sevkiyat
             s["stok"] -= sevkiyat
-            s["asiri_stok_maliyet_toplam"] += (
-                s["stok"] * birim_maliyet * gunluk_elde_tutma_orani
-            )
+            s["asiri_stok_maliyet_toplam"] += s["stok"] * birim_maliyet * gunluk_elde_tutma_orani
 
             s["talep_gecmisi"][t % TALEP_ORTALAMA_PENCERE_GUN] = talep_bugun
             gecerli_gun = min(t + 1, TALEP_ORTALAMA_PENCERE_GUN)
@@ -482,9 +476,7 @@ def politika_karsilastirmasi_calistir(
                 hedef_miktar = SIPARIS_HEDEF_GUN * ort_talep
             elif p == "kural_motoru":
                 z = norm.ppf(hedef_servis)
-                varyans = (
-                    ort_tedarik_suresi * std_talep**2 + ort_talep**2 * tedarik_suresi_std**2
-                )
+                varyans = ort_tedarik_suresi * std_talep**2 + ort_talep**2 * tedarik_suresi_std**2
                 emniyet = z * np.sqrt(np.clip(varyans, 0.0, None))
                 rop = ort_talep * ort_tedarik_suresi + emniyet
                 tetik = (net_pozisyon < rop) & (ort_talep > 0)
@@ -505,9 +497,7 @@ def politika_karsilastirmasi_calistir(
                 # uzun sürdüğünde oracle da tükenme yaşar — bu, "mükemmel
                 # bilgi" tanımının ihlalidir, ölçüm sızıntısı sayılır.
                 guven_payi = ORACLE_TEDARIK_SURESI_GUVEN_KATSAYISI * tedarik_suresi_std
-                ileri_gun = np.maximum(
-                    1, np.round(ort_tedarik_suresi + guven_payi)
-                ).astype(int)
+                ileri_gun = np.maximum(1, np.round(ort_tedarik_suresi + guven_payi)).astype(int)
                 bitis_idx = np.minimum(t + ileri_gun, gun_sayisi)
                 sku_araligi = np.arange(n_sku)
                 gercek_gelecek_talep = (

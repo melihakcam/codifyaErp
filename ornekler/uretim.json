@@ -1,0 +1,9 @@
+{
+  "ad": "Üretim",
+  "aciklama": "⚠️ Kaynak listesi BİLEREK boş: hatlar ve kapasiteleri işletmenin kendi verisinde yaşıyor (hat listesi ana veriden, günlük kapasite profil dosyasındaki hedef kullanım oranından). Buraya elle kopyalansaydı iki ayrı gerçek olur, kapasite değiştiğinde plan sessizce yanlış çıkardı. İşler de tahminden türüyor — bu alan 'geçmişe bakıp geleceğe göre plan' iddiasının kanıtlandığı yer.",
+  "kapasite_birimi": "saat",
+  "isler_kaynagi": "tahmin",
+  "adaptor": "app.domain.production.adapter",
+  "kaynaklar": [],
+  "isler": []
+}

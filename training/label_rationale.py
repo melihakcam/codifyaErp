@@ -69,6 +69,7 @@ import httpx
 from app.contracts import (
     Alan,
     DecisionCandidate,
+    FinansOzellikleri,
     FiredRule,
     GuardSonucu,
     KararTipi,
@@ -119,7 +120,17 @@ def _metni_maskele(metin: str, satir: dict[str, Any]) -> str:
     sanıp geçerli bir metni reddeder.
     """
     o = satir["ozellikler"]
-    for deger in (o.get("sku_adi"), o.get("tedarikci_adi"), o.get("sku_id"), o.get("tedarikci_id")):
+    # ⚠️ Finans alanları da maskeleniyor: müşteri adı ve kimliği rakam
+    # içerebilir ("Kocaeli Usta Müşterisi 2") ve maskelenmezse guard onları
+    # uydurma sayı sanıp geçerli metni reddeder.
+    for deger in (
+        o.get("sku_adi"),
+        o.get("tedarikci_adi"),
+        o.get("sku_id"),
+        o.get("tedarikci_id"),
+        o.get("musteri_adi"),
+        o.get("musteri_id"),
+    ):
         if isinstance(deger, str) and deger:
             metin = metin.replace(deger, " ")
     return metin
@@ -160,14 +171,29 @@ def _tr_bicimli_sayi(deger: float) -> str:
 
 
 def _karar_adayi_olustur(satir: dict[str, Any]) -> DecisionCandidate:
+    """JSONL satırından `DecisionCandidate`.
+
+    ⚠️ `alan` ve özellik tipi **karar tipinden** çıkarılıyor, sabit değil.
+    Önceden ikisi de stoka çakılıydı (`Alan.STOK`, `StockFeatures`) ve
+    finans satırı geldiğinde pydantic "sku_adi, moq, paket_adedi eksik"
+    diye patlıyordu. `app/llm/explain.py`'de aynı kusurun üç örneği
+    bulunmuştu (`BILINEN-EKSIKLER.md` §18); bu beşincisi ve son katman.
+    """
+    tip = KararTipi(satir["karar_tipi"])
+    finans_mi = tip.alan == Alan.FINANS.value
+    ozellikler = (
+        FinansOzellikleri.model_validate(satir["ozellikler"])
+        if finans_mi
+        else StockFeatures.model_validate(satir["ozellikler"])
+    )
     return DecisionCandidate(
-        alan=Alan.STOK,
-        tip=KararTipi(satir["karar_tipi"]),
+        alan=Alan.FINANS if finans_mi else Alan.STOK,
+        tip=tip,
         aksiyon=satir["aksiyon"],
         tahmini_tutar_tl=satir["tahmini_tutar_tl"],
         guven=satir["guven"],
         tetiklenen_kurallar=[FiredRule.model_validate(k) for k in satir["tetiklenen_kurallar"]],
-        ozellikler=StockFeatures.model_validate(satir["ozellikler"]),
+        ozellikler=ozellikler,
     )
 
 
@@ -207,6 +233,38 @@ _SLOT_TANIMLARI: dict[str, list[tuple[str, str, str]]] = {
         ("ISKONTO_YUZDE", "hesap", "iskonto_yuzde"),
         ("BAGLI_SERMAYE_TL", "kural:OLU_STOK_TESPIT_EDILDI", "bagli_sermaye_tl"),
     ],
+    # --- Finans (Faz 8) ---
+    #
+    # ⚠️ Slot adları stok tarafındakilerle kasıtlı olarak ÖRTÜŞMÜYOR. Model
+    # tek bir ağırlık kümesinde iki alanı birden öğreniyor; aynı slot adı
+    # farklı anlamlara gelirse (ör. "TUTAR") cümleler karışır. Her alan kendi
+    # sözlüğünü taşıyor.
+    KararTipi.FINANS_TAHSILAT_TAKIBI.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("VADESI_GECEN_TL", "ozellik", "vadesi_gecen_tl"),
+        ("EN_ESKI_GECIKME_GUN", "ozellik", "en_eski_gecikme_gun"),
+        ("ORT_ODEME_GECIKMESI_GUN", "ozellik", "ort_odeme_gecikmesi_gun"),
+        ("TAKIP_ESIGI_GUN", "kural:TAKIP_ESIGI_HESAPLANDI", "takip_esigi_gun"),
+    ],
+    KararTipi.FINANS_KARSILIK_AYIR.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("EN_ESKI_GECIKME_GUN", "ozellik", "en_eski_gecikme_gun"),
+        ("VADESI_GECEN_TL", "ozellik", "vadesi_gecen_tl"),
+        ("KARSILIK_YUZDE", "hesap", "karsilik_yuzde"),
+        ("KARSILIK_TUTARI_TL", "kural:KARSILIK_GEREKLI", "karsilik_tutari_tl"),
+    ],
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("MUSTERI_RISK_SKORU", "kural:MUSTERI_RISKI_YUKSEK", "musteri_risk_skoru"),
+        ("TAHSILAT_YUZDE", "hesap", "tahsilat_yuzde"),
+        ("KREDI_LIMITI_TL", "ozellik", "kredi_limiti_tl"),
+        ("ONERILEN_KREDI_LIMITI_TL", "aksiyon", "onerilen_kredi_limiti_tl"),
+    ],
+    KararTipi.FINANS_AKSIYON_YOK.value: [
+        ("MUSTERI_ADI", "ozellik", "musteri_adi"),
+        ("EN_ESKI_GECIKME_GUN", "ozellik", "en_eski_gecikme_gun"),
+        ("TAKIP_ESIGI_GUN", "kural:TAKIP_ESIGI_HESAPLANDI", "takip_esigi_gun"),
+    ],
 }
 
 
@@ -223,6 +281,26 @@ KARAR_TIPI_ACIKLAMASI: dict[str, str] = {
     KararTipi.STOK_TASFIYE.value: (
         "Ürün uzun süredir HAREKETSİZ (ölü stok) — TASFİYE/İSKONTO öneriliyor, yeni sipariş DEĞİL."
     ),
+    KararTipi.FINANS_TAHSILAT_TAKIBI.value: (
+        "Müşteriden ALACAK var ve gecikme ya bu müşterinin OLAĞAN aralığının "
+        "ÜSTÜNDE ya da tutar takip maliyetini karşılayacak kadar BÜYÜK — "
+        "TAHSİLAT TAKİBİ (arama/yazışma) öneriliyor. Zarar yazmak DEĞİL."
+    ),
+    KararTipi.FINANS_KARSILIK_AYIR.value: (
+        "Alacak, tahsil edilemeyecek kadar ESKİ — muhasebe kaydı olarak "
+        "ŞÜPHELİ ALACAK KARŞILIĞI ayrılması öneriliyor. ⚠️ Bu, müşteriyi "
+        "aramayı BIRAKMAK anlamına GELMEZ; ayrı bir takip kararı da üretilmiş "
+        "olabilir."
+    ),
+    KararTipi.FINANS_KREDI_LIMITI_DUSUR.value: (
+        "Müşterinin ödeme davranışı RİSKLİ — GELECEK satışları sınırlamak için "
+        "KREDİ LİMİTİNİN DÜŞÜRÜLMESİ öneriliyor. Mevcut alacağın tahsili ayrı "
+        "bir karar."
+    ),
+    KararTipi.FINANS_AKSIYON_YOK.value: (
+        "Gecikme bu müşteri için OLAĞAN aralıkta — HİÇBİR aksiyon önerilmiyor. "
+        "Cümle bunu net söylemeli: aramaya gerek YOK."
+    ),
 }
 
 SLOT_ACIKLAMALARI: dict[str, str] = {
@@ -238,6 +316,22 @@ SLOT_ACIKLAMALARI: dict[str, str] = {
     "ELDEKI_STOK": "elde bulunan toplam stok, adet (sayı)",
     "ISKONTO_YUZDE": "önerilen iskonto oranı, yüzde (sayı)",
     "BAGLI_SERMAYE_TL": "bu stoka bağlı sermaye, Türk Lirası (sayı)",
+    # Finans
+    "MUSTERI_ADI": "müşteri adı (metin, sayı değil)",
+    "VADESI_GECEN_TL": "vadesi geçmiş alacak tutarı, Türk Lirası (sayı)",
+    "EN_ESKI_GECIKME_GUN": (
+        "en eski faturanın kaç GÜNDÜR geciktiği — bir TARİH DEĞİL, gün SAYISI"
+    ),
+    "ORT_ODEME_GECIKMESI_GUN": "bu müşterinin ortalama ödeme gecikmesi, gün (sayı)",
+    "TAKIP_ESIGI_GUN": (
+        "bu müşteri için hesaplanan takip eşiği, gün (sayı) — bunun üstü olağandışı"
+    ),
+    "KARSILIK_YUZDE": "önerilen şüpheli alacak karşılığı oranı, yüzde (sayı)",
+    "KARSILIK_TUTARI_TL": "ayrılması önerilen karşılık tutarı, Türk Lirası (sayı)",
+    "MUSTERI_RISK_SKORU": "müşteri risk skoru, 0-100 arası — YÜKSEK = güvenilir (sayı)",
+    "TAHSILAT_YUZDE": "geçmişte tahsil edilen alacak oranı, yüzde (sayı)",
+    "KREDI_LIMITI_TL": "mevcut kredi limiti, Türk Lirası (sayı)",
+    "ONERILEN_KREDI_LIMITI_TL": "önerilen yeni kredi limiti, Türk Lirası (sayı)",
 }
 
 
@@ -247,6 +341,13 @@ def _hesapla(anahtar: str, satir: dict[str, Any]) -> float:
         return float(o["eldeki_stok"] - o["rezerve_stok"])
     if anahtar == "iskonto_yuzde":
         return float(satir["aksiyon"]["onerilen_iskonto_orani"]) * 100.0
+    # ⚠️ Oranlar yüzdeye burada çevriliyor. Guard'ın izinli kümesi
+    # `ORAN_ALANLARI` sayesinde x100 karşılığını zaten kabul ediyor
+    # (bkz. `app/contracts.py`); ikisi ayrışırsa gerekçe reddedilir.
+    if anahtar == "karsilik_yuzde":
+        return float(satir["aksiyon"]["onerilen_karsilik_orani"]) * 100.0
+    if anahtar == "tahsilat_yuzde":
+        return float(satir["ozellikler"]["tahsilat_orani"]) * 100.0
     raise ValueError(f"Bilinmeyen hesap anahtarı: {anahtar}")
 
 
@@ -308,8 +409,13 @@ def _sekil_prompt_olustur(karar_tipi: str, slot_tokenlari: list[str], varyant_sa
     )
     token_listesi = ", ".join("{" + t + "}" for t in slot_tokenlari)
     durum_aciklamasi = KARAR_TIPI_ACIKLAMASI.get(karar_tipi, karar_tipi)
+    # ⚠️ Rol tanımı alana göre değişiyor (Faz 8). Finans şekillerinde de
+    # "stok yönetimi asistanısın" yazıyordu; büyük modele yanlış bağlam
+    # vermek, üretilen cümlelerin tahsilat yerine stok diliyle yazılmasına
+    # yol açardı — ve o cümleler eğitim verisi olarak kalıcılaşırdı.
+    rol = "alacak ve tahsilat yönetimi" if karar_tipi.startswith("finans.") else "stok yönetimi"
     return (
-        "Sen bir ERP stok yönetimi asistanısın. Aşağıdaki DURUM için "
+        f"Sen bir ERP {rol} asistanısın. Aşağıdaki DURUM için "
         f"{varyant_sayisi} FARKLI, doğal, profesyonel Türkçe gerekçe cümlesi yaz.\n\n"
         f"DURUM: {durum_aciklamasi}\n\n"
         f"Cümlede AYNEN şu {len(slot_tokenlari)} yer tutucunun HEPSİ geçmeli "
@@ -459,11 +565,17 @@ def _tek_satir_prompt_olustur(satir: dict[str, Any]) -> str:
     kurallar_metni = "\n".join(
         f"- {k.kod}: {k.aciklama} ({k.degerler})" for k in aday.tetiklenen_kurallar
     )
+    finans_mi = aday.tip.value.startswith("finans.")
+    rol = "alacak ve tahsilat yönetimi" if finans_mi else "stok yönetimi"
+    # ⚠️ `sku_adi` yerine `gorunen_ad`: sözleşmenin alan-bağımsız cevabı.
+    # Doğrudan `sku_adi` okumak finans kararında `AttributeError` verirdi —
+    # `app/llm/explain.py`'de aynı kusurun üç örneği bulunmuştu (§18).
+    kalem_etiketi = "Müşteri" if finans_mi else "Ürün"
     return (
-        "Sen bir ERP stok yönetimi asistanısın. Aşağıdaki kural motoru çıktısını "
+        f"Sen bir ERP {rol} asistanısın. Aşağıdaki kural motoru çıktısını "
         "TEK bir doğal Türkçe gerekçe cümlesine dönüştür. Yalnızca aşağıda verilen "
         "sayıları kullan, yeni sayı UYDURMA.\n\n"
-        f"Ürün: {aday.ozellikler.sku_adi}\n"
+        f"{kalem_etiketi}: {aday.ozellikler.gorunen_ad}\n"
         f"Karar: {aday.tip.value}\n"
         f"Aksiyon: {aday.aksiyon}\n"
         f"Tetiklenen kurallar:\n{kurallar_metni}\n\n"
@@ -559,7 +671,12 @@ def gerekceleri_uret(
 
         sonuclar.append(
             {
-                "sku_id": satir["sku_id"],
+                # ⚠️ Kimlik alanı alana göre değişiyor. `sku_id` sabit
+                # okunuyordu ve finans satırında `KeyError` veriyordu.
+                # `build_dataset` her iki alan için `kalem_id` yazıyor;
+                # eski dosyalarda o yok, o yüzden `sku_id`'ye düşülüyor.
+                "kalem_id": satir.get("kalem_id") or satir.get("sku_id"),
+                "sku_id": satir.get("sku_id"),
                 "tarih": satir["tarih"],
                 "karar_tipi": satir["karar_tipi"],
                 "metin": metin,

@@ -602,3 +602,478 @@ uv run pytest && uv run ruff check .
 4. Her yer tutucu dosyanın docstring'inde **kimin, hangi fazda** yazacağı belirtilmiş
 5. Sözleşmede eksik bir alan varsa **kendi başına ekleme** — Kişi A ile konuş,
    tek PR'da birlikte ekleyin
+
+---
+
+# TUR 8 — Bağımsız iş paketi B (Servis & Model)
+
+> Yazıldı: 2026-08-10, Faz 7 bitiminde. **Bu paketteki hiçbir madde A
+> paketinden bir çıktı beklemiyor.** Sıra serbest, paralel çalışılabilir.
+
+## Dosya sahipliği (çakışma önleme)
+
+| B'nin sahası | A'nın sahası |
+|---|---|
+| `app/api/**` | `app/domain/**` |
+| `app/core/**` | `app/adapters/**` |
+| `app/llm/**` | `simulator/**` |
+| `app/jobs/**` | `app/contracts.py` *(bu tur A'da)* |
+| `training/**` (veri üretimi dâhil) | — |
+
+⚠️ Bu turda B'nin **sözleşmeye dokunan işi yok**. `app/contracts.py`'de bir
+şey gerekiyorsa dur ve A ile konuş — tek taraflı değiştirme.
+
+⚠️ Kural motorunun davranışı bu tur **sabit**. B'nin tüm işleri mevcut
+karar çıktısını tüketiyor, üretmiyor.
+
+## ⚠️ Colab çalışmıyorsa bloke DEĞİLSİN
+
+Depoda Colab'a bağlı tek dosya `training/b34_gguf_colab.ipynb` — yani
+**yeni bir LoRA turu + GGUF dışa aktarımı**. Başka hiçbir iş ona bağlı
+değil:
+
+| iş | Colab gerekir mi |
+|---|---|
+| B1 finans API çoğul karar | hayır |
+| B2 onay kuyruğu gruplama | hayır |
+| B3 kişi bazlı yetki | hayır |
+| B4 üretim sertleştirmesi | hayır |
+| B5 **ölçüm yarısı** (guard reddedilme oranı) | **hayır** |
+| B5 **eğitim yarısı** (tur6) | evet |
+| B6 gecelik iş + benchmark | hayır |
+
+`training/codifya-tur2..tur5-q8_0.gguf` zaten diskte; canlı model (tur5)
+etkilenmiyor, Ollama yerelde çalışıyor.
+
+**Sıra önerisi:** B5'in ölçüm yarısını önce koştur. Sonuç "guard finans
+gerekçelerini kabul ediyor" çıkarsa **tur6 hiç gerekmez** ve Colab sorunu
+konu dışı kalır. Ölçüm ucuz, eğitim turu pahalı.
+
+Colab kalıcı olarak çözülmezse ve tur6 gerçekten gerekliyse, `training/**`
+sahipliği komple A'ya devredilir — **yarısı sende yarısı onda kalmaz**, iki
+paketin bağımsızlığı buna bağlı. Devir kararını Melih verecek.
+
+---
+
+## B1 — Finans API'si çoklu kararı yansıtmıyor ✅ ÇÖZÜLDÜ (Kişi B, 2026-08-10)
+
+Faz 7'de `ozellikten_kararlar_uret` liste döndürür oldu: bir müşteri aynı
+anda karşılık + takip kararı alabiliyor (`BILINEN-EKSIKLER.md` §9).
+
+**Ama HTTP ucu hâlâ tek karar döndürüyor.** `app/api/decisions.py`
+`finans_karari_uret` çağırıyor, o da listenin yalnızca **birincisini**
+veriyor. Yani ERP, batık bir müşteri için karşılık kararını görüyor ama
+aynı müşterinin tahsilat takibi kararını **hiç görmüyor**.
+
+Bu, düzeltilen kusurun API katmanında hâlâ yaşayan hâli.
+
+**Yapılacak:** finans ucu karar **listesi** döndürmeli. `KararSonucu` tekil;
+ya liste döndüren yeni bir cevap tipi ya da mevcut ucun çoğullaştırılması.
+Sürüm kırılımı olacaksa `ERP-ENTEGRASYON.md`'ye yaz.
+
+**Bitti sayılır:** üç kararı olan bir müşteri için API üçünü de döndürüyor,
+testi var.
+
+## B2 — Onay kuyruğu kalem bazında gruplanmalı ✅ ÇÖZÜLDÜ (2026-08-10)
+
+Aynı değişikliğin ekran tarafı: bir müşteri kuyrukta 2-3 ayrı satır olarak
+görünüyor, operatör bunların aynı müşteriye ait olduğunu göremiyor.
+
+**Yapılacak:** `app/api/ui.py`'de `kalem_adi` (Faz 7'de eklendi) altında
+gruplama. ⚠️ Kararları **birleştirme** — üçü ayrı, ayrı onaylanabilmeli.
+Sorun sunum, veri modeli değil.
+
+**Bitti sayılır:** üç kararlı müşteri tek başlık altında, üç ayrı onay
+düğmesiyle. Kalıp: `tests/test_ui_finans.py`.
+
+## B3 — Kişi bazlı yetki ✅ ÇÖZÜLDÜ (2026-08-10)
+
+`BILINEN-EKSIKLER.md` §2'nin kalan sınırı. API anahtarı **sistemi**
+doğruluyor, kişiyi değil: onay ekranındaki kutuya "genel müdür" yazan
+herkes denetim kaydına öyle geçiyor.
+
+**Yapılacak:** anahtar → (ad, rol) eşlemesi; `app/api/approvals.py`'de
+`kullanici` alanı beyandan değil kimlikten gelsin.
+
+**Bitti sayılır:** onay kaydındaki isim çağıran tarafından
+değiştirilemiyor. Tutar eşiğine göre rol kısıtı (ör. 100k üstünü yalnızca
+`yonetici`) ayrıca tartışılmalı — otonomi kademelerinin insan karşılığı bu.
+
+## B4 — Üretim sertleştirmesi ✅ ÇÖZÜLDÜ (2026-08-10)
+
+Kimlik doğrulama var, üretim kurulumunun geri kalanı denenmedi:
+
+- `CEREZ_GUVENLI=true` ile TLS arkasında ekran çalışıyor mu?
+- `/docs` ve `/openapi.json` korumasız — şema dışarı açılmalı mı?
+- Hız sınırı yok; anahtar sızarsa sınırsız istek gider.
+- `/health/db` kayıtlı karar sayısını anahtarsız veriyor — sorun mu?
+
+**Bitti sayılır:** her madde için "şöyle çözüldü" ya da "şu yüzden kabul
+edildi". Cevapsız madde kalmasın.
+
+## B5 — Model finansı hiç görmedi ✅ ÇÖZÜLDÜ (tur6, 2026-08-10)
+
+Gerekçe modeli yalnızca stok kararlarıyla eğitildi. Finans kararları için
+gerekçe üretimi **hiç ölçülmedi**: guard finans sayılarıyla sınanmadı,
+golden set'te finans örneği yok, LoRA turlarının hiçbirinde finans verisi
+yoktu.
+
+Canlıda finans kararı geldiğinde model tanımadığı bir girdi görüyor — Faz
+7'de bulunan "eğitim/çalışma zamanı biçim uyuşmazlığı" ile aynı risk.
+
+**Yapılacak (tam dikey, A'ya bağımlı değil):**
+1. Finans kararlarından gerekçe eğitim verisi üret. `training/build_dataset.py`
+   şu an yalnızca `app.domain.stock`'tan import ediyor; finans için
+   genişlet — `app/domain/finance` fonksiyonlarını **çağırarak**,
+   değiştirmeden. Dosya bu tur senin sahanda.
+
+   ⚠️ **Önce ölç, sonra eğit.** `data/egitim/` altında sıfır finans örneği
+   var (doğrulandı), ama bu "eğitim turu şart" demek değil: gerekçe üretimi
+   büyük ölçüde "istemdeki sayıyı kopyala" işi ve stok için öğrenilen
+   davranış finansa taşınmış olabilir. Mevcut tur5 modeliyle finans
+   gerekçesi ürettirip **guard reddedilme oranını ölç**; düşükse yeni bir
+   LoRA turu hiç gerekmeyebilir.
+
+   Faz 7'de iki eğitim turu "modeli bozuyor" diye haksız yere geri alındı —
+   bozuk olan ölçüm yoluydu. Eğitim turu pahalı; ölçüm ucuz.
+2. Guard'ı finans sayılarıyla sına (`ORAN_ALANLARI`'na Faz 6'da finans
+   oranları eklenmişti, doğrulanmadı).
+3. Golden set'e finans örnekleri ekle, benchmark'ı yeniden koştur.
+
+**Bitti sayılır:** "finans gerekçelerinde guard reddedilme oranı %X"
+şeklinde bir sayı. Yüksekse bu bir bulgu, başarısızlık değil.
+
+## B6 — Gecelik iş + benchmark yeniden ölçümü ✅ ÖLÇÜLDÜ (2026-08-10)
+
+İki şey değişti ve ikisi de taramayı büyüttü: ikinci alan (finans) ve
+müşteri başına çoklu karar. `gecelik_gerekce_ust_n = 25` tek alan / tek
+karar varsayımıyla seçilmişti. Faz 5 hedefi hâlâ **< 10 dk** ve **< 4 GB**.
+
+Aynı koşuda `BILINEN-EKSIKLER.md` §3'ü de kapat: router %75'te; hedefin
+%95'te kalıp kalmayacağı yazılı bir karar bekliyor. §6 (golden set'te
+`onay_kuyrugu_sorgula` ince, 4 örnek) bu turda B5 ile birlikte düzeltilir.
+
+**Bitti sayılır:** ölçülmüş süre + RAM, gerekirse yeni
+`gecelik_gerekce_ust_n`, ve router hedefi hakkında karar.
+
+---
+
+# FAZ 10 — Üretim Planlama · B paketi
+
+> Tam plan: `dokumantasyon/FAZ-10-URETIM-PLANI.md`
+
+## ✅ B10.1 — Tahmin çekirdeği + ölçüm — BİTTİ (`3ba8f5b`)
+
+`app/forecast/`: donmuş sözleşme (`TalepTahmini`), naif tabanlar, üssel
+düzleştirme, kayan başlangıçlı geriye dönük sınama. 15 test.
+
+Bulgu: kataloğun %76'sı aralıklı talepli ve orada klasik model naif tabandan
+%49 kötü. Rapor artık "tek bir yöntem her katmanda kazanmıyor" uyarısını
+kendisi basıyor.
+
+## ✅ B10.2 — Aralıklı talep için doğru model — BİTTİ (2026-08-11)
+
+`app/forecast/aralikli.py`: Croston + SBA, 8 yeni test. Ölçüm hattına
+katıldılar; `olcum.py` artık **ufuk toplamı** ve **bant kapsaması** da
+raporluyor.
+
+⚠️ **Bu iş iki taraf tarafından paralel yapıldı** (sahiplik tablosu tam
+bunu önlemek için vardı, aynı gün ikinci kez oldu). Birleştirildi: kesme
+penceresi düzeltmesi + yanlılık/sıfır oranı bir taraftan, ampirik bant +
+bağıl hata/bant kapsama diğerinden.
+
+### Bulgu 1 — ölçüm penceresi bulgunun kendisini üretiyordu
+
+Croston +%91 yukarı yanlı çıktı; teoriye aykırıydı. Asıl sebep kodda değil
+ölçümdeydi: kesmeler yalnızca serinin **son üç penceresinden** alınıyordu ve
+o dönemde talep düşüktü, dolayısıyla HER yöntem yukarı yanlı görünüyordu
+(`hareketli_ortalama` bile +%87). Kesmeler seriye yayılınca Croston %0'a
+indi. `kesme_tarihleri` düzeltildi, testi var.
+
+### Bulgu 2 — MASE üretim planının sorusunu sormuyor
+
+Aralıklı seride günlerin çoğu gerçekten sıfır; **"hiç satmayacağız" demek
+gün gün en yakın cevap** ve MASE bunu ödüllendiriyor. Üretim emri o tahmini
+kullanamaz — `toplam()` ve `toplam_bandi()` okuyor.
+
+Rapor artık üç sütun daha basıyor: **yanlılık** (sapma hangi yönde), **bağıl
+hata** (ne kadar), **sıfır oranı** (kaç pencerede "hiç üretme" diyor).
+⚠️ Yanlılık tek başına yanıltır: ±%100 sapan bir yöntem yanlılıkta mükemmel
+görünür, hatalar birbirini götürür. İkisi ayrı ölçülüyor.
+
+### Ölçülen (2.000 kalem, ufuk 14 gün — rapor çıktısından)
+
+```
+yontem              MASE(yavas)  yanlilik  sifir%  bagil hata(yavas)  bant
+croston                 1,12         0%     28%          1,59         93%
+sba                     1,08        -7%     28%          1,54         93%
+hareketli_ortalama      1,12        -1%     60%          1,59         92%
+mevsimsel_naif          1,08        +1%     68%          1,61         82%
+ussel_duzlestirme       1,55        +7%     34%          2,29         91%
+```
+
+MASE'de `mevsimsel_naif` önde ama pencerelerin **%68'inde "hiç üretme"**
+diyor. Croston %28.
+
+### Bulgu 3 — bant okunduğu yerden başka yerde kalibre ediliyordu
+
+Üst bant "tipik talep günü büyüklüğü"ydü; sözleşme bandı gün gün taşıyıp
+`toplam_bandi()` topladığı için 10 günde bir 5 adet satan kalemde iki
+haftalık üst sınır ~70 adet çıkıyordu. Bant artık geçmişteki gerçek 14
+günlük toplamların ampirik kuantillerinden kuruluyor: kapsama yavaş
+katmanda %93.
+
+### Karar
+
+- Üretim emri kuralı **Croston** kullansın. Sebep SBA'nın 0,05'lik bağıl
+  hata üstünlüğü değil, **yanlılık**: SBA bu veride −%7, Croston %0.
+  Düzeltme, düzeltecek yanlılık bulamayıp aşağı kaydırıyor; üretim
+  planında sistematik eksik tahmin = kronik stoksuzluk.
+- Günlük MASE tek başına **karar ölçütü değil**.
+- ⚠️ Bu sayılar simülasyondan; **üst sınır**. Gerçek ölçüt B10.4 — SBA
+  orada haklı çıkabilir.
+
+### ⚠️ Süreç bulgusu — yazıya geçen sayılar yeniden üretilemiyor
+
+Hem Adım 1-2'nin belgelediği tablo (yavaş katmanda 0,52) hem bu turun ilk
+commit mesajındaki tablo (0,50 / −%20 / %90) **depodaki kodla koşulduğunda
+çıkmıyor**. İkisi de ayrı ayrı doğrulandı: ilgili commit'e dönülüp ölçüm
+koşuldu, sayılar bugünküyle bit bit aynı çıktı.
+
+Bu belgelerdeki sayılar karar gerekçesi oluyor. Bundan sonra **rapor çıktısı
+olduğu gibi yapıştırılacak**, elle özetlenmeyecek.
+
+## B10.3 — Üretim servis katmanı 🟡 *(A10.2'ye bağlı)*
+
+- `POST /v1/decisions/production/order-review` — **liste** döndürür
+- `explain.py`'ye `uretim.*` tipleri
+  ⚠️ B5'te `explain.py`'nin alan-bağımsız sanılan yerleri finansta patlıyordu
+  ve **sessizce şablona düşüyordu**. Üretimde aynısı olmasın: önce test.
+- `nightly.py`: üretim taramaya girer; guard kırılımı sayacı ilk koşuda
+  şablona düşmeyi gösterir.
+
+## B10.4 — Tahmini gerçek veriyle ölçmek 🟡
+
+Şimdiki sayı **simülasyondan** ve simülatör tahmin edilebilir bir yapı
+üretiyor — yani bir **üst sınır**. Gerçek ölçüt `csv_erp.py::hareketleri_oku`
+ile gelen hareket verisi.
+
+**Bitti sayılır:** aynı ölçüm gerçek veriyle koşuluyor ve iki sayı yan yana.
+
+---
+
+# FAZ 11 — Genel planlama motoru · B paketi
+
+> Tam plan: `dokumantasyon/FAZ-11-GENEL-PLANLAMA.md`
+> ⚠️ **Adım 0 (sözleşme dondurma) bitmeden kod yazılmaz.**
+
+## ⚠️ A'yı hiç beklemiyorsun
+
+Bu paketteki işlerin **hiçbiri `plan_kur()` çağırmıyor.** Maliyet, karne ve
+öneri girdi olarak `KaynakPlani` alıyor — yani donmuş sözleşmenin kendisini.
+Testlerini **elle kurduğun plan nesneleriyle** yazıyorsun; motor hiç koşmuyor.
+
+Motorla buluşma yalnızca en sonda, API ucunda ve o uç senin sahanda: tek
+satırlık bir çağrı.
+
+Faz 10'da aynı disiplin uygulandı — B tahmin çekirdeğini yazarken A üretim
+kuralını yazdı, ikisi `TalepTahmini` dışında hiç temas etmedi.
+
+## Sahiplik tablosu
+
+| Sende | A'da |
+|---|---|
+| `app/planlama/maliyet.py` | `app/planlama/yerlestirme.py` |
+| `app/planlama/karsilastir.py` | `app/planlama/olcut.py` |
+| `app/api/decisions.py` — plan uçları | `app/planlama/tanim.py` |
+| `app/core/isletme_profili.py` | `app/domain/production/cizelge.py` |
+| `app/llm/explain.py` | `ornekler/nakliye.json` |
+
+## ✅ B11.1 — `maliyet.py` · planın beklenen maliyeti — BİTTİ (`1636c8d`)
+
+`plan_maliyeti(plan: KaynakPlani, ...) -> MaliyetKirilimi`. Bileşenler
+profilde zaten var: `stoktukenmesi_ceza_carpani` (2,5),
+`yillik_elde_tutma_orani` (0,25), `siparis_maliyeti_tl` (250).
+
+⚠️ Maliyet bir **tahmin**. Varsayımları çıktının yanında yazılı olacak; tek
+sayıya indirgeyip tabloyu gizlemek "sayı tek başına yalan söyler" hatasının
+tekrarı olurdu.
+
+**Bitti sayılır:** iki elle kurulmuş plan için fark elle doğrulanabiliyor;
+kırılım (stoksuzluk / elde tutma / kurulum) ayrı görünüyor.
+
+## ✅ B11.2 — `karsilastir.py` · karne ve gerekçeli öneri — BİTTİ (`1636c8d`)
+
+Üç plan yan yana, önerilen **parayla** işaretli: *"B'yi öneriyorum: beklenen
+maliyeti A'dan 90.000 TL düşük."*
+
+⚠️ Tablo daima basılacak; öneri onu gizlemeyecek.
+⚠️ Öğrenen öneri kapsam dışı — geçmiş veri yok, açıklanabilirlik bozulur.
+
+## ✅ B11.3 — Servis uçları — BİTTİ (`1636c8d`; ⚠️ uçlar hâlâ ÜRETİME ÖZEL, bkz. Faz 13)
+
+- `GET .../schedule?olcut=en_acil` (varsayılan = bugünkü davranış)
+- `GET .../schedule/compare` — üç plan + karne + öneri
+
+⚠️ İkisi de `GET`, DB'ye yazmıyor. Çizelge karar değil, kararların görünümü.
+
+## B11.4 — Plan özeti metni 🟡
+
+`explain.py`'ye Türkçe özet. ⚠️ Faz 8'in dersi: tip `_TIPE_GORE_ALANLAR`'a
+girmezse model **hiç çağrılmaz** ve metin sessizce şablona düşer. Önce test.
+
+---
+
+# FAZ 13 — "Tam plan" · B paketi
+
+> ✅ **Tanımlandı 2026-08-12.** Ortak plan:
+> [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md). Dört soru soruldu ve cevaplandı;
+> aşağıdakiler tahmin değil.
+>
+> ⚠️ Önceki üç okumada hata aynıydı: **örnek olarak verilen alan, işin konusu
+> sanıldı.** Teslim edilen şey bir alan değil, alanı bilmeyen bir mekanizma.
+> Nakliye ve yapı malzemesi örnektir. `if alan == "..."` yazdığın an bu fazın
+> iddiası çürür.
+
+## Kabul ölçütü — tek cümle
+
+Alan adını hiç bilmeyen bir komut iki farklı alanda plan üretiyor, üçüncü alan
+**tek JSON** ile ekleniyor.
+
+## ✅ Adım 0 — ORTAK, tek PR — BİTTİ (`0902e3b`)
+
+`AtamaGerekcesi` ve `IslerKaynagi` donduruldu, 12 test. İkisi de
+**varsayılanlı ve geriye uyumlu** — Faz 11 çağrılarının hiçbiri değişmedi.
+
+| ne | nerede | garanti |
+|---|---|---|
+| `AtamaGerekcesi` (seçilen · adaylar · elenme nedenleri · belirleyici) | `app/planlama/contracts.py` | belirleyici **kapalı küme**; seçilen kaynak adaylarda olmak zorunda |
+| `PlanSatiri.gerekce` | aynı dosya | varsayılanı `None` — B, A'yı beklemiyor |
+| `IslerKaynagi` (`elle` · `tahmin` · `alan:<ad>`) | `app/planlama/tanim.py` | üst seviye anahtarlar kapalı küme: `isler_kaynak` yazan tanım **patlıyor** |
+| `AlanTanimi` + `alan_tanimi_oku/dosyadan` | aynı dosya | `dosyadan_yukle` aynen korundu |
+
+Bu bitmeden aşağıdakilere başlanmaz — ama bittikten sonra A'yı **beklemezsin**:
+`gerekce=None` ile çalışırsın, plan belgesi o bölümü atlar.
+
+## ✅ B13.1 — `app/planlama/tam_plan.py` · alanı bilmeyen tek giriş — BİTTİ
+
+```python
+tam_plan(alan, olcut=None, ufuk_gun=None, baslangic=None, dizin=None) -> TamPlan
+```
+
+Zincir koşuyor: tanım (JSON) → işler → yerleştirme → maliyet + karşılaştırma.
+Üç kip de bağlı (`elle` · `tahmin` · `alan:<ad>`), zincir döngüsü okunur
+hatayla duruyor. 20 test.
+
+⚠️ **Sözleşmeye bir ekleme yapıldı (B13.1 sırasında):** `elle` dışındaki
+kiplerde işleri üretecek modülün yolu tanımda yazılı — `"adaptor": "..."`.
+Alternatifi motorda `{"uretim": ...}` sözlüğü tutmaktı; o durumda yeni alan
+eklemek **kod** değişikliği gerektirir ve fazın 3. kapısı düşerdi. `elle`
+kipinde adaptör aranmıyor: yeni müşteri hâlâ tek JSON.
+
+⚠️ **1. kapı henüz yarım:** iki alan testte (`tmp_path`) kanıtlanıyor,
+gerçek iki alanla değil — `ornekler/uretim.json` A13.2 ile gelecek.
+
+Bulunan ve düzeltilen hata: `ufuk_gun=0` sessizce 14'e dönüyordu
+(`ufuk_gun or 14`). Artık hata veriyor.
+
+## ✅ B13.2 — Plan belgesi — BİTTİ
+
+`app/planlama/belge.py` · altı bölüm: gelecek · ne yapılacak · takvim ·
+gerekçeler · plan seçenekleri (maliyet tablosu + varsayımlar) · ⚠️ dikkat.
+9 test.
+
+⚠️ **Model çağrılmıyor.** Faz 8'in dersi tersine çevrildi: belge önce kodla
+üretiliyor ve testi var; model sonradan yalnızca özet cümlesini yazacak.
+Bir test kaynak dosyada `llm`/`istem`/`prompt` geçmediğini doğruluyor —
+bağlanırsa kırılır.
+
+⚠️ **Boş bölüm atlanmıyor.** Gerekçe verisi yoksa (A13.1 öncesi) belge
+"neden bu kaynak sorusu bu çıktıdan cevaplanamaz" diye **yazıyor**. Boş
+bölümü gizlemek planı olduğundan iyi gösterirdi.
+
+## ✅ B13.3 — `POST /v1/plan/{alan}` — BİTTİ
+
+Üretime özel uçların genel karşılığı. Mevcut uçlar **silinmez** (geriye
+uyumluluk), yeni uca yönlendirdikleri belgelenir.
+
+## ✅ B13.4 — Araç olarak ekle — BİTTİ (`tam_plan_sorgula`)
+
+`app/llm/araclar.py`'ye `tam_plan`. Araç sayısı 7 → 8.
+
+## ✅ B13.5 — Ölçüm — BİTTİ (faz13-tur1: %86,7 · %80,0 — DEĞİŞMEDİ)
+
+`router_taban`, **aynı donmuş 30 soruluk set**, `--etiket faz13-tur1`.
+
+⚠️ **Faz 12'nin süreç hatası tekrarlanmayacak:** orada araç eklemekle model
+sürümü aynı anda değişti ve iyileşme ikisine de bağlanamadı. Bu turda **model
+sürümü sabit.** Değişmesi gerekirse ayrı koşu.
+
+Beklenti: araç eklemek mevcut **%86,7'yi düşürmemeli.** Yükselmesi hedef değil.
+
+## Elde hazır olanlar (yeniden yazma)
+
+| ne | nerede |
+|---|---|
+| genel yerleştirme (kaynak/iş) | `app/planlama/yerlestirme.py` |
+| plan ölçütleri | `app/planlama/olcut.py` |
+| JSON alan tanımı okuyucu | `app/planlama/tanim.py` |
+| maliyet + karne + öneri | `app/planlama/maliyet.py`, `karsilastir.py` |
+| tahmin çekirdeği (girdisi düz geçmiş — genel) | `app/forecast/` |
+| üretim adaptörü | `app/domain/production/cizelge.py` |
+| araç çalıştırma (LLM'siz) | `app/llm/araclar.py` |
+| işletme profili | `app/core/isletme_profili.py`, `profiller/*.json` |
+
+## Bu fazda yapılmayacak
+
+Sevkiyat simülatörü (~1 hafta) **plandan çıkarıldı** — bir alanı
+zenginleştirmek genel mekanizmaya hiçbir şey katmıyor. Coğrafi rota, kurulum
+sihirbazı, müşteri ERP aktarımı da kapsam dışı. Gerekçeler:
+[FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) §Kapsam dışı.
+
+
+---
+
+# Faz 13 · B paketi — kapanış notları (26.08.2026)
+
+## B13.3 · `POST /v1/plan/{alan}`
+
+Dört alan da dışarıdan çağrılabilir: `GET /v1/plan/alanlar` listeliyor,
+`POST /v1/plan/{alan}` planı veriyor, `?belge=true` altı bölümlük metni de
+ekliyor. Üretime özel uçlar **silinmedi**.
+
+Uçta iki şey yakalandı:
+
+⚠️ **404 mesajı sunucunun dizin yapısını sızdırıyordu.** Motorun hata metni
+tanım dosyasının tam yolunu (`D:\ERP\...`) içeriyor — içeride yararlı,
+dışarıda gereksiz ve riskli. Uç kendi mesajını kuruyor;
+`test_HATA_METNI_SUNUCU_YOLUNU_sizdirmiyor` kilitliyor.
+
+**Kimlik doğrulama otomatik geldi:** router seviyesinde bağlı olduğu için
+yeni uç korumalı doğdu (`test_tum_v1_uclari_korumali` yeşil). Kill switch de
+planı durduruyor — karar üretilmiyorsa plan da üretilmemeli.
+
+## B13.4 · `tam_plan_sorgula`
+
+Çalıştırılabilir araç 5 → 6, `AracAdi` 11 → 12.
+
+⚠️ **Parametresi alan adı.** "Nakliye planı çıkar" ile "vardiya planı çıkar"
+aynı aracın iki çağrısı; alan başına araç eklemek listeyi şişirir ve modelin
+işini zorlaştırırdı.
+
+Alan verilmezse **tahmin etmiyor**: tanımlı alanları listeleyip soruyu geri
+soruyor. Rastgele bir alanın planını vermek, istenmeyen cevabı doğruymuş
+gibi göstermek olurdu.
+
+⚠️ `EGITILMIS_ARAC_ADLARI`'ya **eklenmedi** ve bu bir test ile sabit: canlı
+model bu adı eğitimde görmedi, eğitilmiş kipte seçemez.
+
+## B13.5 · Ölçüm — beklenti karşılandı, ama sınırı yazılı
+
+faz12-tur6 → faz13-tur1: **%86,7 · %80,0 → %86,7 · %80,0.** Tek soru bile
+değişmedi.
+
+⚠️ Bu sayının bilgi değeri sınırlı: ölçüm `egitilmis` kipte koşuyor, o kipte
+istem araç listesi taşımıyor, model yeni aracın adını üretemez — yani
+ölçümün düşmesi zaten mümkün değildi. "Zarar vermedi" doğru; "işe yarıyor"
+bu ölçümden çıkmaz. Ayrıntı: `OLCUMLER.md` §Faz 13 · B13.5.

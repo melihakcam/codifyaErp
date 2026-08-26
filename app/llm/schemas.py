@@ -49,6 +49,58 @@ class AracAdi(StrEnum):
     GECELIK_OZET = "gecelik_ozet_sorgula"
     GENEL_STOK_DURUMU = "genel_stok_durumu_sorgula"
 
+    # ⚠️ Faz 12'de eklendi — ve eklenmesinin bir SINIRI var.
+    #
+    # Canlı model (`codifya-router:tur6`) yalnızca yukarıdaki 7 araçla
+    # eğitildi. Eğitilmiş kipte istemde araç listesi YOK (`router.py::
+    # egitilmis_istem`), yani model bu adları hiç görmedi ve pratikte
+    # üretemiyor. Aşağıdaki araçlar `llm_istem_bicimi="taban"` kipinde
+    # (araç listesi isteme giriyor) seçilebiliyor.
+    #
+    # Yani bir aracı buraya eklemek onu ÇALIŞTIRILABİLİR yapar, modelin
+    # SEÇEBİLİR olmasını sağlamaz. Ölçüldü ve `OLCUMLER.md`'ye yazıldı.
+    URETIM_EMIRLERI = "uretim_emirleri_sorgula"
+    URETIM_CIZELGESI = "uretim_cizelgesi_sorgula"
+    KAPASITE_DURUMU = "kapasite_durumu_sorgula"
+    PLAN_KARSILASTIR = "plan_karsilastir_sorgula"
+
+    # ⚠️ Faz 13'te eklendi. Yukarıdaki sınırın aynısı geçerli: eğitilmiş
+    # kipte model bu adı hiç görmedi. Ama bu araç ötekilerden bir yönüyle
+    # ayrı — ALAN ADINI PARAMETRE olarak alıyor, yani "nakliye planı çıkar"
+    # ile "vardiya planı çıkar" aynı aracın iki çağrısı. Alan başına araç
+    # eklemek listeyi şişirir ve modelin işini zorlaştırırdı.
+    TAM_PLAN = "tam_plan_sorgula"
+
+
+EGITILMIS_ARAC_ADLARI: frozenset[str] = frozenset(
+    {
+        AracAdi.KRITIK_STOK,
+        AracAdi.OLU_STOK,
+        AracAdi.TEDARIKCI_PERFORMANSI,
+        AracAdi.SIPARIS_ONERISI,
+        AracAdi.ONAY_KUYRUGU,
+        AracAdi.GECELIK_OZET,
+        AracAdi.GENEL_STOK_DURUMU,
+    }
+)
+"""Canlı modelin (`codifya-router:tur6`) eğitimde GÖRDÜĞÜ araçlar.
+
+⚠️ Bu küme `AracAdi`'nin tamamı DEĞİL ve fark önemli:
+
+    AracAdi                -> calistirilabilir araclarin tamami
+    EGITILMIS_ARAC_ADLARI  -> modelin secebildikleri (egitilmis kipte)
+
+Eğitilmiş kipte istem araç listesi taşımıyor (`router.py::egitilmis_istem`);
+model yalnızca ağırlıklarına işlenmiş adları üretebiliyor. Faz 12'de eklenen
+üretim/planlama araçları o kipte **pratikte ulaşılamaz**.
+
+Taban kipinde (`llm_istem_bicimi="taban"`) araç listesi isteme giriyor ve
+hepsi seçilebiliyor — ama o kipin genel doğruluğu daha düşük.
+
+⚠️ Bu küme **eğitim verisiyle birlikte** değişir. Yeni bir tur eğitilip
+üretim araçları da veriye girerse burası güncellenmeli; yoksa "model bunu
+seçemez" bilgisi yanlış kalır."""
+
 
 # Her aracın kabul ettiği parametre adı. `None` = parametre almaz.
 # Kişi A'nın `AracTanimi.varlik_turu` alanıyla aynı.
@@ -63,6 +115,15 @@ ARAC_PARAMETRELERI: dict[AracAdi, str | None] = {
     AracAdi.ONAY_KUYRUGU: None,
     AracAdi.GECELIK_OZET: "tarih_ifadesi",
     AracAdi.GENEL_STOK_DURUMU: None,
+    # Faz 12 — üretim ve planlama araçları
+    AracAdi.URETIM_EMIRLERI: None,
+    AracAdi.URETIM_CIZELGESI: None,
+    AracAdi.KAPASITE_DURUMU: None,
+    AracAdi.PLAN_KARSILASTIR: None,
+    # ⚠️ Parametresi ALAN ADI — diğer araçlar bir kalem/tedarikçi kimliği
+    # alırken bu aracın parametresi "hangi alanın planı" sorusunu
+    # cevaplıyor. Genel motorun araç katmanındaki karşılığı bu.
+    AracAdi.TAM_PLAN: "alan",
 }
 
 

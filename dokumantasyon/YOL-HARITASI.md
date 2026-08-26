@@ -128,6 +128,47 @@ Kalıp artık kurulu. Her yeni alan için aynı 5 adım:
 
 ---
 
+## Gerçekleşen — Faz 6'dan sonrası (2026-08-12'de hizalandı)
+
+Yukarıdaki takvim Faz 6'da yazıldı ve orada donmuş kaldı. Gerçekte yapılanlar,
+commit'lerden okunarak:
+
+| Faz | Ne oldu | İz |
+|-----|---------|-----|
+| **6** ✅ | Finans & Tahsilat — kalıp stoktan taşındı, dört sızıntı + bir güvenlik açığı bulundu | `f9081f5`…`49fef19` |
+| **7** ✅ | Finansın para metriği (sonuç **olumsuz**), kimlik doğrulama, karar kolları ortogonal | `6b5a7bb`…`c897d92` |
+| **9** ✅ | İşletme profili — müşteriye özel sayılar koddan çıktı (`profiller/*.json`) | `7231f7c`, `6a07598` |
+| **10** ✅ | Üretim & Planlama — talep tahmini, emir kararı, kapasite, MRP, gecelik koşu, çizelge | `3ba8f5b`…`6a5067e` |
+| **11** ✅ | Genel planlama motoru (`app/planlama/`); ikinci alan **kod yazılmadan** eklendi | `1636c8d` |
+| **12** ✅ | Genel arayüz — `/v1/ask` artık cevabın kendisini veriyor, sadece yönlendirmiyor | `ed4b4dd` |
+| **13** ✅ | "Tam plan" — alanı bilmeyen tek komut. Dört kapı da geçti: aynı komut dört alanda koşuyor, üretim davranışı kaymadı, üçüncü alan **sıfır kodla** eklendi, plan ve gerekçeler tekrarlanabilir | `0902e3b`…`d85c884` (26.08.2026) |
+
+**Plandan üç sapma, bilinçli olarak kaydedilmiştir:**
+
+1. **Satış & Fiyatlama atlandı.** Önerilen sıra Finans → Satış → Üretim'di;
+   Üretim öne alındı. Satış alanı hiç yapılmadı.
+2. **Faz 8 numarası kullanılmadı** (görev dosyalarında "Faz 8'in dersi" diye
+   geçen not Faz 7 sonrası iş bölümüne aittir).
+3. **Faz 12'nin plan dosyası yok.** Faz 10 ve 11'in var. Faz 12'nin tek yazılı
+   izi `OLCUMLER.md` §Faz 12 ve commit mesajı.
+
+⚠️ **Başarı metrikleri tablosu güncel değil.** Router hedefi *> %95 tam
+eşleşme*; Faz 12'de ölçülen **araç %86,7 · tam doğruluk %80,0**
+(`training/eval/router_sonuc_faz12-tur6.json`). Hedef 15 puan uzakta ve araç
+seçimi 7 araçla sınırlı.
+
+✅ **"Motor genel, API yüzeyi değil" boşluğu kapandı (Faz 13).**
+`POST /v1/plan/{alan}` dört alanı da dışarıya açıyor; üretime özel uçlar
+geriye uyumluluk için duruyor. Alan tanımları `ornekler/*.json`.
+
+⚠️ **Yeni sınır, Faz 13'te ölçüldü:** Faz 12-13'te eklenen beş aracın hiçbiri
+eğitilmiş kipte model tarafından **seçilemiyor** — canlı model bu adları
+eğitimde görmedi. Araçlar çalışıyor (uç, doğrudan çağrı), ama Türkçe soruyla
+oraya gidilemiyor. Genel arayüz iddiasının bugünkü gerçek sınırı budur;
+çözümü yeni bir eğitim turu. Bkz. `OLCUMLER.md` §Faz 13 · B13.5.
+
+---
+
 ## Paylaşılan Google Drive düzeni
 
 Faz 3'te ikinizin buluştuğu yer. **Bir kişi oluşturur, diğerine paylaşır.**

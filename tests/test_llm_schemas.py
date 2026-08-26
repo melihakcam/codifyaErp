@@ -75,7 +75,16 @@ def test_arac_adlari_kisi_a_ile_ayni():
     Ad ayrışırsa model öğrendiği etiketi tanımaz ve router sessizce
     başarısız olur — hata mesajı da vermez, sadece doğruluk düşer.
     """
-    assert {a.value for a in AracAdi} == KISI_A_ARAC_ADLARI
+    # ⚠️ Faz 12: `AracAdi` artık üretim/planlama araçlarını da taşıyor.
+    # Kişi A'nın eğitim verisiyle eşleşmesi gereken küme `EGITILMIS_ARAC_ADLARI`
+    # — modelin SEÇEBİLDİKLERİ. Tamamı ise ÇALIŞTIRILABİLİRLER.
+    #
+    # İkisini bir tutmak, yeni bir aracın "model bunu da seçebilir" sanılmasına
+    # yol açardı; seçemiyor, çünkü eğitimde görmedi.
+    from app.llm.schemas import EGITILMIS_ARAC_ADLARI
+
+    assert {str(a) for a in EGITILMIS_ARAC_ADLARI} == KISI_A_ARAC_ADLARI
+    assert {a.value for a in AracAdi} >= KISI_A_ARAC_ADLARI
 
 
 def test_her_aracin_parametresi_tanimli():
@@ -95,11 +104,18 @@ def test_sema_duzlestirilir_ref_kalmaz():
 
 
 def test_sema_arac_adlarini_enum_olarak_tasir():
-    """Model yalnızca bu 7 addan birini üretebilsin."""
+    """Model yalnızca TANIMLI araçlardan birini üretebilsin — uydurma reddedilsin.
+
+    ⚠️ Şema `AracAdi`'nin tamamını taşıyor, eğitilmiş alt kümeyi değil.
+    Sebebi: taban kipinde (araç listesi isteme giriyor) yeni araçlar
+    seçilebilmeli. Şemayı 7 ile sınırlamak, taban kipini de eğitilmiş kipin
+    sınırına hapsederdi.
+    """
     sema = sema_of(AracCagrisi)
     enum_degerleri = set(sema["properties"]["arac"]["enum"])
 
-    assert enum_degerleri == KISI_A_ARAC_ADLARI
+    assert enum_degerleri == {a.value for a in AracAdi}
+    assert enum_degerleri >= KISI_A_ARAC_ADLARI
 
 
 def test_duzlestirme_ek_alanlari_korur():

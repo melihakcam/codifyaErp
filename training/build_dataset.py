@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -148,6 +149,103 @@ def karar_noktasi_veri_seti_uret(
     return pd.DataFrame(kayitlar)
 
 
+FINANS_ISINMA_GUN = 180
+"""Finans tarafında ısınma daha uzun: ödeme profili (ortalama + sapma) ancak
+birkaç tahsilat döngüsünden sonra anlam kazanıyor. Stoktaki 90 gün talep
+penceresi içindi; burada ölçülen şey müşterinin **ödeme davranışı** ve o
+davranışın bir örneği ancak vade dolunca oluşuyor."""
+
+FINANS_INCELEME_ARALIGI_GUN = 30
+"""Ölçüm noktaları arası mesafe — tahsilat ekibinin aylık döngüsü."""
+
+
+def finans_karar_noktasi_veri_seti_uret(
+    hedef_nokta_sayisi: int = 20_000,
+    seed: int = 42,
+    yil_sayisi: int = 2,
+    tahsilat_seed: int = 101,
+    isinma_gun: int = FINANS_ISINMA_GUN,
+    aralik_gun: int = FINANS_INCELEME_ARALIGI_GUN,
+) -> pd.DataFrame:
+    """Finans karar noktaları — `karar_noktasi_veri_seti_uret`'in karşılığı.
+
+    Stok sürümüyle **aynı JSONL şemasını** üretiyor; tek fark kimlik alanı
+    (`sku_id` yerine `musteri_id`) ve onu da `kalem_id` olarak ikinci bir
+    ada kopyalıyoruz ki `label_rationale` alan bilmeden okuyabilsin.
+
+    ⚠️ **Çoğul karar üreticisi kullanılıyor.** Tekil sürüm batık müşterinin
+    takip kararını hiç üretmez (`BILINEN-EKSIKLER.md` §9); onunla üretilen
+    eğitim verisi modele o kusuru öğretirdi.
+
+    ⚠️ `aksiyon_yok` kararları da veri setine giriyor ve bu bilinçli: stok
+    tarafında da öyle. Model "yapılacak bir şey yok" cümlesini de kurabilmeli,
+    yoksa her müşteri için aksiyon uydurur.
+    """
+    from app.domain.finance.decide import ozellikten_kararlar_uret
+    from app.domain.finance.features import musteri_ozelliklerini_hesapla
+    from simulator.tahsilat import TahsilatPatolojisi, tahsilat_uret
+
+    dunya = simulasyon_calistir(
+        profile=yapi_malzemesi_toptancisi(), seed=seed, yil_sayisi=yil_sayisi
+    )
+    tahsilat = tahsilat_uret(
+        dunya["faturalar"],
+        dunya["musteri"],
+        seed=tahsilat_seed,
+        # Patolojiler AÇIK: kapalı bir dünyada her müşteri tam vadesinde öder,
+        # yalnızca `aksiyon_yok` üretilir ve veri seti tek sınıfa çöker.
+        patoloji=TahsilatPatolojisi(
+            kronik_gecikme_aktif=True,
+            duzensiz_odeme_aktif=True,
+            sezonluk_tikanma_aktif=True,
+            batak_aktif=True,
+        ),
+    )
+    faturalar = tahsilat.faturalar
+    tarihler = pd.to_datetime(faturalar["tarih"])
+    baslangic = tarihler.min() + pd.Timedelta(days=isinma_gun)
+    olcum_tarihleri = pd.date_range(baslangic, tarihler.max(), freq=f"{aralik_gun}D")
+    if len(olcum_tarihleri) == 0:
+        raise ValueError("Isınma sonrası ölçüm noktası kalmadı — süreyi uzatın.")
+
+    nokta_basina = max(1, round(hedef_nokta_sayisi / len(olcum_tarihleri)))
+    rng = np.random.default_rng(seed)
+
+    kayitlar: list[dict] = []
+    for olcum in olcum_tarihleri:
+        ozellikler = musteri_ozelliklerini_hesapla(
+            faturalar, dunya["musteri"], olcum.date()
+        )
+        if not ozellikler:
+            continue
+        if len(ozellikler) > nokta_basina:
+            secilen = rng.choice(len(ozellikler), size=nokta_basina, replace=False)
+            ozellikler = [ozellikler[i] for i in secilen]
+
+        for ozellik in ozellikler:
+            for karar in ozellikten_kararlar_uret(ozellik):
+                kayitlar.append(
+                    {
+                        "musteri_id": ozellik.musteri_id,
+                        "kalem_id": ozellik.musteri_id,
+                        "alan": "finans",
+                        "tarih": olcum.date().isoformat(),
+                        "ozellikler": json.loads(ozellik.model_dump_json()),
+                        "karar_tipi": karar.tip.value,
+                        "aksiyon": karar.aksiyon,
+                        "tahmini_tutar_tl": karar.tahmini_tutar_tl,
+                        "guven": round(karar.guven, 4),
+                        "tetiklenen_kurallar": [
+                            json.loads(k.model_dump_json())
+                            for k in karar.tetiklenen_kurallar
+                        ],
+                        "izinli_sayilar": sorted(karar.izinli_sayilar()),
+                    }
+                )
+
+    return pd.DataFrame(kayitlar)
+
+
 def jsonl_yaz(df: pd.DataFrame, yol: Path) -> None:
     yol.parent.mkdir(parents=True, exist_ok=True)
     with open(yol, "w", encoding="utf-8") as f:
@@ -176,6 +274,16 @@ class AracTanimi:
     aciklama: str
     varlik_turu: str  # "kategori" | "tedarikci_id" | "sku_id" | "tarih_ifadesi" | "yok"
     sablonlar: tuple[str, ...]
+    # Varlık ALMAYAN sorular — her zaman `parametreler={}` üretirler.
+    #
+    # ⚠️ Neden ayrı bir alan: `kategori` ve `tedarikci_id`'de parametresiz
+    # örnekler "genel" varlığından geliyor (`_varlik_ifadesi` onu boş dizeye
+    # çeviriyor) ve şablon yine dilbilgisel kalıyor: "Kritik stok seviyesine
+    # düşen ürünleri listeler misiniz?". `tarih_ifadesi`'nde bu işlemiyor —
+    # şablonlar baştaki varlığın üstüne kurulu, düşürünce cümle bozuluyor:
+    # "{varlik}için hazırlanan özeti alabilir miyim?" -> "İçin hazırlanan
+    # özeti alabilir miyim?". O yüzden bu durum kendi şablonlarını istiyor.
+    parametresiz_sablonlar: tuple[str, ...] = ()
 
 
 KATEGORILER = ("çimento", "demir", "tuğla", "alçı", "boya", "seramik", "izolasyon", "hırdavat")
@@ -298,6 +406,81 @@ ARAC_TANIMLARI: tuple[AracTanimi, ...] = (
             "{varlik}rapor varmi",
             "{varlik}one cikan bisi varmi",
         ),
+        # ⚠️ Tarih ifadesi GEÇMEYEN sorular. Bu araç, ölçüm setlerinde
+        # parametresiz sorulan tek araç (10 sorunun 9'unda altın etiket `{}`)
+        # ama eğitim verisinde parametresiz **tek örneği yoktu** (184/0).
+        # Sonuç: 3. tur modeli slotu doldurmak zorunda kalıp tarih uydurdu ve
+        # bu araçta tam doğruluk 7/10'dan 1/10'a düştü — genel doğruluk
+        # artarken. Ayrıntı: dokumantasyon/OLCUMLER.md.
+        #
+        # Hiçbiri ölçüm setlerindeki cümlelerle çakışmıyor (sızıntı kapısı
+        # `veri_tutarlilik_kontrolu` bunu ayrıca doğruluyor) ve hiçbirinde
+        # tarih ifadesi yok — geçseydi parametre zaten doğru olurdu.
+        # ⚠️ Bir paraphrase turu koşuldu (Qwen2.5-7B, 24 varyant istendi) ve
+        # çıktısı ELENDI: 65 parametresiz varyantın çoğu ya bozuk Türkçeydi
+        # ("özeten", "hazırsınız mı?", "bildirir miye?") ya da niyeti ters
+        # çeviriyordu ("paylaşır mısınız?" -> "paylaşmayı mı istiyorsunuz?").
+        # Notebook'un `anlam_korundu_mu()` kontrolü bunları geçiriyor çünkü
+        # kelime örtüşmesine bakıyor; niyet dönünce kelimeler aynı kalıyor.
+        # Sağlam çıkanlar alındı, gerisi elle yazıldı — mevcut şablonların
+        # tamamı zaten elle yazılmış, tasarım buna uygun.
+        #
+        # ⚠️ Paraphrase'in ürettiği "Sistem gece ne buldu?" BİLİNÇLİ OLARAK
+        # ALINMADI: ölçüm setindeki "Dün gece sistem ne buldu?" ile 0,80
+        # benzerlikte. Eğitime konsaydı o soruyu sınavdan önce modele
+        # göstermiş olurduk. Benzerlik kapısı için bkz.
+        # `tests/test_build_dataset_parametresiz.py::test_..._olcum_setine_yakin_degil`.
+        parametresiz_sablonlar=(
+            # resmi
+            "Gecelik iş çıktısını paylaşır mısınız?",
+            "Toplu işin ürettiği özeti alabilir miyim?",
+            "Gecelik analiz sonuçlarını raporlar mısınız?",
+            "Sistemin ürettiği son içgörü özetini görebilir miyim?",
+            "Gecelik koşuda öne çıkanları bildirir misiniz?",
+            "Gecelik iş sonuçlarını paylaşabilir misiniz?",
+            "Gecelik koşuda öne çıkanları belirtir misiniz?",
+            "Toplu işin çıktısını inceleyebilir miyim?",
+            "Otomatik üretilen gecelik değerlendirmeyi alabilir miyim?",
+            "Gecelik toplu işin özetini iletir misiniz?",
+            "Gecelik işlem sonuçlarını listeler misiniz?",
+            "Toplu işin bulgularını paylaşır mısınız?",
+            "Gecelik değerlendirmenin sonucunu öğrenebilir miyim?",
+            "Gecelik rapor hakkında bilgi verir misiniz?",
+            "Geceleyin sistem ne yaptığını söyler misiniz?",
+            # günlük
+            "gecelik özette ne var?",
+            "sistem geceleyin ne çıkarmış?",
+            "toplu iş ne demiş?",
+            "gece ne olmuş bakalım",
+            "gecelik rapor nedir?",
+            "gecelik özeti nedir?",
+            "gece ne olmuş kontrol edelim",
+            "gece ne olmuş diye bilgi almak istiyorum",
+            "toplu işten ne çıkmış?",
+            "gecelik analizde ne var?",
+            "gecelik özeti okumak istiyorum",
+            "toplu işin özetini almak istiyorum",
+            "gecelik değerlendirme ne diyor?",
+            "toplu iş bitti mi, sonucu ne?",
+            # kısaltmalı
+            "gecelik ozet",
+            "gecelik rapor ne diyo",
+            "toplu is ozeti",
+            "gecelik analiz ozeti",
+            "toplu is ciktisi",
+            "gecelik sonuc ne",
+            "toplu isin ozeti",
+            "gecelik degerlendirme",
+            # yazım hatalı
+            "geclik ozette ne var",
+            "gecelk raporu gosterir misn",
+            "gecelk analizde ne var",
+            "toplu isin ozeti nerde",
+            "gecelık ozet varmı",
+            "geceki analiz ne cikardi",
+            "gecelik ozeti okuycam",
+            "geçlik özeti ne içeriyor",
+        ),
     ),
     AracTanimi(
         isim="genel_stok_durumu_sorgula",
@@ -394,6 +577,11 @@ def router_veri_seti_uret(
                     parametreler = {arac.varlik_turu: parametre_degeri}
                 kayitlar.append({"soru": soru, "arac": arac.isim, "parametreler": parametreler})
 
+        # Varlık çarpımına girmezler — her biri tek satır, parametresiz.
+        for sablon in arac.parametresiz_sablonlar:
+            soru = sablon[0].upper() + sablon[1:] if sablon else sablon
+            kayitlar.append({"soru": soru, "arac": arac.isim, "parametreler": {}})
+
     df = pd.DataFrame(kayitlar).drop_duplicates(subset="soru").reset_index(drop=True)
     return df
 
@@ -455,7 +643,56 @@ def sablonlari_ihrac_et(yalnizca_araclar: set[str] | None = None) -> pd.DataFram
                     "sablon_metni": metin,
                 }
             )
+        # ⚠️ `varlik_turu="yok"` ve boş token ile ihraç ediliyorlar. Aracın
+        # kendi varlık türüyle (`tarih_ifadesi`) gönderilselerdi
+        # `parafraz_sablonlarindan_veri_uret` onları tarihlerle çarpar ve
+        # kapatmaya çalıştığımız boşluğu geri açardı. "yok" ise tek satır +
+        # `parametreler={}` üretiyor — paraphrase turları da bu şablonları
+        # çeşitlendirebilsin diye ihraca dahil ediliyorlar.
+        for sablon in arac.parametresiz_sablonlar:
+            metin = sablon[0].upper() + sablon[1:] if sablon else sablon
+            kayitlar.append(
+                {
+                    "arac": arac.isim,
+                    "varlik_turu": "yok",
+                    "placeholder_token": "",
+                    "sablon_metni": metin,
+                }
+            )
     return pd.DataFrame(kayitlar)
+
+
+_YER_TUTUCU_TEKRAR_DESENLERI: dict[str, re.Pattern[str]] = {
+    # `_varlik_ifadesi()` bu varlık türleri için sabit bir sonek üretir
+    # ("X tedarikçisinin ", "Y kategorisinde "). Paraphrase LLM'i şablonu
+    # yeniden yazarken bazen aynı kelimeyi cümlede başka bir yere de
+    # ekliyor; token yerine geçen sonek ile çakışınca bitişik tekrar
+    # oluşuyor ("T-0005 tedarikçisinin tedarikçinin gecikiyomu var mı?").
+    #
+    # ⚠️ Bulgu: golden set'in %30,6'sında (49/160) bu desen vardı,
+    # `tedarikci_performansi_sorgula`'da %60,3'e çıkıyordu — ortak onaydan
+    # önce fark edildi (bkz. dokumantasyon/OLCUMLER.md, golden set
+    # incelemesi). Kaynağı burası: paraphrase LLM'e gönderilmeden önce bile
+    # şablon zaten "TEDARIKCI_KODU tedarikçisinin ..." biçimindeydi
+    # (`sablonlari_ihrac_et`), LLM onu yeniden yazarken kelimeyi bir kez
+    # daha kullanabiliyordu.
+    "tedarikci_id": re.compile(r"\btedarikçisinin\s+tedarikç\w*\b", re.IGNORECASE),
+    "kategori": re.compile(r"\bkategorisinde\s+kategorisinde\b", re.IGNORECASE),
+}
+
+
+def yer_tutucu_tekrarini_temizle(soru: str, varlik_turu: str) -> str:
+    """Bitişik "X sonekinin sonekinin/soneki" tekrarını tek kelimeye indirir.
+
+    Yalnızca **bitişik** tekrarı temizler — cümlenin başka bir yerinde
+    doğal bir tekrar varsa (ör. "tedarikçi güvenilir mi, bu tedarikçiyle
+    devam edelim mi?") dokunmaz, çünkü o gerçek bir tekrar değil.
+    """
+    desen = _YER_TUTUCU_TEKRAR_DESENLERI.get(varlik_turu)
+    if desen is None:
+        return soru
+    tekli = "tedarikçisinin" if varlik_turu == "tedarikci_id" else "kategorisinde"
+    return desen.sub(tekli, soru, count=1)
 
 
 def parafraz_sablonlarindan_veri_uret(
@@ -484,6 +721,7 @@ def parafraz_sablonlarindan_veri_uret(
                 if token not in satir.sablon_metni:
                     continue  # guard: token korunmamışsa bu satır güvenilmez, atla
                 soru = satir.sablon_metni.replace(token, varlik_ifadesi)
+                soru = yer_tutucu_tekrarini_temizle(soru, satir.varlik_turu)
             else:
                 soru = satir.sablon_metni
             soru = " ".join(soru.split())  # fazla boşlukları temizle

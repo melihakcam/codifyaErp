@@ -15,6 +15,15 @@ import pandas as pd
 from scipy.stats import norm
 
 from app.contracts import ABCSinifi, StockFeatures, XYZSinifi
+from app.core.isletme_profili import StokProfili, profil
+from app.domain.siniflandirma import (
+    ABC_KESIM_A,
+    ABC_KESIM_B,
+    XYZ_KESIM_X,
+    XYZ_KESIM_Y,
+    abc_sinif_ata,
+    xyz_sinif_ata,
+)
 
 # ---------------------------------------------------------------------------
 # A2.2 — Emniyet stoğu + ROP
@@ -119,11 +128,11 @@ def siparis_miktari_hesapla(ozellik: StockFeatures) -> int:
 # A2.4 — ABC/XYZ sınıflandırma + hedef servis seviyesi matrisi
 # ---------------------------------------------------------------------------
 
-ABC_KESIM_A = 0.80
-ABC_KESIM_B = 0.95
-
-XYZ_KESIM_X = 0.5
-XYZ_KESIM_Y = 1.0
+# ⚠️ Kesimler ve sınıf atama fonksiyonları Faz 6'da `app/domain/siniflandirma.py`'ye
+# TAŞINDI — finans alanı da aynı soruyu soruyor ("bu kalem ciroya ne katıyor,
+# ne kadar düzenli?") ve iki eşdüzey alandan birinin diğerine bağlanması
+# yanlış olurdu. Buradan yeniden ihraç ediliyorlar: mevcut import'lar ve
+# testler bozulmasın diye.
 
 HEDEF_SERVIS_SEVIYESI_MATRISI: dict[tuple[ABCSinifi, XYZSinifi], float] = {
     (ABCSinifi.A, XYZSinifi.X): 0.99,
@@ -139,22 +148,6 @@ HEDEF_SERVIS_SEVIYESI_MATRISI: dict[tuple[ABCSinifi, XYZSinifi], float] = {
 """Mantık: cirosu yüksek + talebi düzenli (AX) ürünün stoğu tükenmesin — pahalıya
 gelir, kolay tahmin edilir. Cirosu düşük + talebi kaotik (CZ) üründe yüksek
 servis seviyesi tutmak boşa para bağlamaktır."""
-
-
-def abc_sinif_ata(kumulatif_ciro_orani: float) -> ABCSinifi:
-    if kumulatif_ciro_orani <= ABC_KESIM_A:
-        return ABCSinifi.A
-    if kumulatif_ciro_orani <= ABC_KESIM_B:
-        return ABCSinifi.B
-    return ABCSinifi.C
-
-
-def xyz_sinif_ata(varyasyon_katsayisi: float) -> XYZSinifi:
-    if varyasyon_katsayisi <= XYZ_KESIM_X:
-        return XYZSinifi.X
-    if varyasyon_katsayisi <= XYZ_KESIM_Y:
-        return XYZSinifi.Y
-    return XYZSinifi.Z
 
 
 def abc_xyz_siniflandir(ozellik_listesi: list[StockFeatures]) -> pd.DataFrame:
@@ -203,6 +196,19 @@ OLU_STOK_MUTLAK_ESIK_GUN = 90
 """Hiçbir SKU bunun altında 'ölü' sayılmaz — çok yavaş hareket eden ama sağlıklı
 ürünler için bile makul bir sessizlik payı tanır."""
 
+OLU_STOK_ASGARI_STOK_GUN = 1.0
+"""Ölü stok kararı için elde en az bu kadar günlük talebi karşılayacak mal
+olmalı.
+
+⚠️ Bu kapı olmadan **stoksuzluk ölü stok gibi görünüyor** — sistemin en
+sinsi hatası, çünkü kendini doğruluyor: aç kalan ürün hareket etmez,
+hareketsizlik tasfiyeye yol açar, tasfiye siparişi bastırır, ürün bir daha
+hiç hareket etmez (`BILINEN-EKSIKLER.md` §11).
+
+1 gün bilinçli olarak düşük: amaç gerçek ölü stoğu elemek değil, elinde
+kırıntı kalmış ürünü korumak. Talebi sıfıra yakın gerçek ölü stokta eşik de
+sıfıra yakın olur ve kural normal çalışır."""
+
 OLU_STOK_GORECELI_CARPAN = 6.0
 """Asıl eşik: ürünün kendi tipik satış aralığının (`1/ort_gunluk_talep`) kaç katı
 sessizlik 'ölü' sayılır. Sabit bir gün eşiği (ör. 60) günde 0.05 birim satan bir
@@ -211,15 +217,45 @@ Göreceli eşik, aralıklı talebi olan ama sağlıklı ürünleri yanlışlıkl
 etiketlemekten kaçınır."""
 
 
-def _olu_stok_esigi(ort_gunluk_talep: float) -> float:
+def _sp(p: StokProfili | None = None) -> StokProfili:
+    """Etkin stok profili.
+
+    ⚠️ Parametre olarak geçilebilmesi bilinçli: ölçüm betikleri farklı
+    profilleri yan yana koşturuyor ve global duruma dokunmadan yapabilmeli.
+    `app/domain/finance/rules.py::_fp` ile aynı kalıp.
+    """
+    return p if p is not None else profil().stok
+
+
+def _olu_stok_esigi(ort_gunluk_talep: float, p: StokProfili | None = None) -> float:
+    sp = _sp(p)
     if ort_gunluk_talep <= 0:
-        return OLU_STOK_MUTLAK_ESIK_GUN
+        return float(sp.olu_stok_mutlak_esik_gun)
     tipik_satis_araligi_gun = 1.0 / ort_gunluk_talep
-    return max(OLU_STOK_MUTLAK_ESIK_GUN, OLU_STOK_GORECELI_CARPAN * tipik_satis_araligi_gun)
+    return max(
+        float(sp.olu_stok_mutlak_esik_gun),
+        sp.olu_stok_goreceli_carpan * tipik_satis_araligi_gun,
+    )
 
 
-def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
+def olu_stok_degerlendir(ozellik: StockFeatures, p: StokProfili | None = None) -> dict:
     """N gündür hareketsiz + kalan raf ömrü + bağlı sermaye -> tasfiye/iskonto önerisi.
+
+    ⚠️ **Bu kuralın girdisi `son_hareket_gun_once` ve o alanın anlamı veri
+    kaynağına göre DEĞİŞİYOR** (Faz 8 / A2 incelemesi):
+
+    · **Simülasyonda** `talep` tablosu gerçek talebi taşıyor — karşılanamayan
+      talep ayrıca kaydediliyor. Stoksuz kalmak hareketi sıfırlamıyor.
+    · **Gerçek veride** (`app/adapters/csv_erp.py::hareketleri_oku`) talep
+      `hareketler.csv`'den, yani **fiili satıştan** türüyor. Satılamayan mal
+      hareket üretmez.
+
+    Sonuç: gerçek veride uzun süre stoksuz kalmış bir ürün "hareketsiz"
+    görünür. `decide.py`'de tasfiye, siparişi bastırdığı için sistem o ürünü
+    yeniden sipariş etmek yerine **iskontoyla elden çıkarmayı** önerir — ve
+    ürün bir daha hiç hareket etmediği için teşhis kendi kendini doğrular.
+
+    Ayrıntı ve ne yapılacağı: `dokumantasyon/BILINEN-EKSIKLER.md` §11.
 
     Eşik, ürünün kendi tipik satış hızına göre normalize edilir (bkz.
     `_olu_stok_esigi`) — sabit bir gün sayısı, doğası gereği aralıklı satan
@@ -228,8 +264,21 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
     iskonto ayrıca artırılır — bozulacak bir ürünü elde tutmanın maliyeti,
     satamamanın maliyetinden daha kötüdür.
     """
-    esik_gun = _olu_stok_esigi(ozellik.ort_gunluk_talep)
-    olu_mu = ozellik.eldeki_stok > 0 and ozellik.son_hareket_gun_once >= esik_gun
+    sp = _sp(p)
+    esik_gun = _olu_stok_esigi(ozellik.ort_gunluk_talep, sp)
+    # ⭐ §11'in düzeltmesi: "hareket yok" ile "satacak mal yoktu" ayrımı.
+    #
+    # Eskiden koşul yalnızca `eldeki_stok > 0` idi. Gerçek veride
+    # `son_hareket_gun_once` fiili satıştan türüyor; elinde 2 birim kalmış,
+    # günde 8 birim talep gören bir ürün satamadığı için "120 gündür
+    # hareketsiz" görünüyor ve ölü ilan ediliyordu. Tasfiye siparişi
+    # bastırdığı için ürün bir daha hiç hareket etmiyor, teşhis kendini
+    # doğruluyordu.
+    #
+    # Ölü stok iddiası ancak **satılabilecek kadar mal varken** kurulabilir.
+    asgari_stok = ozellik.ort_gunluk_talep * sp.olu_stok_asgari_stok_gun
+    satilabilir_mal_vardi = ozellik.eldeki_stok > 0 and ozellik.eldeki_stok >= asgari_stok
+    olu_mu = satilabilir_mal_vardi and ozellik.son_hareket_gun_once >= esik_gun
     bagli_sermaye_tl = ozellik.eldeki_stok * ozellik.birim_maliyet_tl
 
     onerilen_iskonto_orani = 0.0
@@ -242,10 +291,7 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
             onerilen_iskonto_orani = 0.15
 
         raf_kritik_gun = 30
-        if (
-            ozellik.raf_omru_kalan_gun is not None
-            and ozellik.raf_omru_kalan_gun <= raf_kritik_gun
-        ):
+        if ozellik.raf_omru_kalan_gun is not None and ozellik.raf_omru_kalan_gun <= raf_kritik_gun:
             onerilen_iskonto_orani = max(onerilen_iskonto_orani, 0.60)
 
     return {
@@ -260,6 +306,41 @@ def olu_stok_degerlendir(ozellik: StockFeatures) -> dict:
 
 TEDARIKCI_SKOR_AGIRLIK_ZAMANINDA = 0.6
 TEDARIKCI_SKOR_AGIRLIK_TUTARLILIK = 0.4
+
+TEDARIKCI_DEGISIM_SKOR_ESIGI = 50.0
+"""Bu skorun altındaki tedarikçi için değişim/gözden geçirme önerilir (0-100).
+
+50, skorun iki bileşeninin de ortalamanın altına düştüğü nokta: teslim
+süresi beklenenin ~iki katı VEYA sapma ortalamanın kendisi kadar. Ikisinden
+biri tek başına bu seviyeye indiriyorsa tedarik zinciri planlanamaz hâle
+gelmiş demektir."""
+
+TEDARIKCI_DEGISIM_ASGARI_VERI_GUN = 180
+"""Bu kadar geçmiş yoksa tedarikçi değişimi ÖNERİLMEZ.
+
+⚠️ Faz 7'de finans tarafında ölçülen kusurun buraya taşınmaması için:
+`limit_dusurulmeli`, veri azken tahsilat oranı düşük göründüğü için 150
+müşterinin 102'sinde yanlış tetikleniyordu (`BILINEN-EKSIKLER.md` §8).
+Karşı taraf hakkında karar veren her kural, kanıt yeterliliğine bakmak
+zorunda.
+
+⚠️ **Bu artık YEDEK kapı.** Asıl kapı `TEDARIKCI_DEGISIM_ASGARI_SIPARIS`:
+"bu tedarikçiye kaç sipariş verildi". Sözleşmeye `tedarikci_siparis_sayisi`
+eklendiğinde vekil ölçü gerçeğiyle değişti. Alan 0 ise (veri kaynağı sipariş
+sayısını vermiyor) buraya düşülüyor — talep geçmişinin uzunluğu tedarikçi
+geçmişiyle korele ama aynı şey değil."""
+
+TEDARIKCI_DEGISIM_ASGARI_SIPARIS = 5
+"""Tedarikçi hakkında karar vermek için asgari sipariş sayısı.
+
+⭐ **Asıl kanıt kapısı bu.** Tedarikçi skoru teslim performansından
+hesaplanıyor; iki siparişten hesaplanan bir skor gürültüdür. Beş sipariş,
+ortalama ve sapmanın anlam kazandığı en küçük makul sayı — `csv_erp`'deki
+`ASGARI_SIPARIS_SAYISI` ile aynı gerekçe.
+
+⚠️ Alan 0 ise (veri kaynağı sipariş sayısını taşımıyor) kural
+`TEDARIKCI_DEGISIM_ASGARI_VERI_GUN` vekiline düşüyor — kanıt kapısı hiç
+olmamasındansa zayıf bir kapı."""
 
 
 def _tedarikci_id_indeksli(tedarikci_df: pd.DataFrame) -> pd.DataFrame:
@@ -302,6 +383,42 @@ def tedarikci_performans_ozeti(
     return ozet
 
 
+def tedarikci_degisim_degerlendir(ozellik: StockFeatures, p: StokProfili | None = None) -> dict:
+    """Bu SKU'nun tedarikçisi gözden geçirilmeli mi?
+
+    ⚠️ **Bu kol ORTOGONAL** — ölü stok ya da sipariş kararıyla yarışmaz.
+    "Bu mala para bağlamalı mıyım?" ile "bu malı kimden almalıyım?" ayrı
+    sorular; biri diğerini geçersiz kılmaz. Gerekçe: `BILINEN-EKSIKLER.md`
+    §9 (finansta bu ayrım gözden kaçmış, ölçümle bulunmuştu) ve §11.
+
+    ⚠️ Öneri "tedarikçiyi değiştir" değil **"gözden geçir"**: alternatif
+    tedarikçi bilgisi `StockFeatures`'ta yok. Sistem sorunu işaret ediyor,
+    yerine kimin geleceğini insan seçiyor.
+
+    `maruz_kalinan_deger_tl`, bir tedarik döngüsünde bu tedarikçiye bağlı
+    mal değeri — kararın büyüklüğü bu. Skoru düşük ama küçük bir C-sınıfı
+    ürünü besleyen tedarikçi, aynı skorla A-sınıfı ürünü besleyenden farklı
+    aciliyettedir.
+    """
+    sp = _sp(p)
+    skor = ozellik.tedarikci_skoru
+    if ozellik.tedarikci_siparis_sayisi > 0:
+        yeterli_veri = ozellik.tedarikci_siparis_sayisi >= sp.tedarikci_degisim_asgari_siparis
+    else:
+        # Sipariş sayısı bilinmiyor → vekil ölçüye düş.
+        yeterli_veri = ozellik.veri_gun_sayisi >= TEDARIKCI_DEGISIM_ASGARI_VERI_GUN
+    maruz_kalinan = ozellik.ort_gunluk_talep * ozellik.tedarik_suresi_gun * ozellik.birim_maliyet_tl
+
+    return {
+        "tedarikci_skoru": skor,
+        "tedarikci_degisim_esigi": sp.tedarikci_degisim_skor_esigi,
+        "maruz_kalinan_deger_tl": round(maruz_kalinan, 2),
+        "gozden_gecirilmeli": bool(
+            skor < sp.tedarikci_degisim_skor_esigi and yeterli_veri and ozellik.ort_gunluk_talep > 0
+        ),
+    }
+
+
 def tedarikci_skoru_hesapla(siparisler: pd.DataFrame, tedarikci_df: pd.DataFrame) -> pd.DataFrame:
     """0-100 tedarikçi skoru: gerçekleşen teslim performansının ağırlıklı toplamı.
 
@@ -338,3 +455,35 @@ def tedarikci_skoru_hesapla(siparisler: pd.DataFrame, tedarikci_df: pd.DataFrame
         },
         index=tedarikci_df.index,
     )
+
+
+# ⚠️ Faz 6'da ABC/XYZ çekirdeği `app/domain/siniflandirma.py`'ye taşındı
+# (finans da aynı sınıflandırmayı kullanıyor, iki alan birbirine bağlanmasın
+# diye). Aşağıdakiler oradan geliyor ve buradan yeniden ihraç ediliyor —
+# `from app.domain.stock.rules import abc_sinif_ata` yazan mevcut kod ve
+# testler bozulmasın diye.
+__all__ = [
+    "ABC_KESIM_A",
+    "ABC_KESIM_B",
+    "HEDEF_SERVIS_SEVIYESI_MATRISI",
+    "OLU_STOK_ASGARI_STOK_GUN",
+    "OLU_STOK_GORECELI_CARPAN",
+    "OLU_STOK_MUTLAK_ESIK_GUN",
+    "VARSAYILAN_SIPARIS_MALIYETI_TL",
+    "VARSAYILAN_YILLIK_ELDE_TUTMA_ORANI",
+    "XYZ_KESIM_X",
+    "XYZ_KESIM_Y",
+    "abc_sinif_ata",
+    "abc_xyz_siniflandir",
+    "ekonomik_siparis_miktari",
+    "emniyet_stogu_hesapla",
+    "olu_stok_degerlendir",
+    "rop_ve_emniyet_stogu",
+    "siparis_miktari_hesapla",
+    "siparis_miktarini_yuvarla",
+    "tedarikci_degisim_degerlendir",
+    "tedarikci_performans_ozeti",
+    "tedarikci_skoru_hesapla",
+    "xyz_sinif_ata",
+    "yeniden_siparis_noktasi_hesapla",
+]

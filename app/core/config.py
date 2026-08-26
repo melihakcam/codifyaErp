@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,6 +35,44 @@ class Ayarlar(BaseSettings):
     # Postgres'e geçiş yalnızca bu satırın değişmesi demek.
     database_url: str = f"sqlite:///{PROJE_KOKU / 'data' / 'codifya.db'}"
 
+    # --- Kimlik doğrulama (Faz 7) ---
+    # Virgülle ayrılmış API anahtarları. Boşsa kimlik doğrulama KAPALI —
+    # ama `ortam=uretim` iken boş bırakmak açılışı engeller
+    # (bkz. `app/core/auth.py::kimlik_yapilandirmasini_dogrula`).
+    #
+    # Liste olması bilinçli: anahtar döndürmek (rotation) yeni anahtarı
+    # ekleyip ERP'yi geçirdikten sonra eskisini silmek demek. Tek anahtarlı
+    # bir alan, döndürme anında kesinti zorunlu kılardı.
+    # Biçim: `anahtar` | `anahtar:kullanici` | `anahtar:kullanici:rol`
+    # Örnek: "erp-xyz:erp-sistemi:sistem, k2:esmanur:yonetici, k3:ali"
+    # Rol verilmezse `operator` sayılır.
+    api_anahtarlari: str = ""
+
+    # Çerez `Secure` bayrağı — TLS arkasında ZORUNLU olarak True yapılmalı.
+    # Varsayılan False, çünkü geliştirme `http://127.0.0.1` üzerinden gidiyor
+    # ve `Secure` çerezi tarayıcı hiç göndermez; ekran sessizce çalışmaz.
+    cerez_guvenli: bool = False
+
+    # Bu tutarın üstündeki kararları yalnızca `yonetici` rolü onaylayabilir.
+    # 0 = kısıt yok. Otonomi kademelerinin insan tarafındaki karşılığı:
+    # sistem eşik üstünü insana soruyor, bu ayar da "hangi insana" diyor.
+    onay_yonetici_esigi_tl: float = 0.0
+
+    # --- Üretim sertleştirmesi (B4) ---
+    # Anahtar başına dakikada izin verilen istek. 0 = sınır yok.
+    #
+    # ⚠️ Sınırlama yalnızca kimlik doğrulama AÇIKKEN uygulanıyor. Sebebi:
+    # sınır, servis dışarı açıldığında anlam kazanıyor ve o da tam olarak
+    # anahtar tanımlandığı durum. Geliştirmede kapalı kalması testleri ve
+    # `--reload` döngüsünü rahat bırakıyor.
+    hiz_siniri_dakikada: int = 300
+
+    # `/docs`, `/redoc` ve `/openapi.json` kimlik istesin mi?
+    # Varsayılan True: şema, sistemin hangi kararları verdiğini ve hangi
+    # alanları okuduğunu satır satır anlatıyor. İç ağda bile gereksiz yere
+    # açık durmasının bir faydası yok.
+    docs_kimlik_istesin: bool = True
+
     # --- Otonomi ---
     # ⚠️ shadow modda ölçülmüş doğruluk raporu olmadan threshold'a geçilmez.
     autonomy_level: OtonomiSeviyesi = OtonomiSeviyesi.SHADOW
@@ -47,6 +86,21 @@ class Ayarlar(BaseSettings):
     llm_model_adi: str = "qwen2.5:1.5b-instruct"
     llm_timeout_sn: float = 60.0
     llm_gerekce_max_token: int = 220
+
+    # İstem biçimi: hangi modele konuşuyoruz?
+    #
+    # `taban`      — ham Qwen2.5-1.5B. İstemde kurallar bloğu ve few-shot
+    #                örnek var, çünkü model bu işi hiç görmedi. B2.3/B2.4'te
+    #                ölçülen ve ayarlanan biçim budur.
+    # `egitilmis`  — Faz 3'te LoRA ile eğitilmiş model. İstem KISA: davranış
+    #                ağırlıklara işlendi, kural ve örnek gereksiz. Başlıkta
+    #                `GOREV:` etiketi var — router ile gerekçe tek modelde
+    #                eğitildiği için ayrım oradan yapılıyor.
+    #
+    # ⚠️ Eğitilmiş kipin istemi, eğitimde kullanılanla **birebir aynı**
+    # olmak zorunda. Bir satır bile kayarsa model tanımadığı bir girdi görür
+    # ve eğitimin kazandırdığı ne varsa kaybolur.
+    llm_istem_bicimi: Literal["taban", "egitilmis"] = "taban"
 
     # Modelin kullanacağı CPU iş parçacığı sayısı.
     # ⚠️ Varsayılan bilinçli olarak DÜŞÜK. Ollama hiçbir sınır verilmezse tüm
@@ -85,8 +139,55 @@ class Ayarlar(BaseSettings):
     # Bir günde açılan siparişlerin toplamı bu tutarı aşarsa uyarı.
     tetik_gunluk_siparis_limiti_tl: float = 250_000.0
 
+    # --- İşletme profili (Faz 9) ---
+    # Müşteriye göre değişen İŞ parametreleri burada değil, ayrı bir JSON
+    # dosyasında (bkz. `app/core/isletme_profili.py`). Bu ayar yalnızca o
+    # dosyanın yerini söylüyor.
+    #
+    # ⚠️ Ayrım bilinçli: bu dosya KURULUMA göre değişen şeyleri tutuyor
+    # (veritabanı adresi, LLM modeli, anahtarlar). Profil ise İŞE göre
+    # değişenleri (ölü stok eşiği, finansman oranı, personel maliyeti).
+    # İkisini karıştırmak "bu sayıyı kim değiştirebilir" sorusunu
+    # belirsizleştirir — profili iş sahibi, burayı sistem yöneticisi
+    # değiştirir.
+    #
+    # Boşsa varsayılan profil kullanılır; davranış bugünküyle birebir aynı.
+    isletme_profili_yolu: str = ""
+
     # --- Simülasyon verisi ---
     sim_veri_koku: Path = PROJE_KOKU / "data" / "sim"
+
+    @property
+    def api_kimlikleri(self) -> dict[str, tuple[str, str]]:
+        """`anahtar → (kullanıcı adı, rol)` eşlemesi.
+
+        ⚠️ Anahtarın kendisi sözlük **anahtarı**; adı ve rolü değeri. Böylece
+        doğrulama tek bir arama, ve kim olduğu doğrulamanın yan ürünü —
+        ayrıca sorulması gereken bir soru değil.
+        """
+        kimlikler: dict[str, tuple[str, str]] = {}
+        for parca in self.api_anahtarlari.split(","):
+            parca = parca.strip()
+            if not parca:
+                continue
+            alanlar = [a.strip() for a in parca.split(":")]
+            anahtar = alanlar[0]
+            if not anahtar:
+                continue
+            ad = alanlar[1] if len(alanlar) > 1 and alanlar[1] else "bilinmeyen"
+            rol = alanlar[2] if len(alanlar) > 2 and alanlar[2] else "operator"
+            kimlikler[anahtar] = (ad, rol)
+        return kimlikler
+
+    @property
+    def api_anahtar_kumesi(self) -> frozenset[str]:
+        """`api_anahtarlari` metnini kümeye çevirir.
+
+        Boş parçalar ayıklanıyor: `"a,,b"` ya da sonda kalan virgül, boş
+        string'i geçerli bir anahtar hâline getirirdi — anahtarsız her istek
+        kabul edilirdi.
+        """
+        return frozenset(self.api_kimlikleri)
 
 
 @lru_cache

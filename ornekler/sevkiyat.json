@@ -1,0 +1,17 @@
+{
+  "ad": "Sevkiyat",
+  "aciklama": "⚠️ TEST VERİSİ, ürün özelliği değil. Tek işi zincir bağını kanıtlamak: işler elle yazılmıyor, ÜRETİM alanının çıktısından türüyor (isler_kaynagi = alan:uretim). Araçlar ve kapasiteleri burada yazılı çünkü sabit bir liste — üretim hatlarının aksine işletmenin akan verisinde yaşamıyorlar. Adlar bilinçli olarak soyut.",
+  "kapasite_birimi": "saat",
+  "isler_kaynagi": "alan:uretim",
+  "adaptor": "app.domain.logistics.adapter",
+  "parametreler": {
+    "birim_yukleme_saat": "0.01",
+    "sabit_hazirlik_saat": "0.5"
+  },
+  "kaynaklar": [
+    {"id": "ARAC-1", "ad": "Araç 1", "gunluk_kapasite": 9, "not": "Tam gün"},
+    {"id": "ARAC-2", "ad": "Araç 2", "gunluk_kapasite": 9, "not": "Tam gün"},
+    {"id": "ARAC-3", "ad": "Araç 3", "gunluk_kapasite": 6, "not": "Yarım gün — kapasitesi farklı, atama bunu görmeli"}
+  ],
+  "isler": []
+}

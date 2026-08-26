@@ -22,14 +22,17 @@ insan zaten ilk 25'e bakıyor.
 `KosuOzeti` karar süresiyle gerekçe süresini **ayrı** raporlar — mimarinin
 "karar hızlı, gerekçe yavaş" iddiası ancak ölçülürse doğrulanabilir.
 
-⚠️ Şu an `decide_stub()` kullanılıyor. Kişi A'nın `stok_karari_uret()`'i merge
-edilince `karar_ureteci` parametresine gerçek üreteç geçirilecek — bu dosyada
-başka bir şey değişmeyecek.
+CLI (`_cli()`) gerçek üreteçleri kullanır (`_gercek_karar_ureteci` +
+`llm_gerekce_ureteci`); `gecelik_tarama()`'nın kendi varsayılanları
+(`_stub_ureteci`, `explain_stub`) bilinçli olarak stub kalır — testler ve
+Ollama'sız ortamlar bu sayede çalışır kalıyor (bkz. `gecelik_tarama`
+docstring'i).
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -42,6 +45,7 @@ from app.contracts import (
     Alan,
     DecisionCandidate,
     Gerekce,
+    GuardSonucu,
     KararTipi,
     PolitikaKarari,
     PolitikaSonucu,
@@ -50,8 +54,15 @@ from app.core.audit import denetim_yaz, karari_kaydet
 from app.core.config import Ayarlar, ayarlar
 from app.core.db import motor, oturum_fabrikasi
 from app.core.policy import PolitikaEsikleri, esikleri_yukle, politika_uygula
-from app.domain.stock.decide import decide_stub
-from app.llm.explain import explain_stub
+from app.domain.stock.decide import (
+    _demo_dunyasini_yukle,
+    _siniflandirmayi_hesapla,
+    decide_stub,
+    ozellikten_karar_uret,
+)
+from app.domain.stock.features import katalog_ozelliklerini_hesapla
+from app.llm.client import OllamaIstemcisi
+from app.llm.explain import explain_stub, llm_gerekce_ureteci
 from app.models import Approval, Decision, Insight
 
 KararUreteci = Callable[[], Iterable[DecisionCandidate]]
@@ -72,6 +83,20 @@ class KosuOzeti:
     kuyruga_giren: int = 0
     gerekce_uretilen: int = 0
     gerekce_atlanan: int = 0
+    # ⚠️ Guard kırılımı — `gerekce_uretilen` tek başına YALAN SÖYLER.
+    #
+    # O sayaç modelden gelen metinle şablona düşeni ayırmıyordu; %100 şablona
+    # düşen bir koşu, %100 modelden gelen koşuyla özet çıktısında BİREBİR aynı
+    # görünüyordu.
+    #
+    # Tur 8 · B5'te bunun bedeli ölçüldü: `explain.py`'nin alan-bağımsız
+    # sanılan üç yeri finansta patlıyordu ve **her finans kararı 0 saniyede
+    # şablona düşüyordu, model hiç çağrılmıyordu**. Sinyal vardı
+    # (`guard_sonucu="sablona_dustu"`) ama özet onu göstermediği için kimse
+    # görmedi. Bu üç alan o sinyali yüzeye çıkarıyor.
+    gerekce_gecti: int = 0
+    gerekce_yeniden_uretildi: int = 0
+    gerekce_sablona_dustu: int = 0
     icgoru_yazilan: int = 0
     karar_sn: float = 0.0
     gerekce_sn: float = 0.0
@@ -80,14 +105,41 @@ class KosuOzeti:
     def toplam_sn(self) -> float:
         return self.karar_sn + self.gerekce_sn
 
+    def guard_uyarisi(self) -> str | None:
+        """Şablona düşme oranı yüksekse uyarı metni, değilse None.
+
+        ⚠️ Şablona düşmek tek başına arıza değil — LLM erişilemezse tasarım
+        gereği olan budur. **Oranın yüksekliği** arızadır: gerekçelerin
+        neredeyse tamamı şablonsa model ya kapalı ya da o karar tipinde
+        çalışmıyor demektir.
+
+        Eşik %50: yarıdan fazlası şablonsa "LLM bir aksaklık yaşadı" değil,
+        "LLM bu koşuda işlevsiz" durumu vardır.
+        """
+        if not self.gerekce_uretilen:
+            return None
+        oran = self.gerekce_sablona_dustu / self.gerekce_uretilen
+        if oran < 0.5:
+            return None
+        return (
+            f"⚠️  gerekçelerin %{oran * 100:.0f}'i ŞABLONA DÜŞTÜ "
+            f"({self.gerekce_sablona_dustu}/{self.gerekce_uretilen}). "
+            "Model çağrılmıyor ya da o karar tipinde patlıyor olabilir."
+        )
+
     def ozet(self) -> str:
         karar_hizi = self.taranan / self.karar_sn if self.karar_sn else 0.0
+        uyari = self.guard_uyarisi()
         return (
             f"koşu {self.kosu_id}\n"
             f"  taranan SKU        : {self.taranan:,}\n"
             f"  kuyruğa giren      : {self.kuyruga_giren:,}\n"
-            f"  gerekçe üretilen   : {self.gerekce_uretilen}\n"
-            f"  gerekçe atlanan    : {self.gerekce_atlanan:,}\n"
+            f"  gerekçe üretilen   : {self.gerekce_uretilen}"
+            f"  (geçti {self.gerekce_gecti} · "
+            f"yeniden {self.gerekce_yeniden_uretildi} · "
+            f"şablon {self.gerekce_sablona_dustu})\n"
+            + (f"  {uyari}\n" if uyari else "")
+            + f"  gerekçe atlanan    : {self.gerekce_atlanan:,}\n"
             f"  içgörü yazılan     : {self.icgoru_yazilan}\n"
             f"  karar süresi       : {self.karar_sn:.1f} sn  ({karar_hizi:,.0f} karar/sn)\n"
             f"  gerekçe süresi     : {self.gerekce_sn:.1f} sn\n"
@@ -95,9 +147,88 @@ class KosuOzeti:
         )
 
 
+logger = logging.getLogger(__name__)
+
+
 def _stub_ureteci() -> Iterable[DecisionCandidate]:
-    """Kişi A'nın gerçek üreteci merge edilene kadarki yer tutucu."""
+    """`gecelik_tarama()`'nın varsayılanı — testler ve Ollama'sız ortamlar için."""
     return [decide_stub()]
+
+
+def _gercek_karar_ureteci() -> Iterable[DecisionCandidate]:
+    """Tüm katalog için gerçek karar üretir — `_cli()`'nin kullandığı üreteç.
+
+    `katalog_ozelliklerini_hesapla` vektörize (`training/build_dataset.py`
+    ile aynı desen): 2.000 SKU için tek toplu çağrı, SKU başına ayrı sorgu
+    değil. 10 dakikalık bütçe bu sayede korunuyor.
+    """
+    dunya = _demo_dunyasini_yukle()
+    siniflandirma = _siniflandirmayi_hesapla(dunya)
+    ozellikler = katalog_ozelliklerini_hesapla(
+        olcum_tarihi=dunya["olcum_tarihi"],
+        talep=dunya["talep"],
+        envanter_gunluk=dunya["envanter_gunluk"],
+        sku_df=dunya["sku"],
+        tedarikci_df=dunya["tedarikci"],
+        siniflandirma=siniflandirma,
+    )
+    kararlar = [ozellikten_karar_uret(o) for o in ozellikler]
+
+    # ⚠️ Faz 6: finans kararları da aynı taramaya giriyor.
+    #
+    # Ayrı bir gecelik iş açmak yerine tek taramada birleştirildi, çünkü
+    # kullanıcı sabah **tek bir liste** görmek istiyor: "bugün neye bakmam
+    # lazım?" sorusunun cevabı alan başına bölünmemeli.
+    #
+    # Sıralama zaten risk skoruna göre yapılıyor (`gecelik_tarama`), yani
+    # 200.000 TL'lik bir tahsilat riski 500 TL'lik bir sipariş önerisinin
+    # üstünde çıkıyor — alanlar arası önceliklendirme kendiliğinden doğru.
+    kararlar.extend(_finans_kararlari())
+    # ⚠️ Faz 10 / Adım 6: üretim de aynı taramaya giriyor.
+    #
+    # Ayrı bir gecelik iş açmak yerine tek taramada birleştirildi; gerekçesi
+    # finansla aynı: kullanıcı sabah **tek bir liste** görmek istiyor.
+    # Sıralama risk skoruna göre olduğu için 200.000 TL'lik bir üretim emri
+    # 500 TL'lik bir sipariş önerisinin üstünde çıkıyor.
+    kararlar.extend(_uretim_kararlari())
+    return kararlar
+
+
+def _uretim_kararlari() -> list[DecisionCandidate]:
+    """Üretilen kalemler için emir + kapasite kararları.
+
+    Hata durumunda **boş liste**: üretim tarafındaki bir sorun gecelik
+    taramanın tamamını düşürmemeli. Stok ve finans kullanıcıya ulaşmaya
+    devam eder, eksiklik log'dan görülür (`_finans_kararlari` ile aynı
+    desen).
+    """
+    try:
+        from app.domain.production.decide import uretim_kararlari_uret
+
+        return list(uretim_kararlari_uret())
+    except Exception:  # gecelik iş hiçbir koşulda düşmemeli
+        logger.exception("Üretim kararları üretilemedi; tarama diğer alanlarla devam ediyor.")
+        return []
+
+
+def _finans_kararlari() -> list[DecisionCandidate]:
+    """Demo dünyasındaki tüm müşteriler için tahsilat kararları.
+
+    Hata durumunda **boş liste** dönüyor: finans tarafındaki bir sorun
+    gecelik taramanın tamamını düşürmemeli. Stok kararları kullanıcıya
+    ulaşmaya devam eder ve eksiklik log'dan görülür.
+    """
+    try:
+        from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret
+
+        # ⚠️ Çoğul: bir müşteri aynı anda hem karşılık hem takip
+        # gerektirebilir (bkz. `finance/decide.py` modül docstring'i).
+        # Tekil sürüm kullanılsaydı batık müşterinin takip kararı kuyruğa
+        # hiç girmezdi.
+        return [k for o in _demo_ozellikleri() for k in ozellikten_kararlar_uret(o)]
+    except Exception:  # gecelik iş hiçbir koşulda düşmemeli
+        logger.exception("Finans kararları üretilemedi; tarama stokla devam ediyor.")
+        return []
 
 
 class _EsikOnbellegi:
@@ -121,15 +252,31 @@ class _EsikOnbellegi:
 
 
 def _icgoru_basligi(aday: DecisionCandidate, politika: PolitikaKarari) -> str:
+    """Gecelik özet satırının başlığı.
+
+    ⚠️ Ad **`gorunen_ad` üzerinden** alınıyor. Faz 6'ya kadar burada doğrudan
+    `o.sku_adi` yazıyordu; finans kararı gecelik taramaya girdiği anda
+    `AttributeError` verecekti — ve bu, gecelik işin tamamını düşürürdü.
+    """
     o = aday.ozellikler
+    ad = o.gorunen_ad
+
     if aday.tip is KararTipi.STOK_SIPARIS:
-        miktar = aday.aksiyon.get("siparis_miktari")
-        return f"{o.sku_adi}: {miktar} adet sipariş önerisi"
+        return f"{ad}: {aday.aksiyon.get('siparis_miktari')} adet sipariş önerisi"
     if aday.tip is KararTipi.STOK_TASFIYE:
-        return f"{o.sku_adi}: tasfiye önerisi ({o.son_hareket_gun_once} gündür hareketsiz)"
+        return f"{ad}: tasfiye önerisi ({o.son_hareket_gun_once} gündür hareketsiz)"
     if aday.tip is KararTipi.STOK_TEDARIKCI_DEGISIM:
-        return f"{o.sku_adi}: tedarikçi değişimi önerisi"
-    return f"{o.sku_adi}: {aday.tip.value}"
+        return f"{ad}: tedarikçi değişimi önerisi"
+
+    if aday.tip is KararTipi.FINANS_TAHSILAT_TAKIBI:
+        return f"{ad}: {o.en_eski_gecikme_gun} gündür gecikmede, tahsilat takibi"
+    if aday.tip is KararTipi.FINANS_KARSILIK_AYIR:
+        oran = aday.aksiyon.get("onerilen_karsilik_orani") or 0
+        return f"{ad}: %{float(oran) * 100:.0f} karşılık önerisi"
+    if aday.tip is KararTipi.FINANS_KREDI_LIMITI_DUSUR:
+        return f"{ad}: kredi limiti düşürme önerisi"
+
+    return f"{ad}: {aday.tip.value}"
 
 
 def gecelik_tarama(
@@ -200,6 +347,12 @@ def gecelik_tarama(
         karar.llm_model_adi = gerekce.model_adi
         karar.gerekce_uretim_ms = gerekce.uretim_ms
         ozet.gerekce_uretilen += 1
+        if gerekce.guard_sonucu is GuardSonucu.GECTI:
+            ozet.gerekce_gecti += 1
+        elif gerekce.guard_sonucu is GuardSonucu.YENIDEN_URETILDI:
+            ozet.gerekce_yeniden_uretildi += 1
+        elif gerekce.guard_sonucu is GuardSonucu.SABLONA_DUSTU:
+            ozet.gerekce_sablona_dustu += 1
 
         # Gerekçe üretimi ayrı bir olay — ilk denetim satırının üstüne
         # yazılmıyor, yenisi ekleniyor.
@@ -248,8 +401,14 @@ def _cli() -> None:
     args = ayristirici.parse_args()
 
     ayar = ayarlar()
-    with oturum_fabrikasi()() as oturum:
-        ozet = gecelik_tarama(oturum, ayar, gerekce_ust_n=args.ust_n)
+    with oturum_fabrikasi()() as oturum, OllamaIstemcisi(ayar=ayar) as istemci:
+        ozet = gecelik_tarama(
+            oturum,
+            ayar,
+            karar_ureteci=_gercek_karar_ureteci,
+            gerekce_ureteci=llm_gerekce_ureteci(istemci),
+            gerekce_ust_n=args.ust_n,
+        )
 
     print(ozet.ozet())
     if ozet.toplam_sn > 600:

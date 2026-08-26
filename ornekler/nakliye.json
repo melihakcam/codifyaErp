@@ -1,0 +1,104 @@
+{
+  "ad": "İkinci alan örneği — genel planlama motorunun sınavı",
+  "not": "⚠️ BU BİR ÜRÜN ÖZELLİĞİ DEĞİL, TEST VERİSİDİR. Karar tipi yok, API ucu yok, ekran yok. Tek işi şunu kanıtlamak: üretim planlaması için yazılan motor, üretimi hiç bilmeyen bir alanda da çalışıyor mu? Adlar bilinçli olarak SOYUT — gerçek bir işletme, araç ya da müşteri temsil etmiyor. Alan olarak taşıma seçildi çünkü üretimden en uzak olanı; motor orada da çalışıyorsa genelliği kanıtlanmış olur.",
+  "kapasite_birimi": "saat",
+
+  "kaynaklar": [
+    {
+      "id": "KAYNAK-1",
+      "ad": "Araç 1",
+      "gunluk_kapasite": 9,
+      "not": "Tam gün"
+    },
+    {
+      "id": "KAYNAK-2",
+      "ad": "Araç 2",
+      "gunluk_kapasite": 9,
+      "not": "Tam gün"
+    },
+    {
+      "id": "KAYNAK-3",
+      "ad": "Araç 3",
+      "gunluk_kapasite": 6,
+      "not": "Yarım gün — kapasitesi farklı, atama bunu görmeli"
+    }
+  ],
+
+  "isler": [
+    {
+      "id": "SV-001",
+      "ad": "Teslimat A",
+      "yuk": 2.5,
+      "oncelik": 0,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2", "KAYNAK-3"],
+      "not": "oncelik 0 = en acil"
+    },
+    {
+      "id": "SV-002",
+      "ad": "Teslimat B",
+      "yuk": 3.0,
+      "oncelik": 0,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2"],
+      "not": "Araç 3'e uygun DEĞİL — uygunluk kısıtının testi"
+    },
+    {
+      "id": "SV-003",
+      "ad": "Teslimat C",
+      "yuk": 1.5,
+      "oncelik": 1,
+      "uygun_kaynaklar": ["KAYNAK-3"],
+      "not": "YALNIZCA Araç 3'e uygun — tek adaylı iş"
+    },
+    {
+      "id": "SV-004",
+      "ad": "Teslimat D",
+      "yuk": 4.0,
+      "oncelik": 1,
+      "bolunebilir": false,
+      "uygun_kaynaklar": ["KAYNAK-1"],
+      "not": "Bölünemez: iki güne yayılamaz"
+    },
+    {
+      "id": "SV-005",
+      "ad": "Teslimat E",
+      "yuk": 2.0,
+      "oncelik": 2,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2", "KAYNAK-3"]
+    },
+    {
+      "id": "SV-006",
+      "ad": "Teslimat F",
+      "yuk": 3.5,
+      "oncelik": 2,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2"]
+    },
+    {
+      "id": "SV-007",
+      "ad": "Teslimat G",
+      "yuk": 1.0,
+      "oncelik": 3,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2", "KAYNAK-3"]
+    },
+    {
+      "id": "SV-008",
+      "ad": "Teslimat H",
+      "yuk": 3.0,
+      "oncelik": 4,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2"]
+    },
+    {
+      "id": "SV-009",
+      "ad": "Teslimat I",
+      "yuk": 2.5,
+      "oncelik": 5,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2", "KAYNAK-3"]
+    },
+    {
+      "id": "SV-010",
+      "ad": "Teslimat J",
+      "yuk": 2.0,
+      "oncelik": 6,
+      "uygun_kaynaklar": ["KAYNAK-1", "KAYNAK-2", "KAYNAK-3"]
+    }
+  ]
+}
