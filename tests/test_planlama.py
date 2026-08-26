@@ -12,9 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from app.planlama.contracts import Is, Kaynak, KaynakPlani, PlanSatiri
+from app.planlama.contracts import AtamaGerekcesi, Is, Kaynak, KaynakPlani, PlanSatiri
 from app.planlama.olcut import OLCUTLER, olcut_al
-from app.planlama.tanim import TanimHatasi, dosyadan_yukle, tanimdan_yukle
+from app.planlama.tanim import (
+    AlanTanimi,
+    IslerKaynagi,
+    TanimHatasi,
+    alan_tanimi_dosyadan,
+    alan_tanimi_oku,
+    dosyadan_yukle,
+    tanimdan_yukle,
+)
 from app.planlama.yerlestirme import plan_kur
 
 BUGUN = date(2026, 8, 11)
@@ -454,3 +462,145 @@ def test_doluluk_UFKU_hesaba_katiyor():
     """⚠️ İlk sürüm ufku bilmiyordu ve %535 gibi sayılar üretiyordu."""
     plan = plan_kayit(yerlesen=[("A", 0.0, 0)], kapasite=8.0, ufuk_gun=5)
     assert plan.doluluk == pytest.approx(1.0 / 40.0)
+
+
+# --- Faz 13 · Adım 0: dondurulmuş sözleşme ----------------------------------
+#
+# ⚠️ Bu bölüm KOD DEĞİL SÖZLEŞME sınıyor. İki tarafın (A gerekçeyi üretir,
+# B tüketir) birbirini beklemeden çalışabilmesi buradaki iki garantiye
+# dayanıyor: gerekçe varsayılanlı, işler kaynağı varsayılanlı. İkisi de
+# bozulursa paralel çalışma sessizce biter.
+
+
+def test_gerekce_VARSAYILANLI_eski_cagrilar_bozulmuyor():
+    """Faz 11'de yazılmış her `PlanSatiri` kurulumu aynen çalışmalı."""
+    satir = PlanSatiri(
+        is_id="I1",
+        ad="İş",
+        kaynak_id="K1",
+        kaynak_adi="Kaynak",
+        baslangic=BUGUN,
+        bitis=BUGUN,
+        yuk=2.0,
+        oncelik=1.0,
+    )
+    assert satir.gerekce is None, "gerekce varsayilanli degil — B, A'yi beklemek zorunda kalir"
+
+
+def test_plan_kur_GEREKCESIZ_calisiyor():
+    """A13.1 yazılmadan da plan çıkıyor; gerekçe alanı boş duruyor."""
+    planlar = plan_kur([is_("I1")], [kaynak("K1")], ufuk_gun=3, baslangic=BUGUN)
+    assert [s.gerekce for p in planlar for s in p.satirlar] == [None]
+
+
+def test_gerekce_BELIRLEYICISI_kapali_kume():
+    """⚠️ Serbest metin olsaydı her alan kendi kelimesini yazardı."""
+    with pytest.raises(ValueError, match="belirleyici"):
+        AtamaGerekcesi(secilen_kaynak="K1", aday_kaynaklar=("K1",), belirleyici="hat_musait")
+
+
+def test_gerekce_SECILEN_KAYNAK_adaylarda_olmali():
+    """Atamayı anlatmayan gerekçe, hiç olmamasından kötüdür — yanlış bilgi verir."""
+    with pytest.raises(ValueError, match="aday listesinde yok"):
+        AtamaGerekcesi(secilen_kaynak="K9", aday_kaynaklar=("K1", "K2"))
+
+
+def test_gerekce_ELENME_NEDENI_aday_olmayana_yazilamaz():
+    with pytest.raises(ValueError, match="aday olmayan"):
+        AtamaGerekcesi(
+            secilen_kaynak="K1",
+            aday_kaynaklar=("K1", "K2"),
+            belirleyici="kapasite",
+            elenme_nedenleri={"K7": "kapasite dolu"},
+        )
+
+
+def test_gerekce_KARSILASTIRILABILIR():
+    """⚠️ Determinizm kapısı gerekçeleri de karşılaştıracak (A13.1).
+
+    Eşitlik veri üzerinden çalışmazsa `test_plan_TEKRARLANABILIR` gerekçe
+    kaymasını göremez ve sessiz kalır.
+    """
+    kur = lambda: AtamaGerekcesi(  # noqa: E731
+        secilen_kaynak="K1",
+        aday_kaynaklar=("K1", "K2"),
+        belirleyici="kapasite",
+        elenme_nedenleri={"K2": "daha dolu"},
+    )
+    assert kur() == kur()
+
+
+def test_isler_kaynagi_VARSAYILANI_elle():
+    """Bugünkü davranış korunuyor: işler JSON'da yazılı."""
+    tanim = alan_tanimi_oku(
+        {
+            "ad": "Üretim",
+            "kaynaklar": [{"id": "M1", "ad": "Makine", "gunluk_kapasite": 8}],
+            "isler": [{"id": "J1", "ad": "Parti", "yuk": 3, "oncelik": 1, "kaynak_id": "M1"}],
+        }
+    )
+    assert isinstance(tanim, AlanTanimi)
+    assert tanim.isler_kaynagi == IslerKaynagi()
+    assert str(tanim.isler_kaynagi) == "elle"
+
+
+@pytest.mark.parametrize(
+    ("ham", "kip", "kaynak_alan"),
+    [("elle", "elle", None), ("tahmin", "tahmin", None), ("alan:uretim", "alan", "uretim")],
+)
+def test_isler_kaynagi_UC_YOL_ayristiriliyor(ham, kip, kaynak_alan):
+    tanim = alan_tanimi_oku(
+        {
+            "kaynaklar": [{"id": "M1", "ad": "M", "gunluk_kapasite": 8}],
+            "isler": [{"id": "J1", "ad": "J", "yuk": 3, "oncelik": 1, "kaynak_id": "M1"}],
+            "isler_kaynagi": ham,
+        }
+    )
+    assert (tanim.isler_kaynagi.kip, tanim.isler_kaynagi.kaynak_alan) == (kip, kaynak_alan)
+    assert str(tanim.isler_kaynagi) == ham
+
+
+@pytest.mark.parametrize("ham", ["otomatik", "alan:", "ALAN:uretim", "", 3])
+def test_isler_kaynagi_gecersiz_deger_SESSIZCE_VARSAYILANA_dusmuyor(ham):
+    with pytest.raises(TanimHatasi):
+        alan_tanimi_oku(
+            {
+                "kaynaklar": [{"id": "M1", "ad": "M", "gunluk_kapasite": 8}],
+                "isler": [],
+                "isler_kaynagi": ham,
+            }
+        )
+
+
+def test_UST_SEVIYE_yazim_hatasi_patliyor():
+    """⚠️ Faz 9'un dersi: `isler_kaynak` yazan tanım elle'ye düşerse plan
+    geçmişten beslendiği sanılırken elle yazılmış işlerle koşar."""
+    with pytest.raises(TanimHatasi, match="isler_kaynagi"):
+        tanimdan_yukle(
+            {
+                "kaynaklar": [{"id": "M1", "ad": "M", "gunluk_kapasite": 8}],
+                "isler": [],
+                "isler_kaynak": "tahmin",
+            }
+        )
+
+
+def test_KAYIT_ICI_bilinmeyen_alan_hala_ETIKET():
+    """Üst seviye kapalı, kaydın içi açık — ayrım korunuyor."""
+    _, isler = tanimdan_yukle(
+        {
+            "kaynaklar": [{"id": "K", "ad": "K", "gunluk_kapasite": 8}],
+            "isler": [
+                {"id": "J", "ad": "J", "yuk": 1, "oncelik": 1, "kaynak_id": "K", "musteri": "X"}
+            ],
+        }
+    )
+    assert isler[0].etiketler["musteri"] == "X"
+
+
+def test_nakliye_ornegi_YENI_SOZLESMEYLE_okunuyor():
+    """Mevcut alan tanımı değiştirilmeden yeni okuyucudan geçiyor."""
+    tanim = alan_tanimi_dosyadan(NAKLIYE)
+    assert len(tanim.kaynaklar) == 3
+    assert len(tanim.isler) == 10
+    assert tanim.isler_kaynagi.kip == "elle"

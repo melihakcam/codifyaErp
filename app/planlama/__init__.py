@@ -35,7 +35,18 @@ Gerçek bir çözücü (OR-Tools, CP-SAT) bunları yapar. Oraya geçilecekse
 duruyor.
 """
 
-from app.planlama.contracts import Is, Kaynak, KaynakPlani, PlanSatiri
+from app.planlama.contracts import AtamaGerekcesi, Is, Kaynak, KaynakPlani, PlanSatiri
+from app.planlama.tanim import AlanTanimi, IslerKaynagi
 from app.planlama.yerlestirme import plan_kur, plan_metni
 
-__all__ = ["Is", "Kaynak", "KaynakPlani", "PlanSatiri", "plan_kur", "plan_metni"]
+__all__ = [
+    "AlanTanimi",
+    "AtamaGerekcesi",
+    "Is",
+    "IslerKaynagi",
+    "Kaynak",
+    "KaynakPlani",
+    "PlanSatiri",
+    "plan_kur",
+    "plan_metni",
+]

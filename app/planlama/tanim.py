@@ -27,6 +27,8 @@ hatası hata vermeli.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
+from difflib import get_close_matches
 from pathlib import Path
 from typing import Any
 
@@ -37,9 +39,91 @@ from app.planlama.contracts import Is, Kaynak
 KAYNAK_ZORUNLU = ("id", "ad", "gunluk_kapasite")
 IS_ZORUNLU = ("id", "ad", "yuk", "oncelik")
 
+# ⚠️ Üst seviye anahtarlar KAPALI küme — kayıtların içi (etiketler) açık.
+# Ayrım bilinçli: kaydın içindeki "plaka", "musteri" alanın kendi dünyası ve
+# taşınmalı; üst seviyede ise motorun davranışını değiştiren anahtarlar var
+# ve oradaki bir yazım hatası sessizce varsayılana düşerse plan yanlış çıkar,
+# kimse fark etmez. Faz 9'un dersi (`extra="forbid"`).
+UST_ALANLAR = ("ad", "not", "aciklama", "kapasite_birimi", "kaynaklar", "isler", "isler_kaynagi")
+
+ELLE = "elle"
+TAHMIN = "tahmin"
+ALAN_ONEKI = "alan:"
+
 
 class TanimHatasi(ValueError):
     """Alan tanımı okunamadı. Mesaj hangi kayıtta ne eksik olduğunu söyler."""
+
+
+@dataclass(frozen=True)
+class IslerKaynagi:
+    """İşlerin **nereden geldiği** — tanımda yazılı, kodda gizli değil.
+
+    Faz 13'e kadar tek yol vardı: işler JSON'a elle yazılıyordu. "Önceki
+    detaylara bakarak geleceğe göre" çalışabilmesi için işlerin geçmişten
+    türeyebilmesi, bir alanın çıktısının başka bir alanın girdisi
+    olabilmesi gerekiyor. Üç yol da burada:
+
+        elle          -> isler JSON'da yazili (bugunku davranis, VARSAYILAN)
+        tahmin        -> gecmisten tahminle uretilecek
+        alan:<ad>     -> baska bir alanin ciktisi girdi olacak
+
+    ⚠️ Zincir bağının **tanımda** durması bilinçli. Kodda gizli bir bağ,
+    "bu plan nereden besleniyor" sorusunu kaynak okumadan cevaplanamaz
+    yapardı; burada duran bağ okunabilir ve tek dosyayla değiştirilebilir.
+    """
+
+    kip: str = ELLE
+    kaynak_alan: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kip not in (ELLE, TAHMIN, "alan"):
+            raise TanimHatasi(f"tanımsız işler kaynağı kipi: {self.kip!r}")
+        if (self.kip == "alan") != bool(self.kaynak_alan):
+            raise TanimHatasi(
+                "kip 'alan' ise kaynak alan adı zorunlu, değilse boş olmalı: "
+                f"kip={self.kip!r} kaynak_alan={self.kaynak_alan!r}"
+            )
+
+    def __str__(self) -> str:
+        return f"{ALAN_ONEKI}{self.kaynak_alan}" if self.kip == "alan" else self.kip
+
+
+def isler_kaynagi_ayristir(ham: Any) -> IslerKaynagi:
+    """`"elle"` · `"tahmin"` · `"alan:uretim"` -> `IslerKaynagi`."""
+    if not isinstance(ham, str):
+        raise TanimHatasi(f"isler_kaynagi metin olmalı, gelen: {type(ham).__name__}")
+    deger = ham.strip()
+    if deger in (ELLE, TAHMIN):
+        return IslerKaynagi(kip=deger)
+    if deger.startswith(ALAN_ONEKI):
+        ad = deger[len(ALAN_ONEKI) :].strip()
+        if not ad:
+            # ⚠️ "alan:" tek başına sessizce elle'ye düşmüyor. Zincir
+            # bağının yarım yazılması, bağın hiç olmamasından tehlikeli:
+            # kullanıcı bağladığını sanır.
+            raise TanimHatasi("isler_kaynagi 'alan:' — hangi alan olduğu yazılmamış")
+        return IslerKaynagi(kip="alan", kaynak_alan=ad)
+    raise TanimHatasi(
+        f"isler_kaynagi {deger!r} tanımlı değil. "
+        f"Tanımlılar: {ELLE!r}, {TAHMIN!r}, '{ALAN_ONEKI}<ad>'"
+    )
+
+
+@dataclass(frozen=True)
+class AlanTanimi:
+    """Bir planlama alanının tamamı — motorun alan hakkında bildiği her şey.
+
+    ⚠️ Motor bu nesnenin **içeriğine** bakar, adına değil. `ad` yalnızca
+    çıktıyı okunur kılmak için; içinde `if ad == "uretim"` geçen bir satır
+    genellik iddiasını çürütür.
+    """
+
+    ad: str
+    kaynaklar: tuple[Kaynak, ...]
+    isler: tuple[Is, ...]
+    isler_kaynagi: IslerKaynagi = IslerKaynagi()
+    kapasite_birimi: str = "saat"
 
 
 def _zorunlu_kontrol(kayit: dict[str, Any], alanlar: tuple[str, ...], nerede: str) -> None:
@@ -62,8 +146,30 @@ def _etiketler(kayit: dict[str, Any], bilinen: tuple[str, ...]) -> dict[str, str
     return {k: str(v) for k, v in kayit.items() if k not in bilinen}
 
 
+def _ust_alan_kontrol(tanim: dict[str, Any]) -> None:
+    """Tanımadığımız bir üst seviye anahtar varsa yükleme burada durur.
+
+    ⚠️ `isler_kaynak` yazıp `isler_kaynagi` demeyi unutan bir tanım
+    **hata vermeli**, sessizce varsayılana düşmemeli. Sessiz düşüş, planın
+    geçmişten beslenmesi beklenirken elle yazılmış işlerle koşması demek;
+    çıktı geçerli görünür, yanlış olur.
+    """
+    bilinmeyen = [k for k in tanim if k not in UST_ALANLAR]
+    if not bilinmeyen:
+        return
+    ipuclari = []
+    for k in bilinmeyen:
+        yakin = get_close_matches(k, UST_ALANLAR, n=1, cutoff=0.7)
+        ipuclari.append(f"{k!r}" + (f" (bunu mu demek istediniz: {yakin[0]!r})" if yakin else ""))
+    raise TanimHatasi(
+        f"tanımda bilinmeyen üst seviye alan: {', '.join(ipuclari)}. "
+        f"Tanımlılar: {list(UST_ALANLAR)}"
+    )
+
+
 def tanimdan_yukle(tanim: dict[str, Any]) -> tuple[list[Kaynak], list[Is]]:
     """Sözlük tanımından kaynak ve iş listesi."""
+    _ust_alan_kontrol(tanim)
     if "kaynaklar" not in tanim or "isler" not in tanim:
         raise TanimHatasi(
             f"Tanımda 'kaynaklar' ve 'isler' olmalı. Gelen anahtarlar: {sorted(tanim)}"
@@ -119,14 +225,52 @@ def tanimdan_yukle(tanim: dict[str, Any]) -> tuple[list[Kaynak], list[Is]]:
     return kaynaklar, isler
 
 
-def dosyadan_yukle(yol: Path | str) -> tuple[list[Kaynak], list[Is]]:
-    """JSON dosyasından alan tanımı."""
+def _sozluk_oku(yol: Path | str) -> dict[str, Any]:
     yol = Path(yol)
     try:
-        tanim = json.loads(yol.read_text(encoding="utf-8"))
+        return json.loads(yol.read_text(encoding="utf-8"))
     except json.JSONDecodeError as hata:
         raise TanimHatasi(f"{yol}: geçerli JSON değil — {hata}") from hata
-    return tanimdan_yukle(tanim)
 
 
-__all__ = ["TanimHatasi", "dosyadan_yukle", "tanimdan_yukle"]
+def dosyadan_yukle(yol: Path | str) -> tuple[list[Kaynak], list[Is]]:
+    """JSON dosyasından kaynak ve iş listesi.
+
+    ⚠️ Faz 11'den beri var ve **korunuyor**: çağıranları bozmamak için.
+    Alanın tamamı (adı, işlerin nereden geldiği) gerektiğinde
+    `alan_tanimi_oku` kullanılır.
+    """
+    return tanimdan_yukle(_sozluk_oku(yol))
+
+
+def alan_tanimi_oku(tanim: dict[str, Any], ad: str | None = None) -> AlanTanimi:
+    """Sözlük tanımından alanın tamamı."""
+    kaynaklar, isler = tanimdan_yukle(tanim)
+    return AlanTanimi(
+        ad=str(tanim.get("ad", ad or "")),
+        kaynaklar=tuple(kaynaklar),
+        isler=tuple(isler),
+        isler_kaynagi=isler_kaynagi_ayristir(tanim.get("isler_kaynagi", ELLE)),
+        kapasite_birimi=str(tanim.get("kapasite_birimi", "saat")),
+    )
+
+
+def alan_tanimi_dosyadan(yol: Path | str) -> AlanTanimi:
+    """JSON dosyasından alanın tamamı. Ad yazılmamışsa dosya adı kullanılır."""
+    yol = Path(yol)
+    return alan_tanimi_oku(_sozluk_oku(yol), ad=yol.stem)
+
+
+__all__ = [
+    "ALAN_ONEKI",
+    "ELLE",
+    "TAHMIN",
+    "AlanTanimi",
+    "IslerKaynagi",
+    "TanimHatasi",
+    "alan_tanimi_dosyadan",
+    "alan_tanimi_oku",
+    "dosyadan_yukle",
+    "isler_kaynagi_ayristir",
+    "tanimdan_yukle",
+]

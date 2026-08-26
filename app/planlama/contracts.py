@@ -100,6 +100,56 @@ class Is:
         return (self.kaynak_id,) if self.kaynak_id else self.uygun_kaynaklar
 
 
+BELIRLEYICILER = ("kapasite", "uygunluk", "aciliyet", "tek_aday")
+
+
+@dataclass(frozen=True)
+class AtamaGerekcesi:
+    """Bir işin NEDEN o kaynağa gittiği.
+
+    ⚠️ **Metin değil, VERİ.** Serbest metin olsaydı iki şey birden
+    kaybedilirdi: test edilemezdi (bir cümlenin doğruluğu assert edilemez)
+    ve LLM'in uydurmasına açık olurdu. Alanlar sayı ve kimlik; cümleyi
+    bunlardan üreten katman ayrı ve sonra geliyor.
+
+    `belirleyici` "asıl sebep hangisiydi" sorusunun tek kelimelik cevabı:
+
+        tek_aday   -> baska aday yoktu, secim degil zorunluluk
+        uygunluk   -> adaylarin cogu uygunluk kisitindan elendi
+        kapasite   -> adaylar uygundu, en bos olan secildi
+        aciliyet   -> sira isin onceligi yuzunden boyle kuruldu
+
+    ⚠️ Değer kümesi **kapalı**. Serbest bırakılsaydı her alan kendi
+    kelimesini yazar ("hat_musait", "arac_bos") ve motorun genelliği
+    gerekçe alanından sızarak biterdi.
+    """
+
+    secilen_kaynak: str
+    aday_kaynaklar: tuple[str, ...]
+    belirleyici: str = "tek_aday"
+    # kaynak_id -> neden olmadi. Elenmeyen aday burada GORUNMEZ; sozluk
+    # "neden olmadi" sorusunun cevabi, aday listesinin kopyasi degil.
+    elenme_nedenleri: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.belirleyici not in BELIRLEYICILER:
+            raise ValueError(
+                f"belirleyici '{self.belirleyici}' tanımlı değil. "
+                f"Tanımlılar: {list(BELIRLEYICILER)}"
+            )
+        if self.secilen_kaynak not in self.aday_kaynaklar:
+            # ⚠️ Seçilen kaynağın aday listesinde olmaması, gerekçenin
+            # atamayı anlatmadığı anlamına gelir. Böyle bir gerekçe
+            # yanlış bilgi verir; hiç olmamasından kötüdür.
+            raise ValueError(
+                f"seçilen kaynak '{self.secilen_kaynak}' aday listesinde yok: "
+                f"{list(self.aday_kaynaklar)}"
+            )
+        artik = set(self.elenme_nedenleri) - set(self.aday_kaynaklar)
+        if artik:
+            raise ValueError(f"elenme nedeni aday olmayan kaynaklar için yazılmış: {sorted(artik)}")
+
+
 @dataclass(frozen=True)
 class PlanSatiri:
     """Bir işin plandaki yeri."""
@@ -113,6 +163,11 @@ class PlanSatiri:
     yuk: float
     oncelik: float
     etiketler: dict[str, str] = field(default_factory=dict)
+    # ⚠️ Varsayılanlı ve geriye uyumlu. Gerekçeyi üreten taraf (yerleştirme)
+    # ile tüketen taraf (plan belgesi) ayrı kişilerde ilerliyor; belge
+    # gerekçe yoksa o bölümü atlar, patlamaz. Faz 10-11'de aynı disiplin
+    # ikisinin birbirini beklemesini önledi.
+    gerekce: AtamaGerekcesi | None = None
 
     @property
     def gun_sayisi(self) -> int:
@@ -154,4 +209,4 @@ class KaynakPlani:
         return self.toplam_yuk / toplam if toplam else 0.0
 
 
-__all__ = ["Is", "Kaynak", "KaynakPlani", "PlanSatiri"]
+__all__ = ["BELIRLEYICILER", "AtamaGerekcesi", "Is", "Kaynak", "KaynakPlani", "PlanSatiri"]
