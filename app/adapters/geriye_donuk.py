@@ -94,9 +94,7 @@ def hareket_akisini_oku(yol: Path) -> pd.DataFrame:
     return df.dropna(subset=["tarih"])[["tarih", "sku_id", "net", "talep_miktari"]]
 
 
-def stok_gecmisini_kur(
-    akis: pd.DataFrame, son_stok: pd.Series, son_tarih: dt.date
-) -> pd.DataFrame:
+def stok_gecmisini_kur(akis: pd.DataFrame, son_stok: pd.Series, son_tarih: dt.date) -> pd.DataFrame:
     """Bugünkü bakiyeden geriye yürüyerek günlük stok tablosu kurar.
 
     Dönen tablo: satırlar tarih, sütunlar SKU.
@@ -193,9 +191,7 @@ def geriye_donuk_test(
 
     # ⚠️ Aynı gün hem giriş hem çıkış satırı olabiliyor; toplanmazsa
     # (tarih, sku_id) çifti yinelenir ve özellik hesabındaki pivot patlar.
-    talep = (
-        akis.groupby(["tarih", "sku_id"], as_index=False)["talep_miktari"].sum()
-    )
+    talep = akis.groupby(["tarih", "sku_id"], as_index=False)["talep_miktari"].sum()
     talep_genis = (
         talep.pivot_table(index="tarih", columns="sku_id", values="talep_miktari", aggfunc="sum")
         .reindex(stok_gecmisi.index)

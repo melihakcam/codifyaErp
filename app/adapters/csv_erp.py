@@ -237,19 +237,11 @@ def hareketleri_oku(yol: Path) -> pd.DataFrame:
 
     # Tam takvim × tüm SKU'lar — boş günler 0.
     takvim = pd.date_range(gunluk["tarih"].min(), gunluk["tarih"].max(), freq="D")
-    tam = pd.MultiIndex.from_product(
-        [takvim, gunluk["sku_id"].unique()], names=["tarih", "sku_id"]
-    )
-    return (
-        gunluk.set_index(["tarih", "sku_id"])
-        .reindex(tam, fill_value=0.0)
-        .reset_index()
-    )
+    tam = pd.MultiIndex.from_product([takvim, gunluk["sku_id"].unique()], names=["tarih", "sku_id"])
+    return gunluk.set_index(["tarih", "sku_id"]).reindex(tam, fill_value=0.0).reset_index()
 
 
-def siparislerden_tedarikci_tablosu(
-    yol: Path | None, sku_df: pd.DataFrame
-) -> pd.DataFrame:
+def siparislerden_tedarikci_tablosu(yol: Path | None, sku_df: pd.DataFrame) -> pd.DataFrame:
     """`siparisler.csv` → `tedarikci_df` (tedarik süresi ortalaması, sapması, güvenilirlik).
 
     Güvenilirlik = zamanında teslim oranı. "Zamanında"nın tanımı: teslim

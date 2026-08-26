@@ -156,10 +156,7 @@ def rapor_yaz(satirlar: list[KarsilastirmaSatiri]) -> str:
         f"yön uyuşması            : {ayni_yon_sayisi}/{n} (%{ayni_yon_sayisi / n * 100:.1f})"
     )
     govde.append(f"toplam tutar farkı (TL) : {toplam_tutar_farki:,.0f}")
-    govde.append(
-        "  (pozitif = sistem vasat'tan daha fazla sipariş veriyor, "
-        "negatif = daha az)"
-    )
+    govde.append("  (pozitif = sistem vasat'tan daha fazla sipariş veriyor, negatif = daha az)")
     return "\n".join(govde)
 
 

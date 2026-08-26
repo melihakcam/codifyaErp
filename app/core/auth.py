@@ -211,16 +211,12 @@ def _dogrula(request: Request, ayar: Ayarlar, ui_mi: bool) -> Kimlik:
     )
 
 
-def kimlik_dogrula(
-    request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]
-) -> Kimlik:
+def kimlik_dogrula(request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]) -> Kimlik:
     """JSON uçları için kimlik kontrolü. Başarısızsa 401."""
     return _dogrula(request, ayar, ui_mi=False)
 
 
-def kimlik_dogrula_ui(
-    request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]
-) -> Kimlik:
+def kimlik_dogrula_ui(request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]) -> Kimlik:
     """Onay ekranı için kimlik kontrolü. Başarısızsa giriş sayfasına yönlendirir."""
     return _dogrula(request, ayar, ui_mi=True)
 

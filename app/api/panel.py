@@ -123,15 +123,12 @@ def panel(oturum: OturumDep, _kimlik: KimlikUiDep) -> HTMLResponse:
     toplam = oturum.scalar(select(func.count()).select_from(Decision)) or 0
     bekleyen = (
         oturum.scalar(
-            select(func.count())
-            .select_from(Approval)
-            .where(Approval.durum == OnayDurumu.BEKLIYOR)
+            select(func.count()).select_from(Approval).where(Approval.durum == OnayDurumu.BEKLIYOR)
         )
         or 0
     )
     uygulanan = (
-        oturum.scalar(select(func.count()).select_from(Decision).where(Decision.uygulandi))
-        or 0
+        oturum.scalar(select(func.count()).select_from(Decision).where(Decision.uygulandi)) or 0
     )
     bekleyen_tutar = (
         oturum.scalar(
@@ -210,13 +207,17 @@ def panel(oturum: OturumDep, _kimlik: KimlikUiDep) -> HTMLResponse:
     # Onay kuyruğundaki kararlar SİLİNMİYOR; yalnızca bu özet listesi
     # kalem başına en riskli olanı gösteriyor. Tekrarların kendisi
     # `Onay bekleyen` sayacında (5.361) hâlâ görünüyor.
-    ham = oturum.execute(
-        select(Decision)
-        .join(Approval, Approval.karar_id == Decision.karar_id)
-        .where(Approval.durum == OnayDurumu.BEKLIYOR)
-        .order_by(Decision.risk_skoru.desc())
-        .limit(300)
-    ).scalars().all()
+    ham = (
+        oturum.execute(
+            select(Decision)
+            .join(Approval, Approval.karar_id == Decision.karar_id)
+            .where(Approval.durum == OnayDurumu.BEKLIYOR)
+            .order_by(Decision.risk_skoru.desc())
+            .limit(300)
+        )
+        .scalars()
+        .all()
+    )
 
     gorulen: set[tuple[str, str]] = set()
     kuyruk = []

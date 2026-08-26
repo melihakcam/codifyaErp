@@ -104,9 +104,7 @@ async def _hiz_siniri(request: Request, sonraki):
     return await sonraki(request)
 
 
-def _docs_kimligi(
-    request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]
-) -> None:
+def _docs_kimligi(request: Request, ayar: Annotated[Ayarlar, Depends(ayarlar)]) -> None:
     """Doküman uçları için kimlik — ayarla kapatılabilir.
 
     `docs_kimlik_istesin=False` yapan bir kurulum şemayı bilerek açıyor
@@ -134,6 +132,7 @@ def openapi_semasi(_kimlik: DocsKimlik) -> JSONResponse:
 @app.get("/docs", include_in_schema=False)
 def swagger_arayuzu(_kimlik: DocsKimlik) -> HTMLResponse:
     return get_swagger_ui_html(openapi_url="/openapi.json", title="Codifya - API")
+
 
 # ⚠️ Kimlik doğrulama router SEVİYESİNDE bağlanıyor, tek tek uçlarda değil.
 # Sebebi: yeni bir uç eklerken dekoratöre `dependencies=` yazmayı unutmak

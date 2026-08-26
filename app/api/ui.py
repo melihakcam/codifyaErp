@@ -144,9 +144,7 @@ def _satir_html(kalem: KuyrukKalemi) -> str:
 
 def _grup_html(alan: str, kalem_adi: str, grup: list[KuyrukKalemi]) -> str:
     """Bir kalemin tüm kararları — tek başlık, ayrı satırlar."""
-    coklu = (
-        f'<span class="rozet">{len(grup)} karar</span>' if len(grup) > 1 else ""
-    )
+    coklu = f'<span class="rozet">{len(grup)} karar</span>' if len(grup) > 1 else ""
     satirlar = "".join(_satir_html(k) for k in grup)
     return f"""
     <div class="grup">

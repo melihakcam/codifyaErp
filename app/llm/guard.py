@@ -289,11 +289,7 @@ def latin_disi_harfler(metin: str) -> list[str]:
     Tespit ettiği: CJK ideogramları, hiragana/katakana, Kiril, Arap, Yunan.
     Bunların hiçbirinin Türkçe bir gerekçede işi yok.
     """
-    return [
-        ch
-        for ch in metin
-        if ch.isalpha() and not unicodedata.name(ch, "").startswith("LATIN")
-    ]
+    return [ch for ch in metin if ch.isalpha() and not unicodedata.name(ch, "").startswith("LATIN")]
 
 
 @dataclass(frozen=True)
@@ -326,9 +322,7 @@ def metni_dogrula(metin: str, *, maskelenecek: Iterable[str] = ()) -> MetinSonuc
 
     kelimeler = _KELIME_DESENI.findall(metni_maskele(metin, maskelenecek))
     if len(kelimeler) < ASGARI_KELIME_SAYISI:
-        sorunlar.append(
-            f"maskeleme sonrasi {len(kelimeler)} kelime kaldi — gerekce bos sayilir"
-        )
+        sorunlar.append(f"maskeleme sonrasi {len(kelimeler)} kelime kaldi — gerekce bos sayilir")
 
     return MetinSonucu(gecti=not sorunlar, sorunlar=sorunlar)
 
