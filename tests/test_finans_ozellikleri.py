@@ -30,9 +30,7 @@ def _musteriler() -> pd.DataFrame:
     )
 
 
-def _fatura(
-    musteri: str, tarih: str, tutar: float, vade: int, odeme: str | None
-) -> dict:
+def _fatura(musteri: str, tarih: str, tutar: float, vade: int, odeme: str | None) -> dict:
     t = pd.Timestamp(tarih)
     return {
         "tarih": t,

@@ -141,7 +141,7 @@ commit'lerden okunarak:
 | **10** ✅ | Üretim & Planlama — talep tahmini, emir kararı, kapasite, MRP, gecelik koşu, çizelge | `3ba8f5b`…`6a5067e` |
 | **11** ✅ | Genel planlama motoru (`app/planlama/`); ikinci alan **kod yazılmadan** eklendi | `1636c8d` |
 | **12** ✅ | Genel arayüz — `/v1/ask` artık cevabın kendisini veriyor, sadece yönlendirmiyor | `ed4b4dd` |
-| **13** 📋 | "Tam plan" — alanı bilmeyen tek komut. **Planlandı 12.08, kod yazılmadı.** Tek kişiyle tahmini bitiş **25.08.2026** | [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) |
+| **13** 🔨 | "Tam plan" — alanı bilmeyen tek komut. **26.08'de başlandı:** sözleşme donduruldu, `tam_plan()` ve plan belgesi çalışıyor. Kalan: alan adaptörleri, API ucu, araç, ölçüm | [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) · `0902e3b` |
 
 **Plandan üç sapma, bilinçli olarak kaydedilmiştir:**
 

@@ -31,7 +31,7 @@ def test_onay_sayfasi_acilir(istemci: TestClient):
     cevap = istemci.get("/onay")
     assert cevap.status_code == 200
     assert "text/html" in cevap.headers["content-type"]
-    assert "hx-get=\"/onay/liste\"" in cevap.text
+    assert 'hx-get="/onay/liste"' in cevap.text
 
 
 def test_liste_bekleyen_karari_gosterir(istemci: TestClient):

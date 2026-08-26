@@ -31,9 +31,7 @@ OLCUM_DOSYALARI = (
 
 
 def _sahte_kataloglar() -> tuple[pd.DataFrame, pd.DataFrame]:
-    sku_df = pd.DataFrame(
-        [{"sku_id": f"S-{i:05d}", "sku_adi": f"Ürün {i}"} for i in range(1, 6)]
-    )
+    sku_df = pd.DataFrame([{"sku_id": f"S-{i:05d}", "sku_adi": f"Ürün {i}"} for i in range(1, 6)])
     tedarikci_df = pd.DataFrame([{"tedarikci_id": f"T-{i:04d}"} for i in range(1, 4)])
     return sku_df, tedarikci_df
 

@@ -1,6 +1,6 @@
 # Faz 13 — "Tam plan": alanı bilmeyen tek komut
 
-> Onaylandı 2026-08-12. **Durum: planlandı, kod yazılmadı.**
+> Onaylandı 2026-08-12. **Durum: Adım 0 bitti (`0902e3b`, 26.08.2026), kalan adımlar sürüyor.**
 >
 > Eski planın devamı, yerine geçmiyor. Motor ve sözleşmeler
 > [FAZ-11-GENEL-PLANLAMA.md](FAZ-11-GENEL-PLANLAMA.md)'de kuruldu; burada

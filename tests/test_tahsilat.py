@@ -294,9 +294,7 @@ def test_farkli_seed_farkli_sonuc():
 
 def test_bos_fatura_tablosu_patlamiyor():
     m = _musteriler(5)
-    bos = pd.DataFrame(
-        columns=["tarih", "sku_id", "tutar_tl", "odeme_vadesi_gun", "odeme_tarihi"]
-    )
+    bos = pd.DataFrame(columns=["tarih", "sku_id", "tutar_tl", "odeme_vadesi_gun", "odeme_tarihi"])
 
     r = tahsilat_uret(bos, m)
 

@@ -232,9 +232,7 @@ def test_istem_turkce_karakter_icermez():
     aday = decide_stub()
     metin_satirlari = ("urun:", "tedarikci:")
     etiket_bolumu = "\n".join(
-        s
-        for s in egitilmis_istem_govdesi(aday).splitlines()
-        if not s.startswith(metin_satirlari)
+        s for s in egitilmis_istem_govdesi(aday).splitlines() if not s.startswith(metin_satirlari)
     )
     assert not set(etiket_bolumu) & set("çğıöşüÇĞİÖŞÜ")
 

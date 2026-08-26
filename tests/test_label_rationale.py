@@ -307,9 +307,11 @@ def test_finans_slot_adlari_stokla_cakismiyor():
     def adlar(tipler: list[str]) -> set[str]:
         return {ad for t in tipler for ad, _, _ in _SLOT_TANIMLARI[t]}
 
-    stok = adlar([t.value for t in KararTipi if t.value.startswith("stok.")
-                  and t.value in _SLOT_TANIMLARI])
-    finans = adlar([t.value for t in KararTipi if t.value.startswith("finans.")
-                    and t.value in _SLOT_TANIMLARI])
+    stok = adlar(
+        [t.value for t in KararTipi if t.value.startswith("stok.") and t.value in _SLOT_TANIMLARI]
+    )
+    finans = adlar(
+        [t.value for t in KararTipi if t.value.startswith("finans.") and t.value in _SLOT_TANIMLARI]
+    )
 
     assert not (stok & finans), f"örtüşen slot adları: {stok & finans}"

@@ -114,9 +114,7 @@ def test_izinli_sayilar_oran_sinir_degerlerinde_dogru_calisir():
     tam_teslimat = stub.ozellikler.model_copy(update={"tedarikci_zamaninda_teslim_orani": 1.0})
     assert 100.0 in stub.model_copy(update={"ozellikler": tam_teslimat}).izinli_sayilar()
 
-    hic_teslimat_yok = stub.ozellikler.model_copy(
-        update={"tedarikci_zamaninda_teslim_orani": 0.0}
-    )
+    hic_teslimat_yok = stub.ozellikler.model_copy(update={"tedarikci_zamaninda_teslim_orani": 0.0})
     assert 0.0 in stub.model_copy(update={"ozellikler": hic_teslimat_yok}).izinli_sayilar()
 
 

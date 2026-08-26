@@ -856,9 +856,17 @@ fonksiyonun** çağrıldığı doğrulanıyor. Çağrılmıyorsa "genel" iddias�
 > ⚠️ Teslim edilen şey bir alan değil, alanı bilmeyen bir mekanizma. Nakliye
 > ve yapı malzemesi **örnektir**.
 
-## Adım 0 — ORTAK, B ile birlikte, tek PR 🔴
+## ✅ Adım 0 — ORTAK, tek PR — BİTTİ (`0902e3b`)
 
-`AtamaGerekcesi` ve `isler_kaynagi` dondurulur. Tek taraflı yapılmaz.
+`AtamaGerekcesi` ve `IslerKaynagi` donduruldu, 12 test. İkisi de
+**varsayılanlı ve geriye uyumlu** — Faz 11 çağrılarının hiçbiri değişmedi.
+
+| ne | nerede | garanti |
+|---|---|---|
+| `AtamaGerekcesi` (seçilen · adaylar · elenme nedenleri · belirleyici) | `app/planlama/contracts.py` | belirleyici **kapalı küme**; seçilen kaynak adaylarda olmak zorunda |
+| `PlanSatiri.gerekce` | aynı dosya | varsayılanı `None` — B, A'yı beklemiyor |
+| `IslerKaynagi` (`elle` · `tahmin` · `alan:<ad>`) | `app/planlama/tanim.py` | üst seviye anahtarlar kapalı küme: `isler_kaynak` yazan tanım **patlıyor** |
+| `AlanTanimi` + `alan_tanimi_oku/dosyadan` | aynı dosya | `dosyadan_yukle` aynen korundu |
 
 ## A13.1 — Gerekçeli yerleştirme 🔴
 

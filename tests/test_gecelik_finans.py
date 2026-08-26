@@ -79,9 +79,7 @@ def test_finans_patlarsa_tarama_devam_ediyor():
     Gecelik iş, kullanıcının sabah gördüğü tek kaynak. Bir alanın hatası
     diğerinin çıktısını da yok ederse sistem sessizce körleşir.
     """
-    with patch(
-        "app.domain.finance.decide._demo_ozellikleri", side_effect=RuntimeError("patladı")
-    ):
+    with patch("app.domain.finance.decide._demo_ozellikleri", side_effect=RuntimeError("patladı")):
         sonuc = _finans_kararlari()
 
     assert sonuc == [], "hata durumunda boş liste dönmeli, istisna fırlatmamalı"

@@ -330,11 +330,7 @@ def test_finans_stoka_bagimli_degil():
 
     for modul in (rules, decide):
         agac = ast.parse(inspect.getsource(modul))
-        ithal = {
-            d.module
-            for d in ast.walk(agac)
-            if isinstance(d, ast.ImportFrom) and d.module
-        }
+        ithal = {d.module for d in ast.walk(agac) if isinstance(d, ast.ImportFrom) and d.module}
         assert not any(m.startswith("app.domain.stock") for m in ithal), (
             f"{modul.__name__} stok alanına bağımlı: {ithal}"
         )
@@ -388,8 +384,13 @@ def test_takip_karari_esik_altinda_oto_uygulanabiliyor():
     from app.core.policy import politika_uygula
 
     karar = ozellikten_karar_uret(
-        oz(en_eski_gecikme_gun=62, vadesi_gecen_tl=100.0, veri_gun_sayisi=1000,
-           odeme_gecikmesi_std=2.0, tahsilat_orani=0.97)
+        oz(
+            en_eski_gecikme_gun=62,
+            vadesi_gecen_tl=100.0,
+            veri_gun_sayisi=1000,
+            odeme_gecikmesi_std=2.0,
+            tahsilat_orani=0.97,
+        )
     )
     sonuc = politika_uygula(karar, Ayarlar(ollama_base_url="http://sahte:11434"))
 
@@ -477,9 +478,7 @@ def test_maddi_esik_is_maliyetinden_turetiliyor():
         YILLIK_FINANSMAN_ORANI,
     )
 
-    beklenen = TAKIP_EYLEM_MALIYETI_TL / (
-        YILLIK_FINANSMAN_ORANI / 365.0 * MADDI_TAKIP_UFKU_GUN
-    )
+    beklenen = TAKIP_EYLEM_MALIYETI_TL / (YILLIK_FINANSMAN_ORANI / 365.0 * MADDI_TAKIP_UFKU_GUN)
     assert beklenen == MADDI_TAKIP_ESIGI_TL
     assert 3_500 < MADDI_TAKIP_ESIGI_TL < 4_500
 

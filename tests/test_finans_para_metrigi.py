@@ -21,9 +21,7 @@ from simulator.company import kucuk_nalbur_dukkani
 
 @pytest.fixture(scope="module")
 def karsilastirma() -> pd.DataFrame:
-    return pm.tahsilat_politikasi_karsilastir(
-        profile=kucuk_nalbur_dukkani(), yil_sayisi=1
-    )
+    return pm.tahsilat_politikasi_karsilastir(profile=kucuk_nalbur_dukkani(), yil_sayisi=1)
 
 
 def _durum(faturalar: pd.DataFrame) -> pm._PolitikaDurumu:
@@ -162,9 +160,7 @@ def test_limit_bakiye_dustukce_satisi_yeniden_acar():
         ]
     )
     durum = _durum(f)
-    pm._limit_uygula(
-        durum, "M1", 1000.0, pd.Timestamp("2024-02-20"), pd.Timestamp("2024-03-31")
-    )
+    pm._limit_uygula(durum, "M1", 1000.0, pd.Timestamp("2024-02-20"), pd.Timestamp("2024-03-31"))
 
     assert bool(f.at[1, "iptal"]) is True
     assert bool(f.at[2, "iptal"]) is False
@@ -341,9 +337,7 @@ def karsilastirma_limitli() -> pd.DataFrame:
     orijinal = rules.LIMIT_KOLU_AKTIF
     rules.LIMIT_KOLU_AKTIF = True
     try:
-        return pm.tahsilat_politikasi_karsilastir(
-            profile=kucuk_nalbur_dukkani(), yil_sayisi=1
-        )
+        return pm.tahsilat_politikasi_karsilastir(profile=kucuk_nalbur_dukkani(), yil_sayisi=1)
     finally:
         rules.LIMIT_KOLU_AKTIF = orijinal
 
@@ -405,6 +399,7 @@ def test_takip_saati_sayimdan_turuyor():
 
 def test_takip_maliyeti_saatlik_ucretten_turuyor():
     """İki sayı birbirinden kaymasın: TL, saat × ücret olarak tanımlı."""
-    assert pytest.approx(
-        pm.PERSONEL_SAATLIK_MALIYET_TL * pm.TAKIP_SURESI_DK / 60.0
-    ) == pm.TAKIP_MALIYETI_TL
+    assert (
+        pytest.approx(pm.PERSONEL_SAATLIK_MALIYET_TL * pm.TAKIP_SURESI_DK / 60.0)
+        == pm.TAKIP_MALIYETI_TL
+    )

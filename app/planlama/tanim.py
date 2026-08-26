@@ -44,7 +44,16 @@ IS_ZORUNLU = ("id", "ad", "yuk", "oncelik")
 # taşınmalı; üst seviyede ise motorun davranışını değiştiren anahtarlar var
 # ve oradaki bir yazım hatası sessizce varsayılana düşerse plan yanlış çıkar,
 # kimse fark etmez. Faz 9'un dersi (`extra="forbid"`).
-UST_ALANLAR = ("ad", "not", "aciklama", "kapasite_birimi", "kaynaklar", "isler", "isler_kaynagi")
+UST_ALANLAR = (
+    "ad",
+    "not",
+    "aciklama",
+    "kapasite_birimi",
+    "kaynaklar",
+    "isler",
+    "isler_kaynagi",
+    "adaptor",
+)
 
 ELLE = "elle"
 TAHMIN = "tahmin"
@@ -124,6 +133,18 @@ class AlanTanimi:
     isler: tuple[Is, ...]
     isler_kaynagi: IslerKaynagi = IslerKaynagi()
     kapasite_birimi: str = "saat"
+    # ⚠️ İşleri üretecek modülün yolu — `isler_kaynagi` "elle" DEĞİLSE
+    # zorunlu. Motorun alan adını bilmemesi tam olarak buna dayanıyor:
+    # "üretim işlerini nasıl çıkarırım" bilgisi motorda değil, tanımda.
+    # `elle` kipinde adaptör aranmıyor; yeni müşteri hâlâ tek JSON.
+    adaptor: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.isler_kaynagi.kip != ELLE and not self.adaptor:
+            raise TanimHatasi(
+                f"isler_kaynagi '{self.isler_kaynagi}' için 'adaptor' zorunlu — "
+                "işleri kimin üreteceği yazılmamış."
+            )
 
 
 def _zorunlu_kontrol(kayit: dict[str, Any], alanlar: tuple[str, ...], nerede: str) -> None:
@@ -252,6 +273,7 @@ def alan_tanimi_oku(tanim: dict[str, Any], ad: str | None = None) -> AlanTanimi:
         isler=tuple(isler),
         isler_kaynagi=isler_kaynagi_ayristir(tanim.get("isler_kaynagi", ELLE)),
         kapasite_birimi=str(tanim.get("kapasite_birimi", "saat")),
+        adaptor=str(tanim["adaptor"]) if tanim.get("adaptor") else None,
     )
 
 

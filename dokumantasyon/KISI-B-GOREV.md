@@ -940,32 +940,57 @@ girmezse model **hiç çağrılmaz** ve metin sessizce şablona düşer. Önce t
 Alan adını hiç bilmeyen bir komut iki farklı alanda plan üretiyor, üçüncü alan
 **tek JSON** ile ekleniyor.
 
-## Adım 0 — ORTAK, A ile birlikte, tek PR 🔴
+## ✅ Adım 0 — ORTAK, tek PR — BİTTİ (`0902e3b`)
 
-`AtamaGerekcesi` ve `isler_kaynagi` dondurulur. Tek taraflı yapılmaz.
-Ayrıntı: [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) §Adım 0.
+`AtamaGerekcesi` ve `IslerKaynagi` donduruldu, 12 test. İkisi de
+**varsayılanlı ve geriye uyumlu** — Faz 11 çağrılarının hiçbiri değişmedi.
+
+| ne | nerede | garanti |
+|---|---|---|
+| `AtamaGerekcesi` (seçilen · adaylar · elenme nedenleri · belirleyici) | `app/planlama/contracts.py` | belirleyici **kapalı küme**; seçilen kaynak adaylarda olmak zorunda |
+| `PlanSatiri.gerekce` | aynı dosya | varsayılanı `None` — B, A'yı beklemiyor |
+| `IslerKaynagi` (`elle` · `tahmin` · `alan:<ad>`) | `app/planlama/tanim.py` | üst seviye anahtarlar kapalı küme: `isler_kaynak` yazan tanım **patlıyor** |
+| `AlanTanimi` + `alan_tanimi_oku/dosyadan` | aynı dosya | `dosyadan_yukle` aynen korundu |
 
 Bu bitmeden aşağıdakilere başlanmaz — ama bittikten sonra A'yı **beklemezsin**:
 `gerekce=None` ile çalışırsın, plan belgesi o bölümü atlar.
 
-## B13.1 — `app/planlama/tam_plan.py` · alanı bilmeyen tek giriş 🔴
+## ✅ B13.1 — `app/planlama/tam_plan.py` · alanı bilmeyen tek giriş — BİTTİ
 
 ```python
-def tam_plan(alan: str, olcut: str | None = None, ufuk_gun: int | None = None) -> TamPlan
+tam_plan(alan, olcut=None, ufuk_gun=None, baslangic=None, dizin=None) -> TamPlan
 ```
 
-Zinciri baştan sona koşturur: tanımı okur, adaptörü **tanımdan** bulur.
+Zincir koşuyor: tanım (JSON) → işler → yerleştirme → maliyet + karşılaştırma.
+Üç kip de bağlı (`elle` · `tahmin` · `alan:<ad>`), zincir döngüsü okunur
+hatayla duruyor. 20 test.
 
-⚠️ İçinde alan adı geçen tek bir `if` bile olmayacak. Testte aranıyor.
+⚠️ **Sözleşmeye bir ekleme yapıldı (B13.1 sırasında):** `elle` dışındaki
+kiplerde işleri üretecek modülün yolu tanımda yazılı — `"adaptor": "..."`.
+Alternatifi motorda `{"uretim": ...}` sözlüğü tutmaktı; o durumda yeni alan
+eklemek **kod** değişikliği gerektirir ve fazın 3. kapısı düşerdi. `elle`
+kipinde adaptör aranmıyor: yeni müşteri hâlâ tek JSON.
 
-## B13.2 — Plan belgesi 🔴
+⚠️ **1. kapı henüz yarım:** iki alan testte (`tmp_path`) kanıtlanıyor,
+gerçek iki alanla değil — `ornekler/uretim.json` A13.2 ile gelecek.
 
-Altı bölüm: gelecek tahmini · ne yapılacak · takvim · **gerekçeler** · plan
-seçenekleri ve parayla öneri · ⚠️ dikkat.
+Bulunan ve düzeltilen hata: `ufuk_gun=0` sessizce 14'e dönüyordu
+(`ufuk_gun or 14`). Artık hata veriyor.
 
-⚠️ **LLM'siz üretilebilir olmalı.** Faz 8'in dersi: tip
-`_TIPE_GORE_ALANLAR`'a girmezse model **hiç çağrılmaz**, metin sessizce
-şablona düşer ve kimse fark etmez. Önce test, sonra model.
+## ✅ B13.2 — Plan belgesi — BİTTİ
+
+`app/planlama/belge.py` · altı bölüm: gelecek · ne yapılacak · takvim ·
+gerekçeler · plan seçenekleri (maliyet tablosu + varsayımlar) · ⚠️ dikkat.
+9 test.
+
+⚠️ **Model çağrılmıyor.** Faz 8'in dersi tersine çevrildi: belge önce kodla
+üretiliyor ve testi var; model sonradan yalnızca özet cümlesini yazacak.
+Bir test kaynak dosyada `llm`/`istem`/`prompt` geçmediğini doğruluyor —
+bağlanırsa kırılır.
+
+⚠️ **Boş bölüm atlanmıyor.** Gerekçe verisi yoksa (A13.1 öncesi) belge
+"neden bu kaynak sorusu bu çıktıdan cevaplanamaz" diye **yazıyor**. Boş
+bölümü gizlemek planı olduğundan iyi gösterirdi.
 
 ## B13.3 — `POST /v1/plan/{alan}` 🔴
 

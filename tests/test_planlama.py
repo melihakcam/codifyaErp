@@ -549,11 +549,14 @@ def test_isler_kaynagi_VARSAYILANI_elle():
     [("elle", "elle", None), ("tahmin", "tahmin", None), ("alan:uretim", "alan", "uretim")],
 )
 def test_isler_kaynagi_UC_YOL_ayristiriliyor(ham, kip, kaynak_alan):
+    # ⚠️ `elle` dışındaki kipler adaptör istiyor (B13.1): işleri kimin
+    # üreteceği yazılmadan zincir kurulamaz.
     tanim = alan_tanimi_oku(
         {
             "kaynaklar": [{"id": "M1", "ad": "M", "gunluk_kapasite": 8}],
             "isler": [{"id": "J1", "ad": "J", "yuk": 3, "oncelik": 1, "kaynak_id": "M1"}],
             "isler_kaynagi": ham,
+            "adaptor": "tests.sahte_adaptor",
         }
     )
     assert (tanim.isler_kaynagi.kip, tanim.isler_kaynagi.kaynak_alan) == (kip, kaynak_alan)
@@ -604,3 +607,15 @@ def test_nakliye_ornegi_YENI_SOZLESMEYLE_okunuyor():
     assert len(tanim.kaynaklar) == 3
     assert len(tanim.isler) == 10
     assert tanim.isler_kaynagi.kip == "elle"
+
+
+def test_ELLE_DISI_KIP_adaptorsuz_KURULMUYOR():
+    """İşleri kimin üreteceği yazılmamışsa tanım geçersiz (B13.1)."""
+    with pytest.raises(TanimHatasi, match="adaptor"):
+        alan_tanimi_oku(
+            {
+                "kaynaklar": [{"id": "M1", "ad": "M", "gunluk_kapasite": 8}],
+                "isler": [],
+                "isler_kaynagi": "tahmin",
+            }
+        )

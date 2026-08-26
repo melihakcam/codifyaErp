@@ -41,9 +41,7 @@ def _finans_karari_kuyruga_koy(oturum: Session) -> tuple[str, str]:
     return str(aday.karar_id), aday.ozellikler.gorunen_ad
 
 
-def test_finans_karari_ekranda_musteri_adiyla_gorunur(
-    istemci: TestClient, api_oturumu: Session
-):
+def test_finans_karari_ekranda_musteri_adiyla_gorunur(istemci: TestClient, api_oturumu: Session):
     karar_id, musteri_adi = _finans_karari_kuyruga_koy(api_oturumu)
 
     cevap = istemci.get("/onay/liste")
@@ -142,9 +140,7 @@ def test_ayni_musterinin_kararlari_tek_grupta(istemci: TestClient, api_oturumu: 
         assert str(aday.karar_id) in sayfa
 
 
-def test_kararlar_birlestirilmiyor_ayri_onaylanabiliyor(
-    istemci: TestClient, api_oturumu: Session
-):
+def test_kararlar_birlestirilmiyor_ayri_onaylanabiliyor(istemci: TestClient, api_oturumu: Session):
     """Gruplama sunum; veri modeli değil. Üçü ayrı onaylanabilmeli —
     operatör "karşılık ayır ama aramaya devam et" diyebilmeli."""
     from app.domain.finance.decide import _demo_ozellikleri, ozellikten_kararlar_uret

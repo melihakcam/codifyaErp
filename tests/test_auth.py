@@ -441,6 +441,8 @@ def test_gelistirmede_kisa_anahtar_serbest():
     from app.core.config import Ayarlar
 
     kimlik_yapilandirmasini_dogrula(Ayarlar(ortam="gelistirme", api_anahtarlari="kisa"))
+
+
 # ---------------------------------------------------------------------------
 # B4 — Üretim sertleştirmesi
 # ---------------------------------------------------------------------------

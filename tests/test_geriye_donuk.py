@@ -57,9 +57,7 @@ def test_giris_hareketi_yoksa_acik_hata(tmp_path: Path):
 
 def test_akis_giris_ve_cikisi_isaretliyor(tmp_path: Path):
     (tmp_path / "hareketler.csv").write_text(
-        "tarih,sku_id,miktar,hareket_tipi\n"
-        "2025-01-01,A1,10,giris\n"
-        "2025-01-02,A1,4,cikis\n",
+        "tarih,sku_id,miktar,hareket_tipi\n2025-01-01,A1,10,giris\n2025-01-02,A1,4,cikis\n",
         encoding="utf-8",
     )
     akis = hareket_akisini_oku(tmp_path / "hareketler.csv")
@@ -90,9 +88,7 @@ def test_stok_gecmisi_bugunku_bakiyeden_geriye_kuruluyor(tmp_path: Path):
 def test_negatif_stok_gizlenmiyor(tmp_path: Path):
     """Kırpmak veri tutarsızlığını saklardı; çağıran görmeli."""
     (tmp_path / "hareketler.csv").write_text(
-        "tarih,sku_id,miktar,hareket_tipi\n"
-        "2025-01-01,A1,10,cikis\n"
-        "2025-01-02,A1,500,giris\n",
+        "tarih,sku_id,miktar,hareket_tipi\n2025-01-01,A1,10,cikis\n2025-01-02,A1,500,giris\n",
         encoding="utf-8",
     )
     akis = hareket_akisini_oku(tmp_path / "hareketler.csv")
