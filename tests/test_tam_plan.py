@@ -13,7 +13,7 @@ alan-özel hâle gelir.
 from __future__ import annotations
 
 import json
-import re
+import tokenize
 from datetime import date
 from pathlib import Path
 
@@ -29,6 +29,24 @@ from app.planlama.tam_plan import (
 
 BUGUN = date(2026, 8, 26)
 SAHTE_ADAPTOR = "tests.sahte_adaptor"
+
+
+def kod_govdesi(yol: Path) -> str:
+    """Dosyanın **yürüyen** kısmı: yorumlar ve metin sabitleri çıkarılmış.
+
+    ⚠️ Alan adının belgede geçmesi serbest ve gerekli — "üretimde hat,
+    nakliyede araç" gibi örnekler sözleşmeyi okunur kılıyor. Yasak olan,
+    alan adının **çalışan koda** girmesi. İkisini ayırmadan yazılan bir
+    test ya sürekli yanlış alarm verir ya da gevşetilip işe yaramaz hâle
+    gelir.
+    """
+    parcalar: list[str] = []
+    with tokenize.open(yol) as dosya:
+        for tur, metin, *_ in tokenize.generate_tokens(dosya.readline):
+            if tur in (tokenize.COMMENT, tokenize.STRING):
+                continue
+            parcalar.append(metin)
+    return " ".join(parcalar).lower()
 
 
 def tanim_yaz(dizin: Path, alan: str, **fazlasi) -> Path:
@@ -85,12 +103,10 @@ def test_KAYNAKTA_alan_adi_gecmiyor():
     Kural incelemede değil testte duruyor: incelemeler unutulur, test
     unutmaz. Aranan şey yalnızca `if` değil, alan adının kaynakta geçmesi.
     """
-    kaynak = Path(tam_plan_modulu.__file__).read_text(encoding="utf-8")
-    # Belge blokları (docstring) örnek verebilir; sınanan şey KOD.
-    kod = re.sub(r'""".*?"""', "", kaynak, flags=re.DOTALL)
+    kod = kod_govdesi(Path(tam_plan_modulu.__file__))
 
     for alan_adi in ("uretim", "üretim", "nakliye", "stok", "finans", "vardiya"):
-        assert alan_adi not in kod.lower(), (
+        assert alan_adi not in kod, (
             f"tam_plan.py kodunda '{alan_adi}' geçiyor — motor alanı tanımaya başlamış"
         )
 
@@ -265,3 +281,45 @@ def test_GERCEK_NAKLIYE_TANIMI_yeni_komuttan_geciyor():
     assert plan.is_sayisi == 10
     assert plan.isler_kaynagi == "elle"
     assert plan.satirlar
+
+
+# --- Fazın 3. kapısı: yeni alan = sıfır kod -----------------------------------
+
+
+def test_UCUNCU_ALAN_KOD_YAZILMADAN_calisiyor():
+    """⚠️ Fazın 3. kapısı — "B ürünü satan şirkete kolay satalım"ın ölçülebilir hâli.
+
+    `ornekler/vardiya.json` üretimden ve nakliyeden bilinçli olarak uzak
+    seçildi: kaynak = insan, iş = nöbet. Yakın bir alan seçmek kapıyı
+    geçirir ama hiçbir şey kanıtlamaz.
+    """
+    plan = tam_plan("vardiya", baslangic=BUGUN)
+
+    assert plan.satirlar, "vardiya planı boş"
+    assert plan.isler_kaynagi == "elle"
+    assert all(s.gerekce is not None for s in plan.satirlar)
+
+
+def test_UCUNCU_ALAN_ADAPTOR_ISTEMIYOR():
+    """Tanımın kendisi kod bağlantısı içermiyor — tek dosya, gerçekten tek."""
+    ham = (Path(__file__).resolve().parents[1] / "ornekler" / "vardiya.json").read_text(
+        encoding="utf-8"
+    )
+
+    assert "adaptor" not in ham
+
+
+def test_HICBIR_KOD_DOSYASI_ucuncu_alani_TANIMIYOR():
+    """⚠️ Bu test kapının çürümesini engelliyor.
+
+    Bir gün birisi `app/` altına "vardiya" geçen bir satır yazarsa, alan
+    artık JSON'la eklenmiş olmaz — kapı sessizce düşer ve kimse fark etmez.
+    """
+    kok = Path(__file__).resolve().parents[1] / "app"
+    kirletenler = [
+        yol.relative_to(kok).as_posix()
+        for yol in kok.rglob("*.py")
+        if "vardiya" in kod_govdesi(yol)
+    ]
+
+    assert kirletenler == [], f"alan adı koda sızmış: {kirletenler}"

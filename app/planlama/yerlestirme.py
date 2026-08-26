@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.planlama.contracts import Is, Kaynak, KaynakPlani, PlanSatiri
+from app.planlama.contracts import AtamaGerekcesi, Is, Kaynak, KaynakPlani, PlanSatiri
 from app.planlama.olcut import VARSAYILAN_OLCUT, Olcut, olcut_al
 
 
@@ -69,7 +69,14 @@ class _KaynakDurumu:
         return kullanilan / toplam if toplam else 1.0
 
 
-def _satir(durum: _KaynakDurumu, is_: Is, ilk_gun: date, bas: int, bitis: int) -> PlanSatiri:
+def _satir(
+    durum: _KaynakDurumu,
+    is_: Is,
+    ilk_gun: date,
+    bas: int,
+    bitis: int,
+    gerekce: AtamaGerekcesi | None = None,
+) -> PlanSatiri:
     return PlanSatiri(
         is_id=is_.is_id,
         ad=is_.ad,
@@ -80,17 +87,80 @@ def _satir(durum: _KaynakDurumu, is_: Is, ilk_gun: date, bas: int, bitis: int) -
         yuk=is_.yuk,
         oncelik=is_.oncelik,
         etiketler=is_.etiketler,
+        gerekce=gerekce,
     )
 
 
-def _yerlestir(durum: _KaynakDurumu, is_: Is, ilk_gun: date) -> PlanSatiri:
+def _gerekce_kur(
+    is_: Is,
+    secilen: _KaynakDurumu,
+    adaylar: list[str],
+    durumlar: dict[str, _KaynakDurumu],
+    dolulukler: dict[str, float],
+) -> AtamaGerekcesi:
+    """Atamanın nedenini **veriye** çevirir.
+
+    ⚠️ Bilgi zaten algoritmanın içinden geçiyordu ve atılıyordu: uygunluk
+    süzgeci aday listesini biliyor, seçim anı da hangi kaynağın ne kadar
+    dolu olduğunu. Burada yeni bir hesap yapılmıyor, var olan bilgi
+    kaydediliyor.
+
+    ⚠️ Doluluklar **seçim anında** ölçülüyor, plan bittikten sonra değil.
+    Sonradan bakılsaydı gerekçe "seçtiğim kaynak daha doluymuş" gibi
+    kendini yalanlayan cümleler üretirdi — çünkü iş yerleştikten sonra o
+    kaynak doluyor.
+    """
+    secilen_id = secilen.kaynak.kaynak_id
+    elenme: dict[str, str] = {}
+
+    for kid in adaylar:
+        if kid == secilen_id:
+            continue
+        # ⚠️ Yuvarlanmış iki yüzde eşit görünüp gerekçeyi anlamsız
+        # yapabiliyordu ("doluluk %5, seçilen %5"). Eşitlik ayrı
+        # söyleniyor: orada seçimi doluluk değil, kararlı sıralama yaptı.
+        if dolulukler[kid] == dolulukler[secilen_id]:
+            elenme[kid] = "eşit doluluk — sıralama kaynak kimliğiyle kırıldı"
+        else:
+            elenme[kid] = (
+                f"daha dolu: %{dolulukler[kid] * 100:.1f} "
+                f"(seçilen %{dolulukler[secilen_id] * 100:.1f})"
+            )
+
+    # Uygunluk kısıtından elenenler aday sayılmıyor ama kullanıcıya
+    # söylenmesi gereken bilgi tam olarak bu.
+    for kid in sorted(set(durumlar) - set(adaylar)):
+        elenme[kid] = "bu işe uygun değil"
+
+    if len(adaylar) > 1:
+        belirleyici = "kapasite"
+    elif len(durumlar) > 1:
+        # Tek aday kaldıysa ve elenenler varsa, seçimi uygunluk belirledi.
+        belirleyici = "uygunluk"
+    else:
+        belirleyici = "tek_aday"
+
+    return AtamaGerekcesi(
+        secilen_kaynak=secilen_id,
+        aday_kaynaklar=tuple(adaylar),
+        belirleyici=belirleyici,
+        elenme_nedenleri=elenme,
+    )
+
+
+def _yerlestir(
+    durum: _KaynakDurumu,
+    is_: Is,
+    ilk_gun: date,
+    gerekce: AtamaGerekcesi | None = None,
+) -> PlanSatiri:
     """İşi kaynağın takvimine koyar ve satırı döndürür."""
     if not is_.bolunebilir:
         if is_.yuk > durum.kaynak.gunluk_kapasite:
             # ⚠️ Bölünemez ve tek güne HİÇ sığmayan iş. Bunu güne yaymak
             # "yetişecek" demek olurdu; kaynak günlük 8 saat çalışırken 20
             # saatlik bölünemez bir işi planlamak sahada uygulanamaz.
-            durum.sigmayanlar.append(_satir(durum, is_, ilk_gun, durum.gun, durum.gun))
+            durum.sigmayanlar.append(_satir(durum, is_, ilk_gun, durum.gun, durum.gun, gerekce))
             return durum.sigmayanlar[-1]
         if is_.yuk > durum.gun_kalan:
             # Bugüne sığmıyor ama tam bir güne sığıyor: gün başına taşınıyor.
@@ -107,7 +177,7 @@ def _yerlestir(durum: _KaynakDurumu, is_: Is, ilk_gun: date) -> PlanSatiri:
             durum.gun += 1
             durum.gun_kalan = durum.kaynak.gunluk_kapasite
 
-    satir = _satir(durum, is_, ilk_gun, bas, min(durum.gun, durum.ufuk_gun - 1))
+    satir = _satir(durum, is_, ilk_gun, bas, min(durum.gun, durum.ufuk_gun - 1), gerekce)
     if kalan > 0:
         # Ufuk bitti, iş yarım kaldı. Plana koymak "yetişecek" demek olurdu.
         durum.sigmayanlar.append(satir)
@@ -156,11 +226,16 @@ def plan_kur(
         # ⚠️ Eşitlik `kaynak_id` ile kırılıyor: iki kaynak aynı dolulukta
         # olduğunda sözlük sırasına bırakmak, aynı girdiye farklı plan
         # üretebilirdi.
+        # ⚠️ Doluluklar seçimden ÖNCE ölçülüyor: gerekçe, kararın verildiği
+        # andaki tabloyu anlatmalı. `secilen.doluluk` yerleştirmeden sonra
+        # değişir ve gerekçe kendini yalanlar.
+        dolulukler = {kid: durumlar[kid].doluluk for kid in durumlar}
         secilen = min(
             (durumlar[kid] for kid in adaylar),
-            key=lambda d: (d.doluluk, d.kaynak.kaynak_id),
+            key=lambda d: (dolulukler[d.kaynak.kaynak_id], d.kaynak.kaynak_id),
         )
-        _yerlestir(secilen, is_, ilk_gun)
+        gerekce = _gerekce_kur(is_, secilen, adaylar, durumlar, dolulukler)
+        _yerlestir(secilen, is_, ilk_gun, gerekce)
 
     return [
         KaynakPlani(

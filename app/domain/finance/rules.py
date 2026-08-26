@@ -102,9 +102,7 @@ def emniyet_gunu_hesapla(
     return float(z * math.sqrt(max(odeme_gecikmesi_std**2, 0.0)))
 
 
-def takip_esigi_hesapla(
-    ort_odeme_gecikmesi_gun: float, emniyet_gunu: float
-) -> float:
+def takip_esigi_hesapla(ort_odeme_gecikmesi_gun: float, emniyet_gunu: float) -> float:
     """Kaç gün gecikmeden sonra takibe girilmeli.
 
     `yeniden_siparis_noktasi_hesapla`'nın karşılığı: beklenen gecikme +
@@ -240,9 +238,7 @@ def _fp(p: FinansProfili | None = None) -> FinansProfili:
     return p if p is not None else profil().finans
 
 
-def _karsilik_esigi(
-    ort_odeme_gecikmesi_gun: float, p: FinansProfili | None = None
-) -> float:
+def _karsilik_esigi(ort_odeme_gecikmesi_gun: float, p: FinansProfili | None = None) -> float:
     """Karşılık ayırma eşiği — göreceli, ama bir tabanın altına inmez.
 
     ⚠️ Faz 7'de düzeltildi. Önceden `min(180, ort_gecikme x 4)` idi ve

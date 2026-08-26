@@ -39,7 +39,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
 
-from app.planlama.contracts import Is, KaynakPlani, PlanSatiri
+from app.planlama.contracts import Is, Kaynak, KaynakPlani, PlanSatiri
 from app.planlama.karsilastir import Karsilastirma, planlari_karsilastir
 from app.planlama.olcut import OLCUT_ACIKLAMALARI, OLCUTLER, VARSAYILAN_OLCUT
 from app.planlama.tanim import ELLE, TAHMIN, AlanTanimi, alan_tanimi_dosyadan
@@ -77,6 +77,16 @@ class IsUretici(Protocol):
         baslangic: date,
         kaynak_isler: tuple[Is, ...] = (),
     ) -> list[Is]: ...
+
+    # ⚠️ İSTEĞE BAĞLI. Kaynaklar normalde tanımda yazılı (araçlar, kişiler
+    # — sabit bir liste). Ama bazı alanlarda kaynak listesi işletmenin
+    # kendi verisinde yaşıyor (üretim hatları ERP'de, kapasiteleri profil
+    # dosyasından geliyor). Orada JSON'a elle kopyalamak iki ayrı gerçek
+    # üretir: kapasite değişir, plan sessizce yanlış çıkar.
+    #
+    # Tanımda kaynak yazılıysa bu yordam **çağrılmaz** — tanım her zaman
+    # üstündür.
+    def kaynaklari_uret(self, tanim: AlanTanimi) -> list[Kaynak]: ...
 
 
 @dataclass(frozen=True)
@@ -138,18 +148,18 @@ def _adaptor_yukle(tanim: AlanTanimi) -> IsUretici:
     return modul
 
 
-def isleri_getir(
+def girdileri_getir(
     tanim: AlanTanimi,
     ufuk_gun: int,
     baslangic: date,
     dizin: Path,
     _zincir: tuple[str, ...] = (),
-) -> list[Is]:
-    """İşleri, tanımın söylediği yerden getirir. Kipe göre dallanır."""
+) -> tuple[list[Is], list[Kaynak]]:
+    """Planın iki girdisi: işler ve kaynaklar. Kipe göre dallanır."""
     kip = tanim.isler_kaynagi.kip
 
     if kip == ELLE:
-        return list(tanim.isler)
+        return list(tanim.isler), list(tanim.kaynaklar)
 
     kaynak_isler: tuple[Is, ...] = ()
     if kip == "alan":
@@ -162,14 +172,32 @@ def isleri_getir(
             )
         onceki_tanim = alan_tanimi_dosyadan(_tanim_yolu(onceki, dizin))
         kaynak_isler = tuple(
-            isleri_getir(onceki_tanim, ufuk_gun, baslangic, dizin, (*_zincir, onceki))
+            girdileri_getir(onceki_tanim, ufuk_gun, baslangic, dizin, (*_zincir, onceki))[0]
         )
 
     uretici = _adaptor_yukle(tanim)
-    isler = uretici.isleri_uret(
-        tanim=tanim, ufuk_gun=ufuk_gun, baslangic=baslangic, kaynak_isler=kaynak_isler
+    isler = list(
+        uretici.isleri_uret(
+            tanim=tanim, ufuk_gun=ufuk_gun, baslangic=baslangic, kaynak_isler=kaynak_isler
+        )
     )
-    return list(isler)
+
+    # Tanım her zaman üstün: kaynak yazılıysa adaptöre sorulmuyor.
+    kaynaklar = list(tanim.kaynaklar)
+    if not kaynaklar and hasattr(uretici, "kaynaklari_uret"):
+        kaynaklar = list(uretici.kaynaklari_uret(tanim))
+    return isler, kaynaklar
+
+
+def isleri_getir(
+    tanim: AlanTanimi,
+    ufuk_gun: int,
+    baslangic: date,
+    dizin: Path,
+    _zincir: tuple[str, ...] = (),
+) -> list[Is]:
+    """Yalnızca işler. `girdileri_getir`in ince sarmalayıcısı."""
+    return girdileri_getir(tanim, ufuk_gun, baslangic, dizin, _zincir)[0]
 
 
 def _uyarilar(planlar: tuple[KaynakPlani, ...], is_sayisi: int, kip: str) -> tuple[str, ...]:
@@ -223,8 +251,11 @@ def tam_plan(
         raise TamPlanHatasi(f"Bilinmeyen ölçüt: {olcut}. Tanımlılar: {sorted(OLCUTLER)}")
 
     tanim = alan_tanimi_dosyadan(_tanim_yolu(alan, dizin_yolu))
-    isler = isleri_getir(tanim, ufuk, ilk_gun, dizin_yolu)
-    kaynaklar = list(tanim.kaynaklar)
+    isler, kaynaklar = girdileri_getir(tanim, ufuk, ilk_gun, dizin_yolu)
+    if isler and not kaynaklar:
+        raise TamPlanHatasi(
+            f"'{alan}': iş var ama kaynak yok — tanımda kaynak yazılmamış ve adaptör de üretmiyor."
+        )
 
     denenecek = [olcut] if olcut else sorted(OLCUTLER)
     planlar_by_olcut = {
@@ -263,6 +294,7 @@ __all__ = [
     "TamPlan",
     "TamPlanHatasi",
     "alanlari_listele",
+    "girdileri_getir",
     "isleri_getir",
     "tam_plan",
 ]

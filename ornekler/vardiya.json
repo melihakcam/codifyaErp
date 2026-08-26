@@ -1,0 +1,29 @@
+{
+  "ad": "Vardiya",
+  "aciklama": "⚠️ TEST VERİSİ, ürün özelliği değil. Fazın 3. kapısının ölçüm aracı: bu alan SIFIR kod yazılarak eklendi — adaptör yok, kural motoru yok, API ucu yok. Alan bilinçli olarak üretimden ve nakliyeden UZAK seçildi (kaynak = insan, iş = nöbet); yakın bir alan seçmek kapıyı geçirir ama hiçbir şey kanıtlamaz. Adlar soyut: gerçek bir çalışanı temsil etmiyor.",
+  "kapasite_birimi": "saat",
+  "isler_kaynagi": "elle",
+
+  "kaynaklar": [
+    {"id": "KISI-1", "ad": "Kişi 1", "gunluk_kapasite": 8, "yetkinlik": "kidemli"},
+    {"id": "KISI-2", "ad": "Kişi 2", "gunluk_kapasite": 8, "yetkinlik": "kidemli"},
+    {"id": "KISI-3", "ad": "Kişi 3", "gunluk_kapasite": 4, "yetkinlik": "yarim_zamanli"}
+  ],
+
+  "isler": [
+    {"id": "NOBET-01", "ad": "Gece nöbeti · Pazartesi", "yuk": 8, "oncelik": 0,
+     "bolunebilir": false, "uygun_kaynaklar": ["KISI-1", "KISI-2"],
+     "not": "Bölünemez: bir nöbet iki kişiye yayılamaz. Yarım zamanlı kişiye uygun değil."},
+    {"id": "NOBET-02", "ad": "Gündüz nöbeti · Pazartesi", "yuk": 4, "oncelik": 1,
+     "uygun_kaynaklar": ["KISI-1", "KISI-2", "KISI-3"]},
+    {"id": "NOBET-03", "ad": "Gece nöbeti · Salı", "yuk": 8, "oncelik": 2,
+     "bolunebilir": false, "uygun_kaynaklar": ["KISI-1", "KISI-2"]},
+    {"id": "NOBET-04", "ad": "Gündüz nöbeti · Salı", "yuk": 4, "oncelik": 3,
+     "uygun_kaynaklar": ["KISI-1", "KISI-2", "KISI-3"]},
+    {"id": "NOBET-05", "ad": "Hafta sonu devri", "yuk": 6, "oncelik": 4,
+     "uygun_kaynaklar": ["KISI-1", "KISI-2"]},
+    {"id": "NOBET-06", "ad": "Eğitim vardiyası", "yuk": 3, "oncelik": 5,
+     "uygun_kaynaklar": ["KISI-3"],
+     "not": "YALNIZCA yarım zamanlı kişiye uygun — tek adaylı iş"}
+  ]
+}

@@ -183,6 +183,12 @@ def test_plan_TEKRARLANABILIR():
         [s.is_id for s in p.satirlar] for p in ikinci
     ], "girdi sirasi plani degistiriyor"
 
+    # ⚠️ A13.1 gerekçeyi yeni bir sıralama noktası açtı. Yalnızca iş
+    # sırasına bakan bir test, gerekçedeki kaymayı sessizce geçirirdi.
+    assert [[s.gerekce for s in p.satirlar] for p in ilk] == [
+        [s.gerekce for s in p.satirlar] for p in ikinci
+    ], "ayni plan farkli gerekce uretiyor"
+
 
 # --- Ölçüt -------------------------------------------------------------------
 
@@ -487,10 +493,71 @@ def test_gerekce_VARSAYILANLI_eski_cagrilar_bozulmuyor():
     assert satir.gerekce is None, "gerekce varsayilanli degil — B, A'yi beklemek zorunda kalir"
 
 
-def test_plan_kur_GEREKCESIZ_calisiyor():
-    """A13.1 yazılmadan da plan çıkıyor; gerekçe alanı boş duruyor."""
+def test_plan_kur_HER_SATIRA_gerekce_koyuyor():
+    """A13.1 sonrası: her atama nedenini taşıyor.
+
+    ⚠️ Adım 0'da bu test "gerekçe None kalıyor" diyordu; A13.1 ile davranış
+    bilinçli olarak değişti. Sözleşme tarafı (varsayılanın `None` olması)
+    `test_gerekce_VARSAYILANLI_eski_cagrilar_bozulmuyor` ile korunuyor.
+    """
     planlar = plan_kur([is_("I1")], [kaynak("K1")], ufuk_gun=3, baslangic=BUGUN)
-    assert [s.gerekce for p in planlar for s in p.satirlar] == [None]
+    gerekceler = [s.gerekce for p in planlar for s in p.satirlar]
+
+    assert len(gerekceler) == 1
+    g = gerekceler[0]
+    assert g is not None
+    assert g.secilen_kaynak == "K1"
+    assert g.belirleyici == "tek_aday", "tek kaynaklı dünyada seçim yok"
+
+
+def test_gerekce_UYGUNLUK_kisitini_anlatiyor():
+    """Bir kaynak uygun değilse gerekçe bunu söylüyor."""
+    kaynaklar = [kaynak("K1"), kaynak("K2")]
+    isler = [is_("I1", kaynak_id=None, uygun_kaynaklar=("K1",))]
+
+    planlar = plan_kur(isler, kaynaklar, ufuk_gun=3, baslangic=BUGUN)
+    g = next(s.gerekce for p in planlar for s in p.satirlar)
+
+    assert g is not None
+    assert g.belirleyici == "uygunluk"
+    assert g.elenme_nedenleri["K2"] == "bu işe uygun değil"
+
+
+def test_gerekce_KAPASITE_karsilastirmasini_anlatiyor():
+    """İki aday varsa neden bu kaynağın seçildiği sayıyla yazılı."""
+    kaynaklar = [kaynak("K1", kapasite=8.0), kaynak("K2", kapasite=8.0)]
+    isler = [
+        is_(f"I{n}", yuk=4.0, oncelik=float(n), kaynak_id=None, uygun_kaynaklar=("K1", "K2"))
+        for n in range(3)
+    ]
+
+    planlar = plan_kur(isler, kaynaklar, ufuk_gun=3, baslangic=BUGUN)
+    gerekceler = [s.gerekce for p in planlar for s in p.satirlar]
+
+    assert all(g is not None and g.belirleyici == "kapasite" for g in gerekceler)
+    # Üçüncü iş yerleşirken kaynaklardan biri artık doluydu; gerekçe bunu
+    # eşitlik ya da doluluk farkı olarak anlatmalı, sessiz kalmamalı.
+    assert all(g.elenme_nedenleri for g in gerekceler if g is not None)
+
+
+def test_gerekce_PLANI_DEGISTIRMIYOR():
+    """⚠️ Gerekçe kaydetmek yerleştirmeyi etkilememeli.
+
+    A13.1 seçim anında yeni bir sözlük (`dolulukler`) kuruyor; sıralama
+    oradan okunuyor. Aynı iş dağılımının korunduğu burada sınanıyor.
+    """
+    kaynaklar = [kaynak("K1"), kaynak("K2")]
+    isler = [
+        is_(f"I{n}", yuk=2.0, oncelik=1.0, kaynak_id=None, uygun_kaynaklar=("K1", "K2"))
+        for n in range(6)
+    ]
+
+    planlar = plan_kur(isler, kaynaklar, ufuk_gun=5, baslangic=BUGUN)
+
+    assert [[s.is_id for s in p.satirlar] for p in planlar] == [
+        ["I0", "I2", "I4"],
+        ["I1", "I3", "I5"],
+    ]
 
 
 def test_gerekce_BELIRLEYICISI_kapali_kume():
@@ -505,14 +572,26 @@ def test_gerekce_SECILEN_KAYNAK_adaylarda_olmali():
         AtamaGerekcesi(secilen_kaynak="K9", aday_kaynaklar=("K1", "K2"))
 
 
-def test_gerekce_ELENME_NEDENI_aday_olmayana_yazilamaz():
-    with pytest.raises(ValueError, match="aday olmayan"):
+def test_gerekce_SECILEN_KAYNAK_ayni_anda_ELENEMEZ():
+    """Gerekçenin kendisiyle çelişmesi, hiç gerekçe olmamasından kötüdür."""
+    with pytest.raises(ValueError, match="elenme nedenleri"):
         AtamaGerekcesi(
             secilen_kaynak="K1",
             aday_kaynaklar=("K1", "K2"),
             belirleyici="kapasite",
-            elenme_nedenleri={"K7": "kapasite dolu"},
+            elenme_nedenleri={"K1": "kapasite dolu"},
         )
+
+
+def test_gerekce_UYGUNLUKTAN_ELENEN_aday_olmasa_da_yazilabiliyor():
+    """⚠️ Uygunluk kısıtından elenen kaynak aday değil ama söylenmeli."""
+    g = AtamaGerekcesi(
+        secilen_kaynak="K1",
+        aday_kaynaklar=("K1",),
+        belirleyici="uygunluk",
+        elenme_nedenleri={"K2": "bu işe uygun değil"},
+    )
+    assert g.elenme_nedenleri["K2"]
 
 
 def test_gerekce_KARSILASTIRILABILIR():

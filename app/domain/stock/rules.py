@@ -291,10 +291,7 @@ def olu_stok_degerlendir(ozellik: StockFeatures, p: StokProfili | None = None) -
             onerilen_iskonto_orani = 0.15
 
         raf_kritik_gun = 30
-        if (
-            ozellik.raf_omru_kalan_gun is not None
-            and ozellik.raf_omru_kalan_gun <= raf_kritik_gun
-        ):
+        if ozellik.raf_omru_kalan_gun is not None and ozellik.raf_omru_kalan_gun <= raf_kritik_gun:
             onerilen_iskonto_orani = max(onerilen_iskonto_orani, 0.60)
 
     return {
@@ -386,9 +383,7 @@ def tedarikci_performans_ozeti(
     return ozet
 
 
-def tedarikci_degisim_degerlendir(
-    ozellik: StockFeatures, p: StokProfili | None = None
-) -> dict:
+def tedarikci_degisim_degerlendir(ozellik: StockFeatures, p: StokProfili | None = None) -> dict:
     """Bu SKU'nun tedarikçisi gözden geçirilmeli mi?
 
     ⚠️ **Bu kol ORTOGONAL** — ölü stok ya da sipariş kararıyla yarışmaz.
@@ -412,18 +407,14 @@ def tedarikci_degisim_degerlendir(
     else:
         # Sipariş sayısı bilinmiyor → vekil ölçüye düş.
         yeterli_veri = ozellik.veri_gun_sayisi >= TEDARIKCI_DEGISIM_ASGARI_VERI_GUN
-    maruz_kalinan = (
-        ozellik.ort_gunluk_talep * ozellik.tedarik_suresi_gun * ozellik.birim_maliyet_tl
-    )
+    maruz_kalinan = ozellik.ort_gunluk_talep * ozellik.tedarik_suresi_gun * ozellik.birim_maliyet_tl
 
     return {
         "tedarikci_skoru": skor,
         "tedarikci_degisim_esigi": sp.tedarikci_degisim_skor_esigi,
         "maruz_kalinan_deger_tl": round(maruz_kalinan, 2),
         "gozden_gecirilmeli": bool(
-            skor < sp.tedarikci_degisim_skor_esigi
-            and yeterli_veri
-            and ozellik.ort_gunluk_talep > 0
+            skor < sp.tedarikci_degisim_skor_esigi and yeterli_veri and ozellik.ort_gunluk_talep > 0
         ),
     }
 

@@ -127,8 +127,11 @@ class AtamaGerekcesi:
     secilen_kaynak: str
     aday_kaynaklar: tuple[str, ...]
     belirleyici: str = "tek_aday"
-    # kaynak_id -> neden olmadi. Elenmeyen aday burada GORUNMEZ; sozluk
-    # "neden olmadi" sorusunun cevabi, aday listesinin kopyasi degil.
+    # kaynak_id -> neden olmadi. ⚠️ Aday listesinin DISINDAKI kaynaklar da
+    # burada yer alabilir: uygunluk kisitindan elenen kaynak aday sayilmaz
+    # ama kullaniciya soylenmesi gereken bilgi tam olarak odur ("Arac 3 bu
+    # ise uygun degil"). Aday listesi "yarisanlar", elenme sozlugu ise
+    # "neden olmadi" sorusunun cevabi.
     elenme_nedenleri: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -145,9 +148,12 @@ class AtamaGerekcesi:
                 f"seçilen kaynak '{self.secilen_kaynak}' aday listesinde yok: "
                 f"{list(self.aday_kaynaklar)}"
             )
-        artik = set(self.elenme_nedenleri) - set(self.aday_kaynaklar)
-        if artik:
-            raise ValueError(f"elenme nedeni aday olmayan kaynaklar için yazılmış: {sorted(artik)}")
+        if self.secilen_kaynak in self.elenme_nedenleri:
+            # ⚠️ Seçilen kaynak aynı anda "elenen" olamaz. Gerekçenin
+            # kendisiyle çelişmesi, hiç gerekçe olmamasından kötüdür.
+            raise ValueError(
+                f"seçilen kaynak '{self.secilen_kaynak}' elenme nedenleri arasında da var"
+            )
 
 
 @dataclass(frozen=True)

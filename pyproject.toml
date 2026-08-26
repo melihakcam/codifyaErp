@@ -83,3 +83,10 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    # Gercek veri hattini kosturan testler. Uretim karar uretimi olculdu:
+    # ilk kosu ~75 sn. Isaret, "atlanabilir" demek DEGIL -- varsayilan
+    # kosuda dahiller; isaret yalnizca sureyi hizli geri bildirim isteyen
+    # birinin `-m "not yavas"` ile ayirabilmesi icin.
+    "yavas: gercek veri hatti uzerinde kosan test (dakikalar surebilir)",
+]

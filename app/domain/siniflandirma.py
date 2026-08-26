@@ -91,9 +91,7 @@ def abc_xyz_hesapla(
 
     toplam = df[deger_adi].sum()
     df = df.sort_values(deger_adi, ascending=False)
-    kumulatif = (
-        df[deger_adi].cumsum() / toplam if toplam > 0 else pd.Series(1.0, index=df.index)
-    )
+    kumulatif = df[deger_adi].cumsum() / toplam if toplam > 0 else pd.Series(1.0, index=df.index)
 
     df["abc_sinifi"] = kumulatif.apply(abc_sinif_ata)
     df["xyz_sinifi"] = df["varyasyon_katsayisi"].apply(xyz_sinif_ata)

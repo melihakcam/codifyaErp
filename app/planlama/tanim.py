@@ -27,7 +27,7 @@ hatası hata vermeli.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any
@@ -53,6 +53,7 @@ UST_ALANLAR = (
     "isler",
     "isler_kaynagi",
     "adaptor",
+    "parametreler",
 )
 
 ELLE = "elle"
@@ -138,6 +139,23 @@ class AlanTanimi:
     # "üretim işlerini nasıl çıkarırım" bilgisi motorda değil, tanımda.
     # `elle` kipinde adaptör aranmıyor; yeni müşteri hâlâ tek JSON.
     adaptor: str | None = None
+    # ⚠️ Alanın kendi sayıları — motor BAKMAZ, yalnızca adaptöre taşır.
+    # Sevkiyatın "bir palet kaç saat yüklenir"i, vardiyanın "bir nöbet kaç
+    # saat"i gibi bilgiler koda gömülseydi yeni müşteri kod değişikliği
+    # isterdi. Serbest sözlük: kapalı küme olsaydı her yeni alan bu
+    # dosyayı değiştirmek zorunda kalırdı.
+    parametreler: dict[str, str] = field(default_factory=dict)
+
+    def sayi(self, ad: str, varsayilan: float) -> float:
+        """Parametreyi sayı olarak okur. Bozuksa **sessizce** varsayılana düşmez."""
+        if ad not in self.parametreler:
+            return varsayilan
+        try:
+            return float(self.parametreler[ad])
+        except (TypeError, ValueError) as hata:
+            raise TanimHatasi(
+                f"'{self.ad}' parametresi {ad}={self.parametreler[ad]!r} sayı değil"
+            ) from hata
 
     def __post_init__(self) -> None:
         if self.isler_kaynagi.kip != ELLE and not self.adaptor:
@@ -274,6 +292,7 @@ def alan_tanimi_oku(tanim: dict[str, Any], ad: str | None = None) -> AlanTanimi:
         isler_kaynagi=isler_kaynagi_ayristir(tanim.get("isler_kaynagi", ELLE)),
         kapasite_birimi=str(tanim.get("kapasite_birimi", "saat")),
         adaptor=str(tanim["adaptor"]) if tanim.get("adaptor") else None,
+        parametreler={k: str(v) for k, v in (tanim.get("parametreler") or {}).items()},
     )
 
 

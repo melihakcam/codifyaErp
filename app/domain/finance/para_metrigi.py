@@ -172,9 +172,7 @@ class _PolitikaDurumu:
     limit_karari: int = 0
 
 
-def _takip_uygula(
-    durum: _PolitikaDurumu, musteri_id: str, bugun: pd.Timestamp
-) -> None:
+def _takip_uygula(durum: _PolitikaDurumu, musteri_id: str, bugun: pd.Timestamp) -> None:
     """Bir müşteriye tahsilat eylemi uygular — açık ve gecikmiş faturalarına.
 
     ⚠️ Yalnızca **vadesi geçmiş** faturalar etkileniyor. Henüz vadesi
@@ -347,9 +345,7 @@ def _maliyet_ozeti(
     gecerli = f[~f["iptal"]]
     gunluk_oran = YILLIK_FINANSMAN_ORANI / 365.0
 
-    odendi = gecerli["gercek_odeme_tarihi"].notna() & (
-        gecerli["gercek_odeme_tarihi"] <= ufuk_sonu
-    )
+    odendi = gecerli["gercek_odeme_tarihi"].notna() & (gecerli["gercek_odeme_tarihi"] <= ufuk_sonu)
     odenen = gecerli[odendi]
     odenmeyen = gecerli[~odendi]
 
@@ -400,7 +396,10 @@ def _maliyet_ozeti(
 
 
 def _dunya_hazirla(
-    profile: CompanyProfile, seed: int, yil_sayisi: int, tahsilat_seed: int,
+    profile: CompanyProfile,
+    seed: int,
+    yil_sayisi: int,
+    tahsilat_seed: int,
     patoloji: TahsilatPatolojisi,
 ) -> tuple[pd.DataFrame, pd.DataFrame, float]:
     """Simülasyon + tahsilat → (faturalar, musteri, ortalama marj oranı)."""
@@ -474,15 +473,11 @@ def tahsilat_politikasi_karsilastir(
 
     satirlar = []
     for politika in politikalar:
-        durum = _PolitikaDurumu(
-            faturalar=faturalar.copy(), rng=np.random.default_rng(seed + 3)
-        )
+        durum = _PolitikaDurumu(faturalar=faturalar.copy(), rng=np.random.default_rng(seed + 3))
 
         for i, bugun in enumerate(inceleme_tarihleri):
             pencere_sonu = (
-                inceleme_tarihleri[i + 1]
-                if i + 1 < len(inceleme_tarihleri)
-                else ufuk_sonu
+                inceleme_tarihleri[i + 1] if i + 1 < len(inceleme_tarihleri) else ufuk_sonu
             )
             if politika == "vasat":
                 _vasat_adim(durum, bugun)
@@ -582,7 +577,8 @@ def limit_kolu_taramasi_calistir(
                 rules.LIMIT_DUSURME_SKOR_ESIGI = esik
                 rules.MAKS_LIMIT_KESINTI_ORANI = kesinti
                 df = tahsilat_politikasi_karsilastir(
-                    politikalar=("kural_motoru",), **kwargs  # type: ignore[arg-type]
+                    politikalar=("kural_motoru",),
+                    **kwargs,  # type: ignore[arg-type]
                 )
                 s = df.loc["kural_motoru"]
                 satirlar.append(
@@ -665,14 +661,10 @@ def limit_kolu_risk_taramasi(
                         "kol_acik_toplam_tl": acik["toplam_maliyet_tl"],
                         "kol_kapali_toplam_tl": kapali["toplam_maliyet_tl"],
                         # Pozitif = kol kazandırdı (kapalıya göre maliyet düştü).
-                        "kol_katkisi_tl": kapali["toplam_maliyet_tl"]
-                        - acik["toplam_maliyet_tl"],
-                        "onlenen_batak_tl": kapali["batak_zarari_tl"]
-                        - acik["batak_zarari_tl"],
+                        "kol_katkisi_tl": kapali["toplam_maliyet_tl"] - acik["toplam_maliyet_tl"],
+                        "onlenen_batak_tl": kapali["batak_zarari_tl"] - acik["batak_zarari_tl"],
                         "kaybedilen_marj_tl": acik["kaybedilen_marj_tl"],
-                        "kol_karli": bool(
-                            acik["toplam_maliyet_tl"] < kapali["toplam_maliyet_tl"]
-                        ),
+                        "kol_karli": bool(acik["toplam_maliyet_tl"] < kapali["toplam_maliyet_tl"]),
                     }
                 )
     finally:

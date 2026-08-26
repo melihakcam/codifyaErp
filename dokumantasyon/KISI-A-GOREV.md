@@ -868,7 +868,7 @@ fonksiyonun** çağrıldığı doğrulanıyor. Çağrılmıyorsa "genel" iddias�
 | `IslerKaynagi` (`elle` · `tahmin` · `alan:<ad>`) | `app/planlama/tanim.py` | üst seviye anahtarlar kapalı küme: `isler_kaynak` yazan tanım **patlıyor** |
 | `AlanTanimi` + `alan_tanimi_oku/dosyadan` | aynı dosya | `dosyadan_yukle` aynen korundu |
 
-## A13.1 — Gerekçeli yerleştirme 🔴
+## ✅ A13.1 — Gerekçeli yerleştirme — BİTTİ
 
 `yerlestirme.py` her atama için `AtamaGerekcesi` doldurur: seçilen kaynak,
 aday kaynaklar, elenme nedenleri, belirleyici etken.
@@ -883,7 +883,7 @@ uydurmasına açık olur.
 kapasite modülünde de bulundu. Gerekçe yeni bir sıralama noktası açıyor —
 `test_ayni_girdi_ayni_plan` gerekçeleri de karşılaştırmalı.
 
-## A13.2 — Alan adaptörleri 🔴
+## ✅ A13.2 — Alan adaptörleri — BİTTİ
 
 `app/domain/production/adapter.py` · `app/domain/logistics/adapter.py`.
 İkisi **aynı imzayı** taşır. Genellik iddiasını taşıyan dosyalar bunlar.
@@ -898,7 +898,7 @@ kapasite modülünde de bulundu. Gerekçe yeni bir sıralama noktası açıyor �
 sözleşme). `croston(gecmis, ...)` girdisi düz liste — zaten genel. Adlandırma
 stok kokuyor; çeviriyi adaptör üstlenir.
 
-## A13.3 — Üçüncü alan tanımı 🔴
+## ✅ A13.3 — Üçüncü alan tanımı — BİTTİ (`ornekler/vardiya.json`)
 
 `ornekler/` altına **tek JSON**, kod değişikliği **sıfır**. Demo değil; "yeni
 müşteriye kolay satılır" iddiasının tek kanıtı.
@@ -910,3 +910,56 @@ personel çizelgesi). Yakın alan kapıyı geçirir, hiçbir şey kanıtlamaz.
 
 Sevkiyat simülatörü (~1 hafta) plandan **çıkarıldı**. Mevcut üretim geçmişi
 yeterli; yeni veri üretmek genel mekanizmayı kanıtlamıyor.
+
+
+---
+
+# Faz 13 · A paketi — kapanış notları (26.08.2026)
+
+## Ne oldu
+
+| adım | sonuç |
+|---|---|
+| A13.1 | `yerlestirme.py` her atamaya `AtamaGerekcesi` koyuyor: seçilen kaynak, adaylar, elenme nedenleri, belirleyici |
+| A13.2 | `app/domain/production/adapter.py` (`tahmin`) · `app/domain/logistics/adapter.py` (`alan:uretim`) — **aynı imza** |
+| A13.3 | `ornekler/vardiya.json` — kaynak = insan, iş = nöbet. Sıfır kod |
+
+## Yol boyunca alınan kararlar
+
+**Sözleşmede bir kural gevşetildi.** Adım 0'da "elenme nedeni yalnızca aday
+kaynaklar için yazılabilir" denmişti. Gerçek kod bunun yanlış olduğunu
+gösterdi: uygunluk kısıtından elenen kaynak aday sayılmıyor ama
+kullanıcıya söylenmesi gereken bilgi tam olarak o ("Araç 3 bu işe uygun
+değil"). Kural yerine gerçek değişmez kondu: **seçilen kaynak aynı anda
+elenen olamaz.**
+
+**Doluluklar seçim anında ölçülüyor**, plan bittikten sonra değil. Sonradan
+bakılsaydı gerekçe kendini yalanlardı — iş yerleştikten sonra seçilen
+kaynak doluyor.
+
+**Yuvarlama gerekçeyi anlamsız yapıyordu.** İlk sürüm "doluluk %5, seçilen
+%5" yazıyordu. Şimdi ondalık gösteriliyor ve gerçek eşitlik ayrıca
+söyleniyor: orada seçimi doluluk değil, kararlı sıralama yaptı.
+
+**Üretim hatları JSON'a yazılmadı.** Hat listesi ana veriden, kapasiteler
+profil dosyasından geliyor; kopyalansaydı iki ayrı gerçek olurdu.
+Adaptörlere isteğe bağlı `kaynaklari_uret` eklendi. ⚠️ **Tanım her zaman
+üstün:** kaynak tanımda yazılıysa adaptöre sorulmuyor.
+
+**Alan-özel sayılar için `parametreler` bölümü eklendi.** Sevkiyatın "bir
+birim kaç saatte yüklenir"i koda gömülseydi ikinci müşteri kod değişikliği
+isterdi (Faz 9'un işletme profili kararıyla aynı gerekçe).
+
+## ⚠️ Ölçülen sınır: üretim planı ~70 sn
+
+`uretim_kararlari_uret()` ölçüldü: ilk koşu **74,7 sn**, ikinci **35,9 sn**.
+Motor iş ve kaynağı ayrı istediği için hesap iki kez koşacaktı; adaptöre
+süreli önbellek (`ONBELLEK_SANIYE = 300`) kondu, tek koşuya indi.
+
+Önbellek bilinçli olarak **süresiz değil**: uzun koşan bir serviste veri
+değiştikten sonra eski planı vermeye devam ederdi. `onbellek_temizle()`
+ile sıfırlanıyor.
+
+⚠️ **B13.3'ün çözmesi gereken sorun budur:** 70 saniyelik bir HTTP isteği
+kabul edilebilir değil. Gecelik işteki kalıp (sonucu hazır tut, uç hazırı
+versin) en yakın çözüm.

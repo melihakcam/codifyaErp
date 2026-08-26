@@ -220,8 +220,7 @@ def ozellikten_kararlar_uret(ozellik: FinansOzellikleri) -> list[DecisionCandida
                     FiredRule(
                         kod="TAKIP_ESIGI_ASILDI" if takip["anomali"] else "TUTAR_TAKIBE_DEGER",
                         aciklama=(
-                            "Gecikme, müşterinin kendi ödeme davranışından beklenen "
-                            "eşiği aştı."
+                            "Gecikme, müşterinin kendi ödeme davranışından beklenen eşiği aştı."
                             if takip["anomali"]
                             else (
                                 f"Gecikme bu müşteri için olağandışı değil, ama "
@@ -323,9 +322,7 @@ def _demo_ozellikleri(seed: int = VARSAYILAN_SEED) -> list[FinansOzellikleri]:
             ),
         )
         olcum = pd.to_datetime(tahsilat.faturalar["tarih"]).max().date()
-        _ONBELLEK[seed] = musteri_ozelliklerini_hesapla(
-            tahsilat.faturalar, dunya["musteri"], olcum
-        )
+        _ONBELLEK[seed] = musteri_ozelliklerini_hesapla(tahsilat.faturalar, dunya["musteri"], olcum)
     return _ONBELLEK[seed]
 
 

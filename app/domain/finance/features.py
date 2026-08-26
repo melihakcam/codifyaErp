@@ -116,9 +116,7 @@ def musteri_ozelliklerini_hesapla(
     toplam_alacak = acik.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
     gecikmis = acik[acik["gecikme_bugun"] > 0]
     vadesi_gecen = gecikmis.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
-    en_eski = (
-        gecikmis.groupby("musteri_id")["gecikme_bugun"].max().reindex(musteri_ids).fillna(0)
-    )
+    en_eski = gecikmis.groupby("musteri_id")["gecikme_bugun"].max().reindex(musteri_ids).fillna(0)
 
     faturalanan = kesilmis.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
 
@@ -139,8 +137,10 @@ def musteri_ozelliklerini_hesapla(
         vadesi_gelmis.groupby("musteri_id")["tutar_tl"].sum().reindex(musteri_ids).fillna(0.0)
     )
     vadesi_gelmis_tahsil = (
-        vadesi_gelmis[vadesi_gelmis["gercek_odeme_tarihi"].notna()
-                      & (vadesi_gelmis["gercek_odeme_tarihi"] <= ts)]
+        vadesi_gelmis[
+            vadesi_gelmis["gercek_odeme_tarihi"].notna()
+            & (vadesi_gelmis["gercek_odeme_tarihi"] <= ts)
+        ]
         .groupby("musteri_id")["tutar_tl"]
         .sum()
         .reindex(musteri_ids)
