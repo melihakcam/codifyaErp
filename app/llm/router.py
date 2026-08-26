@@ -46,6 +46,11 @@ ARAC_ACIKLAMALARI: dict[AracAdi, str] = {
     AracAdi.URETIM_CIZELGESI: "hangi iş hangi hatta hangi gün üretilecek, üretim takvimi",
     AracAdi.KAPASITE_DURUMU: "hatların doluluğu, kapasite yetiyor mu, hat dolu mu",
     AracAdi.PLAN_KARSILASTIR: "plan seçenekleri, hangi plan daha iyi, alternatif planlar",
+    # Faz 13 — alanı bilmeyen tek komut. Parametresi alan adı.
+    AracAdi.TAM_PLAN: (
+        "bir alanın tüm planı: nakliye planı, vardiya planı, üretim planı çıkar "
+        "(parametre: hangi alan)"
+    ),
 }
 
 # Few-shot örnekleri bilinçli olarak DOLAYLI ifadelerden seçildi. B2.2 ön

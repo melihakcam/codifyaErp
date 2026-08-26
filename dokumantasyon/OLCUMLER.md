@@ -3047,3 +3047,62 @@ Yeni araçlara model üzerinden ulaşmak için iki yol var:
    ⚠️ Colab bağımlı ve tur 4-7 saat.
 
 Karar verilmedi; ölçüm önce yapıldı çünkü ölçüm ucuz, eğitim turu pahalı.
+
+
+---
+
+## Faz 13 · B13.5 — araç eklemek router'ı düşürdü mü? (2026-08-26)
+
+`tam_plan_sorgula` aracı eklendikten sonra **aynı donmuş 30 soruluk set**,
+**aynı model sürümü** (`codifya-router:tur6`), **aynı istem biçimi**
+(`egitilmis`) ile yeniden koşuldu.
+
+    uv run python -m training.eval.router_taban --etiket faz13-tur1
+
+| ölçüt | faz12-tur6 | faz13-tur1 | fark |
+|---|---|---|---|
+| araç doğruluğu | %86,7 | **%86,7** | 0 |
+| tam doğruluk (araç + parametre) | %80,0 | **%80,0** | 0 |
+| şema hatası | 2 | 2 | 0 |
+| uydurma parametre | 1 | 1 | 0 |
+| çöküş | yok | yok | — |
+
+**Beklenti karşılandı: araç eklemek doğruluğu düşürmedi.** Fazın kabul
+ölçütü buydu; yükselme hedef değildi.
+
+### ⚠️ Ama bu sayının bilgi değeri sınırlı — açıkça yazılsın
+
+Sonuçlar **birebir aynı**, tek soru bile değişmedi. Sebebi şu: ölçüm
+`egitilmis` kipte koşuyor ve o kipte istem araç listesi taşımıyor. Model
+`tam_plan_sorgula` adını hiç görmedi, dolayısıyla **üretemez**. Yeni aracın
+ölçümü etkilemesi zaten mümkün değildi.
+
+Yani bu ölçüm "yeni araç zarar vermedi" diyor ve bunu doğru söylüyor; ama
+"yeni araç işe yarıyor" demiyor ve diyemez. İkisini karıştırmamak için
+buraya yazıldı.
+
+**Yeni aracın bugün ulaşılabilir olduğu iki yol:**
+
+1. Doğrudan çağrı — `araci_calistir(AracAdi.TAM_PLAN, "nakliye")` ya da
+   `POST /v1/plan/{alan}`. Deterministik, LLM'siz, testli.
+2. `llm_istem_bicimi="taban"` — istem araç listesi taşıyor. ⚠️ O kipin
+   genel doğruluğu daha düşük.
+
+Modelin bu aracı eğitilmiş kipte seçebilmesi yeni bir eğitim turu ister
+(Colab, 4-7 saat) ve **bu fazın kapsamında değil**.
+
+### Değişmeyen dört hata (ikisi de aynı, faz 12'den beri)
+
+| soru | beklenen | seçilen |
+|---|---|---|
+| "Neyin acilen sipariş edilmesi gerekiyor?" | kritik_stok | siparis_onerisi |
+| "Bizi kim geciktiriyor?" | tedarikci_performansi | genel_stok_durumu |
+| "T-0031 güvenilir mi?" | tedarikci_performansi | şema uyumsuz |
+| "t-0007 gecikiyomu" | tedarikci_performansi | şema uyumsuz |
+
+⚠️ Dördünün üçü **aynı sınıfta**: `tedarikci_performansi_sorgula` 5 kez
+beklenip 2 kez seçilmiş. Bu bir genel doğruluk sorunu değil, **tek sınıfın**
+sorunu — ve çözümü daha çok eğitim turu değil, o sınıf için daha çeşitli
+soru. `BILINEN-EKSIKLER.md` §3'teki değerlendirmeyi destekliyor: %95 hedefi
+1,5B modelde şablon veriyle muhtemelen ulaşılamaz; gerçek kullanıcı sorusu
+toplamak (`/v1/feedback`) asıl yol.

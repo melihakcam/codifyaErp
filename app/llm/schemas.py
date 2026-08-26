@@ -64,6 +64,13 @@ class AracAdi(StrEnum):
     KAPASITE_DURUMU = "kapasite_durumu_sorgula"
     PLAN_KARSILASTIR = "plan_karsilastir_sorgula"
 
+    # ⚠️ Faz 13'te eklendi. Yukarıdaki sınırın aynısı geçerli: eğitilmiş
+    # kipte model bu adı hiç görmedi. Ama bu araç ötekilerden bir yönüyle
+    # ayrı — ALAN ADINI PARAMETRE olarak alıyor, yani "nakliye planı çıkar"
+    # ile "vardiya planı çıkar" aynı aracın iki çağrısı. Alan başına araç
+    # eklemek listeyi şişirir ve modelin işini zorlaştırırdı.
+    TAM_PLAN = "tam_plan_sorgula"
+
 
 EGITILMIS_ARAC_ADLARI: frozenset[str] = frozenset(
     {
@@ -113,6 +120,10 @@ ARAC_PARAMETRELERI: dict[AracAdi, str | None] = {
     AracAdi.URETIM_CIZELGESI: None,
     AracAdi.KAPASITE_DURUMU: None,
     AracAdi.PLAN_KARSILASTIR: None,
+    # ⚠️ Parametresi ALAN ADI — diğer araçlar bir kalem/tedarikçi kimliği
+    # alırken bu aracın parametresi "hangi alanın planı" sorusunu
+    # cevaplıyor. Genel motorun araç katmanındaki karşılığı bu.
+    AracAdi.TAM_PLAN: "alan",
 }
 
 

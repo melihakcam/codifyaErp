@@ -211,12 +211,62 @@ def _plan_karsilastir(parametre: str | None) -> AracSonucu:
     }
 
 
+def _tam_plan(parametre: str | None) -> AracSonucu:
+    """Bir alanın tamamının planı — alan adı **parametreden** geliyor.
+
+    ⚠️ Diğer araçlardan farkı bu: araç alanı bilmiyor, soruyu soran
+    söylüyor. "Nakliye planı çıkar" ile "vardiya planı çıkar" aynı aracın
+    iki çağrısı. Alan başına ayrı araç eklemek listeyi şişirir ve modelin
+    doğru aracı seçmesini zorlaştırırdı.
+
+    Parametre verilmezse **tahmin edilmiyor**: tanımlı alanlar listeleniyor
+    ve soru geri soruluyor. Rastgele bir alanın planını vermek, kullanıcıya
+    istemediği bir cevabı doğruymuş gibi göstermek olurdu.
+    """
+    from app.planlama.belge import belge_metni
+    from app.planlama.tam_plan import TamPlanHatasi, alanlari_listele, tam_plan
+
+    alanlar = list(alanlari_listele())
+    alan = (parametre or "").strip().lower()
+    if not alan:
+        return {
+            "alan": None,
+            "alanlar": alanlar,
+            "mesaj": f"Hangi alanın planı? Tanımlı alanlar: {', '.join(alanlar)}",
+        }
+
+    try:
+        plan = tam_plan(alan)
+    except TamPlanHatasi:
+        return {
+            "alan": alan,
+            "alanlar": alanlar,
+            "mesaj": f"'{alan}' tanımlı bir alan değil. Tanımlılar: {', '.join(alanlar)}",
+        }
+
+    return {
+        "alan": plan.alan,
+        "alan_adi": plan.alan_adi,
+        "olcut": plan.olcut,
+        "ufuk_gun": plan.ufuk_gun,
+        "is_sayisi": plan.is_sayisi,
+        "yerlesen_is": len(plan.satirlar),
+        "ufka_sigmayan": len(plan.sigmayanlar),
+        "kaynak_sayisi": len(plan.planlar),
+        # ⚠️ Uyarılar cevabın parçası: kapasite aşımı ya da sığmayan iş
+        # varsa kullanıcı bunu plan metnini okumadan da görmeli.
+        "uyarilar": list(plan.uyarilar),
+        "belge": belge_metni(plan),
+    }
+
+
 ARACLAR: dict[AracAdi, AracFonksiyonu] = {
     AracAdi.KRITIK_STOK: _kritik_stok,
     AracAdi.URETIM_EMIRLERI: _uretim_emirleri,
     AracAdi.URETIM_CIZELGESI: _uretim_cizelgesi,
     AracAdi.KAPASITE_DURUMU: _kapasite_durumu,
     AracAdi.PLAN_KARSILASTIR: _plan_karsilastir,
+    AracAdi.TAM_PLAN: _tam_plan,
 }
 """Çalıştırılabilir araçlar.
 

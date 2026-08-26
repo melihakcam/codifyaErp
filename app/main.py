@@ -20,7 +20,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select, text
 
-from app.api import approvals, ask, decisions, feedback, giris, insights, panel, ui
+from app.api import approvals, ask, decisions, feedback, giris, insights, panel, plan, ui
 from app.core.auth import (
     UiKimlikGerekli,
     _istekten_anahtar_oku,
@@ -145,6 +145,7 @@ app.include_router(approvals.router, dependencies=_KORUMALI)
 app.include_router(feedback.router, dependencies=_KORUMALI)
 app.include_router(insights.router, dependencies=_KORUMALI)
 app.include_router(ask.router, dependencies=_KORUMALI)
+app.include_router(plan.router, dependencies=_KORUMALI)
 # Onay ekranı ve giriş sayfası kendi kimlik bağımlılığını taşıyor
 # (`kimlik_dogrula_ui`): tarayıcıdaki insana 401 JSON değil giriş sayfası
 # gösterilmeli. `giris` router'ı bilinçli olarak korumasız — kimlik almanın

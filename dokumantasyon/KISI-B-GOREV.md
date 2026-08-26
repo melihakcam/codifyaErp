@@ -992,16 +992,16 @@ bağlanırsa kırılır.
 "neden bu kaynak sorusu bu çıktıdan cevaplanamaz" diye **yazıyor**. Boş
 bölümü gizlemek planı olduğundan iyi gösterirdi.
 
-## B13.3 — `POST /v1/plan/{alan}` 🔴
+## ✅ B13.3 — `POST /v1/plan/{alan}` — BİTTİ
 
 Üretime özel uçların genel karşılığı. Mevcut uçlar **silinmez** (geriye
 uyumluluk), yeni uca yönlendirdikleri belgelenir.
 
-## B13.4 — Araç olarak ekle 🔴
+## ✅ B13.4 — Araç olarak ekle — BİTTİ (`tam_plan_sorgula`)
 
 `app/llm/araclar.py`'ye `tam_plan`. Araç sayısı 7 → 8.
 
-## B13.5 — Ölçüm 🔴
+## ✅ B13.5 — Ölçüm — BİTTİ (faz13-tur1: %86,7 · %80,0 — DEĞİŞMEDİ)
 
 `router_taban`, **aynı donmuş 30 soruluk set**, `--etiket faz13-tur1`.
 
@@ -1030,3 +1030,50 @@ Sevkiyat simülatörü (~1 hafta) **plandan çıkarıldı** — bir alanı
 zenginleştirmek genel mekanizmaya hiçbir şey katmıyor. Coğrafi rota, kurulum
 sihirbazı, müşteri ERP aktarımı da kapsam dışı. Gerekçeler:
 [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) §Kapsam dışı.
+
+
+---
+
+# Faz 13 · B paketi — kapanış notları (26.08.2026)
+
+## B13.3 · `POST /v1/plan/{alan}`
+
+Dört alan da dışarıdan çağrılabilir: `GET /v1/plan/alanlar` listeliyor,
+`POST /v1/plan/{alan}` planı veriyor, `?belge=true` altı bölümlük metni de
+ekliyor. Üretime özel uçlar **silinmedi**.
+
+Uçta iki şey yakalandı:
+
+⚠️ **404 mesajı sunucunun dizin yapısını sızdırıyordu.** Motorun hata metni
+tanım dosyasının tam yolunu (`D:\ERP\...`) içeriyor — içeride yararlı,
+dışarıda gereksiz ve riskli. Uç kendi mesajını kuruyor;
+`test_HATA_METNI_SUNUCU_YOLUNU_sizdirmiyor` kilitliyor.
+
+**Kimlik doğrulama otomatik geldi:** router seviyesinde bağlı olduğu için
+yeni uç korumalı doğdu (`test_tum_v1_uclari_korumali` yeşil). Kill switch de
+planı durduruyor — karar üretilmiyorsa plan da üretilmemeli.
+
+## B13.4 · `tam_plan_sorgula`
+
+Çalıştırılabilir araç 5 → 6, `AracAdi` 11 → 12.
+
+⚠️ **Parametresi alan adı.** "Nakliye planı çıkar" ile "vardiya planı çıkar"
+aynı aracın iki çağrısı; alan başına araç eklemek listeyi şişirir ve modelin
+işini zorlaştırırdı.
+
+Alan verilmezse **tahmin etmiyor**: tanımlı alanları listeleyip soruyu geri
+soruyor. Rastgele bir alanın planını vermek, istenmeyen cevabı doğruymuş
+gibi göstermek olurdu.
+
+⚠️ `EGITILMIS_ARAC_ADLARI`'ya **eklenmedi** ve bu bir test ile sabit: canlı
+model bu adı eğitimde görmedi, eğitilmiş kipte seçemez.
+
+## B13.5 · Ölçüm — beklenti karşılandı, ama sınırı yazılı
+
+faz12-tur6 → faz13-tur1: **%86,7 · %80,0 → %86,7 · %80,0.** Tek soru bile
+değişmedi.
+
+⚠️ Bu sayının bilgi değeri sınırlı: ölçüm `egitilmis` kipte koşuyor, o kipte
+istem araç listesi taşımıyor, model yeni aracın adını üretemez — yani
+ölçümün düşmesi zaten mümkün değildi. "Zarar vermedi" doğru; "işe yarıyor"
+bu ölçümden çıkmaz. Ayrıntı: `OLCUMLER.md` §Faz 13 · B13.5.

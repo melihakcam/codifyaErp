@@ -826,3 +826,32 @@ başına** verilebiliyor; önceden tek bir global bayraktı.
 sabitleri (`para_metrigi.py`) hâlâ kodda. İlk ikisi 9 hücrelik matris,
 üçüncüsü ölçüm varsayımı — profil şemasına almak ayrı bir tur işi ve
 gerçek bir müşteri gelmeden hangi biçimin doğru olduğu belli değil.
+
+
+---
+
+## 21. 🟡 Üretim planı ~70 saniye sürüyor
+
+`uretim_kararlari_uret()` ölçüldü (2026-08-26): **ilk koşu 74,7 sn, ikinci
+35,9 sn** — 3 yıllık geçmiş üzerinde ~2.000 kalem için tahmin + kural.
+
+Bu yeni bir sorun **değil**: mevcut `/v1/decisions/production/schedule` ucu
+da aynı hesabı yapıyor. Faz 13'te görünür oldu çünkü `tam_plan("uretim")`
+aynı hattı kullanıyor.
+
+**Bugün ne yapıldı:** motor işleri ve kaynakları ayrı istediği için hesap
+bir plan çağrısında **iki kez** koşacaktı; `app/domain/production/adapter.py`
+içine süreli önbellek (`ONBELLEK_SANIYE = 300`) kondu, tek koşuya indi.
+
+⚠️ Önbellek bilinçli olarak **süresiz değil**: uzun koşan bir serviste veri
+değiştikten sonra da eski planı verirdi ve "sistem neden güncellenmiyor"
+sorusunun cevabı hiçbir yerde yazmazdı. `onbellek_temizle()` ile
+sıfırlanıyor.
+
+**Engellediği:** üretim planının etkileşimli (ekran/istek) kullanımı.
+`elle` kipindeki alanlar (nakliye, vardiya) milisaniyelerde dönüyor,
+onlar etkilenmiyor.
+
+**Doğru çözüm** gecelik işteki kalıp: sonucu gece hazırla, uç hazırı versin.
+Faz 13'ün kapsamı dışında bırakıldı — kapsam "alanı bilmeyen tek komut"tu,
+performans mimarisi ayrı bir iş.
