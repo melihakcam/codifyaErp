@@ -141,7 +141,7 @@ commit'lerden okunarak:
 | **10** ✅ | Üretim & Planlama — talep tahmini, emir kararı, kapasite, MRP, gecelik koşu, çizelge | `3ba8f5b`…`6a5067e` |
 | **11** ✅ | Genel planlama motoru (`app/planlama/`); ikinci alan **kod yazılmadan** eklendi | `1636c8d` |
 | **12** ✅ | Genel arayüz — `/v1/ask` artık cevabın kendisini veriyor, sadece yönlendirmiyor | `ed4b4dd` |
-| **13** 🔨 | "Tam plan" — alanı bilmeyen tek komut. **26.08'de başlandı:** sözleşme donduruldu, `tam_plan()` ve plan belgesi çalışıyor. Kalan: alan adaptörleri, API ucu, araç, ölçüm | [FAZ-13-TAM-PLAN.md](FAZ-13-TAM-PLAN.md) · `0902e3b` |
+| **13** ✅ | "Tam plan" — alanı bilmeyen tek komut. Dört kapı da geçti: aynı komut dört alanda koşuyor, üretim davranışı kaymadı, üçüncü alan **sıfır kodla** eklendi, plan ve gerekçeler tekrarlanabilir | `0902e3b`…`d85c884` (26.08.2026) |
 
 **Plandan üç sapma, bilinçli olarak kaydedilmiştir:**
 
@@ -157,10 +157,15 @@ eşleşme*; Faz 12'de ölçülen **araç %86,7 · tam doğruluk %80,0**
 (`training/eval/router_sonuc_faz12-tur6.json`). Hedef 15 puan uzakta ve araç
 seçimi 7 araçla sınırlı.
 
-⚠️ **Motor genel, API yüzeyi değil.** `app/planlama/` alandan bağımsız çalışıyor
-ama servis uçları hâlâ üretime özel (`uretim_cizelgesi`,
-`uretim_plani_karsilastir`). Nakliye motorda koşuyor, dışarıdan çağrılamıyor.
-Faz 13'ün çözmesi gereken boşluk budur.
+✅ **"Motor genel, API yüzeyi değil" boşluğu kapandı (Faz 13).**
+`POST /v1/plan/{alan}` dört alanı da dışarıya açıyor; üretime özel uçlar
+geriye uyumluluk için duruyor. Alan tanımları `ornekler/*.json`.
+
+⚠️ **Yeni sınır, Faz 13'te ölçüldü:** Faz 12-13'te eklenen beş aracın hiçbiri
+eğitilmiş kipte model tarafından **seçilemiyor** — canlı model bu adları
+eğitimde görmedi. Araçlar çalışıyor (uç, doğrudan çağrı), ama Türkçe soruyla
+oraya gidilemiyor. Genel arayüz iddiasının bugünkü gerçek sınırı budur;
+çözümü yeni bir eğitim turu. Bkz. `OLCUMLER.md` §Faz 13 · B13.5.
 
 ---
 

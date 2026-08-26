@@ -1,6 +1,6 @@
 # Faz 13 — "Tam plan": alanı bilmeyen tek komut
 
-> Onaylandı 2026-08-12. **Durum: Adım 0 bitti (`0902e3b`, 26.08.2026), kalan adımlar sürüyor.**
+> Onaylandı 2026-08-12. **Durum: ✅ BİTTİ — 26.08.2026, dört kapı da geçti.**
 >
 > Eski planın devamı, yerine geçmiyor. Motor ve sözleşmeler
 > [FAZ-11-GENEL-PLANLAMA.md](FAZ-11-GENEL-PLANLAMA.md)'de kuruldu; burada
@@ -362,3 +362,58 @@ Faz 10-12'de ölçüm turları tahminleri birkaç kez uzattı.
 | **Müşterinin ERP'sinden veri aktarımı** | "Sadece JSON" kararının doğal sınırı. Gerçek müşteri gelince biçimi o belirler; şimdi tahminle yazmak boşa iş. |
 | **Satış & Fiyatlama alanı** | İlk yol haritasında vardı, atlandı. Bu fazın konusu değil; [YOL-HARITASI.md](YOL-HARITASI.md)'de sapma olarak kayıtlı. |
 | **ABC/XYZ matrisleri ve etki modeli sabitlerinin profile taşınması** | [BILINEN-EKSIKLER.md](BILINEN-EKSIKLER.md)'de açık; gerçek müşteri gelmeden hangi biçimin doğru olduğu belli değil. |
+
+
+---
+
+# Kapanış — 26.08.2026
+
+Faz tek günde koşuldu (plan: tek kişiyle ~9 iş günü). Sıra: Adım 0 → B13.1 →
+B13.2 → A13.1 → A13.2 → A13.3 → B13.3 → B13.4 → B13.5.
+
+## Dört kapı
+
+| # | kapı | sonuç |
+|---|---|---|
+| 1 | Aynı komut, iki alan | ✅ **dört** alan: `uretim` (tahmin) · `nakliye` (elle) · `sevkiyat` (alan:uretim) · `vardiya` (elle) |
+| 2 | Üretim davranışı kaymadı | ✅ 774 test yeşil; çizelge testleri **değiştirilmedi** |
+| 3 | Yeni müşteri = sıfır kod | ✅ `ornekler/vardiya.json`; `app/` altında "vardiya" geçen tek satır yok, testi var |
+| 4 | Determinizm | ✅ aynı girdi → aynı plan **ve aynı gerekçeler** |
+
+## Kabul ölçütü — karşılandı mı
+
+> "Alan adını hiç bilmeyen bir komut, iki farklı alanda çalışan bir plan
+> üretiyor — ve üçüncü alan tek JSON ile ekleniyor."
+
+Evet. `tam_plan(alan)` içinde alan adı geçen tek satır yok ve bunu bir test
+bekçiliyor (kaynağı okuyup yorumları/metinleri ayıklıyor, yürüyen kodu
+tarıyor).
+
+## Plandan sapmalar ve sözleşmeye eklenenler
+
+Adım 0'da donan sözleşme, kod yazılırken **üç kez** genişledi. Üçü de
+gerçek bir ihtiyaçtan doğdu, üçü de yazılı:
+
+| ne | neden |
+|---|---|
+| `adaptor` (tanımda modül yolu) | motorda `{"uretim": ...}` sözlüğü tutulsaydı yeni alan **kod** isterdi; 3. kapı ilk alanda düşerdi |
+| `kaynaklari_uret` (isteğe bağlı) | üretim hatları ana veride yaşıyor; JSON'a kopyalamak iki ayrı gerçek üretirdi. **Tanım her zaman üstün** |
+| `parametreler` (serbest sözlük) | sevkiyatın "birim yükleme saati" koda gömülseydi ikinci müşteri kod değişikliği isterdi |
+
+Bir kural da **gevşetildi**: "elenme nedeni yalnızca aday kaynaklar için
+yazılabilir" yanlıştı — uygunluktan elenen kaynak aday değil ama
+kullanıcıya söylenmesi gereken bilgi tam olarak o. Yerine gerçek değişmez
+kondu: seçilen kaynak aynı anda elenen olamaz.
+
+## Kapsam dışı bırakılanlar — sözü tutuldu
+
+Sevkiyat simülatörü yazılmadı (~1 hafta, plandan çıkarılmıştı). Coğrafi
+rota, kurulum sihirbazı, satış alanı yapılmadı. `simulator/`'a dokunulmadı.
+
+## ⚠️ Fazın açtığı iki yeni kayıt
+
+1. **Üretim planı ~70 sn** — `BILINEN-EKSIKLER.md` §21. Yeni bir sorun
+   değil, görünür oldu. Doğru çözüm gecelik iş kalıbı.
+2. **Yeni araçlar eğitilmiş kipte seçilemiyor** — `OLCUMLER.md` §B13.5.
+   Motor ve uç çalışıyor, Türkçe soruyla oraya gidilemiyor. Genel arayüz
+   iddiasının bugünkü gerçek sınırı.
